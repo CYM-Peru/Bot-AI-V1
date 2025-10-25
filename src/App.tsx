@@ -40,6 +40,7 @@ const NODE_W = 300;
 const NODE_H = 128;
 const SURFACE_W = 4000;
 const SURFACE_H = 3000;
+const AUTO_SAVE_INTERVAL_MS = 5 * 60 * 1000;
 
 const demoFlow: Flow = {
   id: "flow-demo",
@@ -319,6 +320,10 @@ function FlowCanvas(props: {
     scheduleUpdate();
   }, [getStageContext, getPos, scheduleUpdate]);
 
+  const stopNodeButtonPointerDown = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    e.stopPropagation();
+  }, []);
+
   return (
     <div className="relative w-full rounded-xl border overflow-hidden bg-white" style={{ minHeight: "74vh", height: "74vh" }}>
       <div className="absolute z-20 right-3 top-3 flex gap-2 bg-white/95 backdrop-blur rounded-full border border-emerald-200 p-2 shadow-lg">
@@ -373,8 +378,16 @@ function FlowCanvas(props: {
                     <path d={`M ${x1} ${y1} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${x2} ${y2}`} stroke="#60a5fa" strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" fill="none" />
                     <foreignObject x={midX - 24} y={midY - 14} width={120} height={28} className="pointer-events-auto">
                       <div className="flex gap-1">
-                        <button className="px-1.5 py-0.5 text-[11px] border rounded bg-white" onClick={(e)=>{e.stopPropagation(); onInsertBetween(from,to);}}>+ bloque</button>
-                        <button className="px-1.5 py-0.5 text-[11px] border rounded bg-white" onClick={(e)=>{e.stopPropagation(); onDeleteEdge(from,to);}}>borrar</button>
+                        <button
+                          className="px-1.5 py-0.5 text-[11px] border rounded bg-white"
+                          onPointerDown={stopNodeButtonPointerDown}
+                          onClick={(e)=>{e.stopPropagation(); onInsertBetween(from,to);}}
+                        >+ bloque</button>
+                        <button
+                          className="px-1.5 py-0.5 text-[11px] border rounded bg-white"
+                          onPointerDown={stopNodeButtonPointerDown}
+                          onClick={(e)=>{e.stopPropagation(); onDeleteEdge(from,to);}}
+                        >borrar</button>
                       </div>
                     </foreignObject>
                   </g>
@@ -404,11 +417,27 @@ function FlowCanvas(props: {
                 </div>
                 <div className="px-3 py-2">
                   <div className="flex gap-2 flex-wrap">
-                    <button className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition" onClick={(e)=>{ e.stopPropagation(); onAddChild(n.id,"menu"); }}>+ menú</button>
-                    <button className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition" onClick={(e)=>{ e.stopPropagation(); onAddChild(n.id,"action"); }}>+ acción</button>
-                    <button className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition" onClick={(e)=>{ e.stopPropagation(); onDuplicateNode(n.id); }}>duplicar</button>
+                    <button
+                      className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+                      onPointerDown={stopNodeButtonPointerDown}
+                      onClick={(e)=>{ e.stopPropagation(); onAddChild(n.id,"menu"); }}
+                    >+ menú</button>
+                    <button
+                      className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+                      onPointerDown={stopNodeButtonPointerDown}
+                      onClick={(e)=>{ e.stopPropagation(); onAddChild(n.id,"action"); }}
+                    >+ acción</button>
+                    <button
+                      className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+                      onPointerDown={stopNodeButtonPointerDown}
+                      onClick={(e)=>{ e.stopPropagation(); onDuplicateNode(n.id); }}
+                    >duplicar</button>
                     {n.id !== flow.rootId && (
-                      <button className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition" onClick={(e)=>{ e.stopPropagation(); onDeleteNode(n.id); }}>borrar</button>
+                      <button
+                        className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+                        onPointerDown={stopNodeButtonPointerDown}
+                        onClick={(e)=>{ e.stopPropagation(); onDeleteNode(n.id); }}
+                      >borrar</button>
                     )}
                   </div>
                 </div>
@@ -590,7 +619,7 @@ export default function App(): JSX.Element {
     const interval = window.setInterval(() => {
       if (!dirtyRef.current) return;
       performSave("Auto-guardado").catch(() => {});
-    }, 5000);
+    }, AUTO_SAVE_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [performSave]);
 
@@ -766,8 +795,8 @@ export default function App(): JSX.Element {
 
       <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div className="lg:col-span-3 space-y-4 order-2 lg:order-1">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:items-start">
+        <div className="space-y-4 lg:col-span-3 lg:col-start-10 lg:row-start-2 lg:self-start">
           <div className="border rounded-xl overflow-hidden bg-white shadow-sm">
             <div className="px-3 py-2 border-b text-sm font-semibold text-slate-800" style={{ background: `linear-gradient(90deg, ${channelTheme.from}, ${channelTheme.to})` }}>Canal & vista previa</div>
             <div className="px-3 pt-3 text-sm text-slate-800">
@@ -812,7 +841,7 @@ export default function App(): JSX.Element {
           </div>
         </div>
 
-        <div className="lg:col-span-6 order-1 lg:order-2">
+        <div className="lg:col-span-9 lg:col-start-1">
           <div className="border rounded-xl bg-white shadow-sm">
             <div className="px-3 py-2 border-b bg-slate-50 text-sm font-semibold flex items-center justify-between">
               <span>Canvas de flujo</span>
@@ -839,7 +868,7 @@ export default function App(): JSX.Element {
           </div>
         </div>
 
-        <div className="lg:col-span-3 order-3">
+        <div className="lg:col-span-3 lg:col-start-10 lg:row-start-1 lg:self-start">
           <div className="border rounded-xl bg-white shadow-sm">
             <div className="px-3 py-2 border-b text-sm font-semibold">Inspector</div>
             <div className="p-3 space-y-3 text-sm">
