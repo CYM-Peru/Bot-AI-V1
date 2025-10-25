@@ -34,8 +34,11 @@ describe("geometry coordinates", () => {
       scale: 1,
       devicePixelRatio: 2,
     });
-    expect(offset.x).toBeCloseTo(25.5, 5);
-    expect(offset.y).toBeCloseTo(25.75, 5);
+    // Quantization snaps to device pixels: with DPR=2 the smallest step is 0.5px.
+    // Use an explicit epsilon that covers snap steps between 0.25–1px depending on DPR.
+    const EPS = 0.5;
+    expect(Math.abs(offset.x - 25.5)).toBeLessThanOrEqual(EPS);
+    expect(Math.abs(offset.y - 25.75)).toBeLessThanOrEqual(EPS);
   });
 
   it("returns world coordinates adding pan", () => {
