@@ -3,52 +3,55 @@ name: Deploy Flow Builder
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          check-latest: true
-        # OJO: sin cache porque no hay lockfile
 
-      # Instala deps según lockfile disponible
-      - name: Install deps (npm/pnpm/yarn)
-        shell: bash
+      - name: Install deps (ci if lockfile, else install)
         run: |
-          if [ -f pnpm-lock.yaml ]; then
-            corepack enable pnpm
-            pnpm install --no-frozen-lockfile
-          elif [ -f yarn.lock ]; then
-            corepack enable yarn
-            yarn install --no-immutable
-          elif [ -f package-lock.json ]; then
+          if [ -f package-lock.json ]; then
             npm ci
           else
             npm install
+          fi
+
+      - name: Tests (best-effort)
+        run: |
+          if npm run | grep -q "test:ci"; then
+            npm run test:ci
+          else
+            echo "No test:ci script, skipping"
           fi
 
       - name: Build
         run: npm run build
 
       - name: Upload dist to VPS
+        if: github.ref == 'refs/heads/main'
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_KEY }}
-          source: "dist/**"
+          source: "dist/*"
           target: "/var/www/flow-builder"
           strip_components: 1
 
-      - name: Reload Nginx
+      - name: Fix perms & Reload Nginx
+        if: github.ref == 'refs/heads/main'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
