@@ -1,5 +1,13 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { computeOffset } from "./lib/dragOffset";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { toWorldCoords } from "./geometry/coordinates";
+import { loadFlow, saveFlow } from "./data/persistence";
+import { debounce } from "./utils/debounce";
 
 type NodeType = "menu" | "action";
 type ActionKind =
@@ -60,30 +68,6 @@ function computeLayout(flow: Flow) {
   return pos;
 }
 
-function usePanZoom() {
-  const [scale, setScale] = useState(1);
-  const [tx, setTx] = useState(0);
-  const [ty, setTy] = useState(0);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const panning = useRef(false);
-  const last = useRef({ x: 0, y: 0 });
-
-  const onWheel = (e: React.WheelEvent) => {
-    if (!e.ctrlKey) { setTx((v) => v - e.deltaX); setTy((v) => v - e.deltaY); return; }
-    const next = Math.min(2.2, Math.max(0.6, scale - e.deltaY * 0.001));
-    setScale(next);
-  };
-  const onMouseDown = (e: React.MouseEvent) => { panning.current = true; last.current = { x: e.clientX, y: e.clientY }; };
-  const onMouseMove = (e: React.MouseEvent) => {
-    if (!panning.current) return;
-    const dx = e.clientX - last.current.x;
-    const dy = e.clientY - last.current.y;
-    last.current = { x: e.clientX, y: e.clientY };
-    setTx((v) => v + dx); setTy((v) => v + dy);
-  };
-  const onMouseUp = () => { panning.current = false; };
-  return { scale, tx, ty, setScale, setTx, setTy, onWheel, onMouseDown, onMouseMove, onMouseUp, containerRef };
-}
 function clearSelection(){ try{ (window as any).getSelection?.()?.removeAllRanges?.(); }catch{} }
 function isFromNode(target: EventTarget | null){ const el = target as Element | null; return !!(el && (el as any).closest?.('[data-node="true"]')); }
 
@@ -121,8 +105,14 @@ function FlowCanvas(props: {
   onDeleteEdge: (parentId: string, childId: string) => void;
   soloRoot: boolean;
   toggleScope: () => void;
+  nodePositions: Record<string, { x: number; y: number }>;
+  onPositionsChange: (
+    updater:
+      | Record<string, { x: number; y: number }>
+      | ((prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)
+  ) => void;
 }){
-  const { flow, selectedId, onSelect, onAddChild, onDeleteNode, onDuplicateNode, onInsertBetween, onDeleteEdge, soloRoot, toggleScope } = props;
+  const { flow, selectedId, onSelect, onAddChild, onDeleteNode, onDuplicateNode, onInsertBetween, onDeleteEdge, soloRoot, toggleScope, nodePositions, onPositionsChange } = props;
 
   const autoLayout = useMemo(()=>computeLayout(flow),[flow]);
   const visibleIds = useMemo(()=>{
@@ -141,91 +131,213 @@ function FlowCanvas(props: {
     return out;
   },[visibleIds, visibleSet, flow.nodes]);
 
-  const { scale, tx, ty, setScale, setTx, setTy, onWheel, onMouseDown, onMouseMove, onMouseUp, containerRef } = usePanZoom();
+  const [scale, setScaleState] = useState(1);
+  const [pan, setPanState] = useState({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const scaleRef = useRef(scale);
+  const panRef = useRef(pan);
 
-  const [nodePos, setNodePos] = useState<Record<string, {x:number;y:number}>>({});
-  const nodePosRef = useRef<Record<string, {x:number;y:number}>>({});
-  useEffect(()=>{
-    setNodePos(prev=>{
-      const next = { ...prev };
-      for (const id of Object.keys(autoLayout)) if (!next[id]) next[id] = autoLayout[id];
-      nodePosRef.current = next; return next;
-    });
-  },[autoLayout]);
+  useEffect(() => { scaleRef.current = scale; }, [scale]);
+  useEffect(() => { panRef.current = pan; }, [pan]);
 
-  const draggingId = useRef<string|null>(null);
-  const dragOff = useRef({x:0,y:0});
-  const getPos = (id:string)=> nodePosRef.current[id] ?? nodePos[id] ?? autoLayout[id] ?? {x:0,y:0};
+  const setScaleSafe = useCallback((next: number) => {
+    scaleRef.current = next;
+    setScaleState(next);
+  }, []);
 
-  const startDrag = (id:string, e:React.MouseEvent)=>{
-    e.stopPropagation();
-    const stageEl = stageRef.current;
-    if (!stageEl) return;
-    const rect = stageEl.getBoundingClientRect();
-    const pointer = computeOffset({
-      pageX: e.pageX,
-      pageY: e.pageY,
-      rect,
-      scrollX: window.scrollX,
-      scrollY: window.scrollY,
-      scale,
-    });
-    const p = getPos(id);
-    draggingId.current = id;
-    dragOff.current = { x: pointer.x - p.x, y: pointer.y - p.y };
-  };
-  const moveDrag = (pageX:number, pageY:number)=>{
-    const id = draggingId.current; if (!id) return;
-    const stageEl = stageRef.current;
-    if (!stageEl) return;
-    const rect = stageEl.getBoundingClientRect();
-    const pointer = computeOffset({
-      pageX,
-      pageY,
-      rect,
-      scrollX: window.scrollX,
-      scrollY: window.scrollY,
-      scale,
-    });
-    const nx = pointer.x - dragOff.current.x; const ny = pointer.y - dragOff.current.y;
-    const gx = Math.round(nx/10)*10; const gy = Math.round(ny/10)*10;
-    setNodePos(prev=>{ const next = { ...prev, [id]: { x: gx, y: gy } }; nodePosRef.current = next; return next; });
-  };
+  const setPanSafe = useCallback((next: { x: number; y: number }) => {
+    panRef.current = next;
+    setPanState(next);
+  }, []);
 
-  const onMoveStage = (e:React.MouseEvent)=>{
-    if (draggingId.current){
-      moveDrag(e.pageX, e.pageY); e.preventDefault(); clearSelection();
-    }else{
-      onMouseMove(e);
+  const onWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.ctrlKey) {
+      e.preventDefault();
+      const next = Math.min(2.4, Math.max(0.4, scaleRef.current - e.deltaY * 0.001));
+      setScaleSafe(next);
+      return;
     }
-  };
-  useEffect(()=>{
-    const mm=(e:MouseEvent)=>{ if (draggingId.current) moveDrag(e.pageX, e.pageY); };
-    const mu=()=>{ draggingId.current = null; };
-    window.addEventListener("mousemove", mm);
-    window.addEventListener("mouseup", mu);
-    return ()=>{ window.removeEventListener("mousemove", mm); window.removeEventListener("mouseup", mu); }
-  },[]);
+    const currentScale = scaleRef.current || 1;
+    e.preventDefault();
+    setPanSafe({
+      x: panRef.current.x + e.deltaX / currentScale,
+      y: panRef.current.y + e.deltaY / currentScale,
+    });
+  }, [setPanSafe, setScaleSafe]);
+
+  const nodePosRef = useRef(nodePositions);
+  useEffect(() => { nodePosRef.current = nodePositions; }, [nodePositions]);
+
+  const updateNodePos = useCallback((updater: Record<string, { x: number; y: number }> | ((prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)) => {
+    onPositionsChange(updater);
+  }, [onPositionsChange]);
+
+  useEffect(() => {
+    const current = nodePosRef.current;
+    let needsUpdate = false;
+    const missing: Record<string, { x: number; y: number }> = {};
+    for (const id of Object.keys(autoLayout)) {
+      if (!current[id]) {
+        missing[id] = autoLayout[id];
+        needsUpdate = true;
+      }
+    }
+    if (!needsUpdate) return;
+    onPositionsChange((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const [id, pos] of Object.entries(missing)) {
+        if (!next[id]) {
+          next[id] = pos;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [autoLayout, onPositionsChange]);
+
+  const getPos = (id: string) => nodePosRef.current[id] ?? autoLayout[id] ?? { x: 0, y: 0 };
+
+  type PointerState =
+    | { type: "pan"; pointerId: number; startClient: { x: number; y: number }; startPan: { x: number; y: number } }
+    | { type: "drag-node"; pointerId: number; nodeId: string; offset: { x: number; y: number } };
+
+  const pointerState = useRef<PointerState | null>(null);
+  const latestEventRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const frameRef = useRef<number | null>(null);
+
+  const getStageContext = useCallback(() => {
+    const stageEl = stageRef.current;
+    if (!stageEl) return null;
+    const rect = stageEl.getBoundingClientRect();
+    const viewport = containerRef.current;
+    const scrollLeft = viewport ? viewport.scrollLeft : typeof window !== "undefined" ? window.scrollX : 0;
+    const scrollTop = viewport ? viewport.scrollTop : typeof window !== "undefined" ? window.scrollY : 0;
+    return {
+      rect,
+      scrollLeft,
+      scrollTop,
+      scale: scaleRef.current,
+      pan: panRef.current,
+      devicePixelRatio: typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1,
+    };
+  }, []);
+
+  const applyPointerUpdate = useCallback(() => {
+    frameRef.current = null;
+    const evt = latestEventRef.current;
+    const state = pointerState.current;
+    if (!evt || !state) return;
+    if (state.type === "drag-node") {
+      const context = getStageContext();
+      if (!context) return;
+      const pointerWorld = toWorldCoords(evt, context);
+      const nx = pointerWorld.x - state.offset.x;
+      const ny = pointerWorld.y - state.offset.y;
+      const gx = Math.round(nx / 10) * 10;
+      const gy = Math.round(ny / 10) * 10;
+      updateNodePos((prev) => {
+        const current = prev[state.nodeId];
+        if (current && current.x === gx && current.y === gy) return prev;
+        const next = { ...prev, [state.nodeId]: { x: gx, y: gy } };
+        return next;
+      });
+    } else if (state.type === "pan") {
+      const { startClient, startPan } = state;
+      const currentScale = scaleRef.current || 1;
+      const dx = (evt.clientX - startClient.x) / currentScale;
+      const dy = (evt.clientY - startClient.y) / currentScale;
+      setPanSafe({ x: startPan.x - dx, y: startPan.y - dy });
+    }
+  }, [getStageContext, setPanSafe, updateNodePos]);
+
+  const scheduleUpdate = useCallback(() => {
+    if (frameRef.current != null) return;
+    frameRef.current = requestAnimationFrame(applyPointerUpdate);
+  }, [applyPointerUpdate]);
+
+  const stopPointer = useCallback((pointerId: number) => {
+    if (pointerState.current?.pointerId !== pointerId) return;
+    pointerState.current = null;
+    latestEventRef.current = null;
+    if (frameRef.current) {
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+    const container = containerRef.current;
+    container?.releasePointerCapture?.(pointerId);
+  }, []);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!pointerState.current || pointerState.current.pointerId !== e.pointerId) return;
+    latestEventRef.current = { clientX: e.clientX, clientY: e.clientY };
+    clearSelection();
+    scheduleUpdate();
+  }, [scheduleUpdate]);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    stopPointer(e.pointerId);
+  }, [stopPointer]);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    if (pointerState.current) return;
+    if (isFromNode(e.target)) return;
+    pointerState.current = {
+      type: "pan",
+      pointerId: e.pointerId,
+      startClient: { x: e.clientX, y: e.clientY },
+      startPan: panRef.current,
+    };
+    latestEventRef.current = { clientX: e.clientX, clientY: e.clientY };
+    containerRef.current?.setPointerCapture?.(e.pointerId);
+    clearSelection();
+  }, []);
+
+  const handlePointerCancel = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    stopPointer(e.pointerId);
+  }, [stopPointer]);
+
+  const onNodePointerDown = useCallback((id: string) => (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const context = getStageContext();
+    if (!context) return;
+    const pointerWorld = toWorldCoords(e, context);
+    const position = getPos(id);
+    pointerState.current = {
+      type: "drag-node",
+      pointerId: e.pointerId,
+      nodeId: id,
+      offset: { x: pointerWorld.x - position.x, y: pointerWorld.y - position.y },
+    };
+    latestEventRef.current = { clientX: e.clientX, clientY: e.clientY };
+    containerRef.current?.setPointerCapture?.(e.pointerId);
+    clearSelection();
+    scheduleUpdate();
+  }, [getStageContext, getPos, scheduleUpdate]);
 
   return (
     <div className="relative w-full rounded-xl border overflow-hidden bg-white" style={{ minHeight: "74vh", height: "74vh" }}>
       <div className="absolute z-20 right-3 top-3 flex gap-2 bg-white/95 backdrop-blur rounded-full border border-emerald-200 p-2 shadow-lg">
-        <button className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition" onClick={()=>setScale(s=>s)}>🔍</button>
-        <button className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition" onClick={()=>setScale(s=>Math.min(2.2, s+0.1))}>＋</button>
-        <button className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition" onClick={()=>setScale(s=>Math.max(0.6, s-0.1))}>－</button>
-        <button className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition" onClick={()=>{ setTx(0); setTy(0); setScale(1); }}>⛶</button>
-        <button className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition" onClick={()=>setNodePos(autoLayout)}>Auto-ordenar</button>
+        <button className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition" onClick={()=>setScaleSafe(scaleRef.current)}>🔍</button>
+        <button className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition" onClick={()=>setScaleSafe(Math.min(2.4, scaleRef.current + 0.1))}>＋</button>
+        <button className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition" onClick={()=>setScaleSafe(Math.max(0.4, scaleRef.current - 0.1))}>－</button>
+        <button className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition" onClick={()=>{ setPanSafe({ x: 0, y: 0 }); setScaleSafe(1); }}>⛶</button>
+        <button className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition" onClick={()=>updateNodePos(()=>({ ...autoLayout }))}>Auto-ordenar</button>
         <button className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition" onClick={toggleScope}>{props.soloRoot ? "Mostrar todo" : "Solo raíz"}</button>
       </div>
 
       <div
         ref={containerRef}
         onWheel={onWheel}
-        onMouseDown={(e)=>{ if (draggingId.current) return; if (isFromNode(e.target)) return; onMouseDown(e); }}
-        onMouseMove={onMoveStage}
-        onMouseUp={()=>{ draggingId.current=null; clearSelection(); onMouseUp(); }}
-        onMouseLeave={()=>{ draggingId.current=null; clearSelection(); onMouseUp(); }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
         className="absolute inset-0 cursor-grab active:cursor-grabbing select-none"
       >
         <div
@@ -233,7 +345,7 @@ function FlowCanvas(props: {
           className="absolute"
           style={{
             width: SURFACE_W, height: SURFACE_H,
-            transform: `translate(${tx}px, ${ty}px) scale(${scale})`,
+            transform: `scale(${scale}) translate(${-pan.x}px, ${-pan.y}px)`,
             transformOrigin: "0 0",
             backgroundImage: "radial-gradient(var(--grid-dot) 1px, transparent 1px)",
             backgroundSize: "24px 24px",
@@ -282,7 +394,7 @@ function FlowCanvas(props: {
                 data-node="true"
                 className={`absolute w-[300px] rounded-2xl border-2 bg-white shadow-lg transition border-slate-300 ${isSel ? "ring-2 ring-emerald-500 shadow-emerald-200" : "hover:ring-1 hover:ring-emerald-200"}`}
                 style={{ left: p.x, top: p.y, cursor: "move" }}
-                onMouseDown={(e)=>{ e.preventDefault(); startDrag(n.id,e); }}
+                onPointerDown={onNodePointerDown(n.id)}
                 onClick={(e)=>{ e.stopPropagation(); onSelect(n.id); }}
               >
                 <div className="px-3 pt-3 text-[15px] font-semibold flex items-center gap-2 text-slate-800">
@@ -310,10 +422,17 @@ function FlowCanvas(props: {
   );
 }
 
+type PersistedState = {
+  flow: Flow;
+  positions: Record<string, { x: number; y: number }>;
+};
+
+type Toast = { id: number; message: string; type: "success" | "error" };
+
 export default function App(): JSX.Element {
-  const [flow, setFlow] = useState<Flow>(demoFlow);
+  const [flow, setFlowState] = useState<Flow>(demoFlow);
+  const [positionsState, setPositionsState] = useState<Record<string, { x: number; y: number }>>({});
   const [selectedId, setSelectedId] = useState(flow.rootId);
-  const selected = flow.nodes[selectedId];
   const [channel, setChannel] = useState<'whatsapp'|'facebook'|'instagram'|'tiktok'>("whatsapp");
   const channelTheme = useMemo(()=>{
     switch(channel){
@@ -324,6 +443,173 @@ export default function App(): JSX.Element {
     }
   },[channel]);
   const [soloRoot, setSoloRoot] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [workspaceId, setWorkspaceId] = useState(flow.id);
+  const [toast, setToast] = useState<Toast | null>(null);
+
+  const suppressDirtyRef = useRef(false);
+  const flowRef = useRef(flow);
+  const positionsRef = useRef(positionsState);
+  const dirtyRef = useRef(dirty);
+  const workspaceIdRef = useRef(workspaceId);
+
+  useEffect(() => { flowRef.current = flow; }, [flow]);
+  useEffect(() => { positionsRef.current = positionsState; }, [positionsState]);
+  useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
+  useEffect(() => { workspaceIdRef.current = workspaceId; }, [workspaceId]);
+
+  const selected = flow.nodes[selectedId] ?? flow.nodes[flow.rootId];
+
+  const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
+    setToast({ id: Date.now(), message, type });
+  }, []);
+
+  useEffect(() => {
+    if (!toast || typeof window === "undefined") return;
+    const timeout = window.setTimeout(() => setToast(null), 2500);
+    return () => window.clearTimeout(timeout);
+  }, [toast]);
+
+  const setFlow = useCallback((updater: Flow | ((prev: Flow) => Flow)) => {
+    setFlowState((prev) => {
+      const next = typeof updater === "function" ? (updater as (prev: Flow) => Flow)(prev) : updater;
+      if (!suppressDirtyRef.current && next !== prev) {
+        setDirty(true);
+      }
+      return next;
+    });
+  }, []);
+
+  const setPositions = useCallback((updater: Record<string, { x: number; y: number }> | ((prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)) => {
+    setPositionsState((prev) => {
+      const next = typeof updater === "function" ? (updater as (prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)(prev) : updater;
+      if (next === prev) return prev;
+      if (!suppressDirtyRef.current) {
+        setDirty(true);
+      }
+      return next;
+    });
+  }, []);
+
+  const replaceFlow = useCallback((nextFlow: Flow, nextPositions: Record<string, { x: number; y: number }> = {}) => {
+    suppressDirtyRef.current = true;
+    setFlowState(nextFlow);
+    setPositionsState(nextPositions);
+    suppressDirtyRef.current = false;
+    setSelectedId(nextFlow.rootId);
+    setWorkspaceId(nextFlow.id);
+    setDirty(false);
+  }, []);
+
+  const performSave = useCallback(async (message?: string) => {
+    const payload: PersistedState = { flow: flowRef.current, positions: positionsRef.current };
+    try {
+      await saveFlow(workspaceIdRef.current, payload);
+      setDirty(false);
+      if (message) showToast(message, "success");
+    } catch (error) {
+      showToast("Error al guardar", "error");
+      throw error;
+    }
+  }, [showToast]);
+
+  const debouncedManualSave = useMemo(() => debounce(() => {
+    performSave("Flujo guardado").catch(() => {});
+  }, 300), [performSave]);
+
+  useEffect(() => {
+    return () => {
+      debouncedManualSave.cancel?.();
+    };
+  }, [debouncedManualSave]);
+
+  const handleSaveClick = useCallback(() => {
+    debouncedManualSave();
+  }, [debouncedManualSave]);
+
+  const handleLoad = useCallback(async () => {
+    try {
+      const stored = await loadFlow<PersistedState>(workspaceIdRef.current);
+      if (!stored || !stored.flow) {
+        showToast("No se encontró un flujo guardado", "error");
+        return;
+      }
+      replaceFlow(stored.flow, stored.positions ?? {});
+      showToast("Flujo cargado", "success");
+    } catch (error) {
+      showToast("Error al cargar", "error");
+    }
+  }, [replaceFlow, showToast]);
+
+  const handleExport = useCallback(() => {
+    if (typeof window === "undefined") {
+      showToast("Exportación no disponible", "error");
+      return;
+    }
+    try {
+      const state: PersistedState = { flow: flowRef.current, positions: positionsRef.current };
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${workspaceIdRef.current || "flow"}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast("Flujo exportado", "success");
+    } catch (error) {
+      showToast("Error al exportar", "error");
+    }
+  }, [showToast]);
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleImportClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleImportFile = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as Partial<PersistedState>;
+      if (!parsed || !parsed.flow) throw new Error("Invalid file");
+      replaceFlow(parsed.flow, parsed.positions ?? {});
+      showToast("Flujo importado", "success");
+    } catch (error) {
+      showToast("Error al importar", "error");
+    } finally {
+      event.target.value = "";
+    }
+  }, [replaceFlow, showToast]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const interval = window.setInterval(() => {
+      if (!dirtyRef.current) return;
+      performSave("Auto-guardado").catch(() => {});
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [performSave]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const stored = await loadFlow<PersistedState>(workspaceIdRef.current);
+        if (!stored || !stored.flow || cancelled) return;
+        replaceFlow(stored.flow, stored.positions ?? {});
+        showToast("Flujo cargado", "success");
+      } catch (error) {
+        if (!cancelled) {
+          console.error(error);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [replaceFlow, showToast]);
 
   function addChildTo(parentId:string, type:NodeType){
     const nid = nextChildId(flow, parentId);
@@ -381,6 +667,17 @@ export default function App(): JSX.Element {
     next.nodes[parentId].children = next.nodes[parentId].children.filter(c=>c!==id);
     setFlow(next);
     setSelectedId(parentId);
+    setPositions((prev) => {
+      const updated = { ...prev };
+      let changed = false;
+      for (const key of Object.keys(prev)) {
+        if (!next.nodes[key]) {
+          delete updated[key];
+          changed = true;
+        }
+      }
+      return changed ? updated : prev;
+    });
   }
 
   function duplicateNode(id:string){
@@ -446,16 +743,28 @@ export default function App(): JSX.Element {
 
   return (
     <div className="mx-auto max-w-[1500px] px-3 md:px-6 py-4 md:py-6 space-y-4 bg-slate-50">
+      {toast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50">
+          <div className={`px-4 py-2 rounded-full shadow-lg text-sm font-medium ${toast.type === "success" ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"}`}>
+            {toast.message}
+          </div>
+        </div>
+      )}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="text-xs px-3 py-1 rounded-full border bg-slate-50">Builder · Beta</span>
           <h1 className="text-lg md:text-2xl font-semibold truncate">{flow.name}</h1>
         </div>
-        <div className="flex items-center gap-2">
-          <button className="px-3 py-1.5 text-sm border rounded">Guardar</button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-emerald-50 border-emerald-200" onClick={handleSaveClick}>Guardar</button>
+          <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleLoad}>Cargar</button>
+          <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleExport}>Exportar JSON</button>
+          <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleImportClick}>Importar JSON</button>
           <button className="px-3 py-1.5 text-sm rounded bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm">Publicar</button>
         </div>
       </div>
+
+      <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <div className="lg:col-span-3 space-y-4 order-2 lg:order-1">
@@ -523,6 +832,8 @@ export default function App(): JSX.Element {
                 onDeleteEdge={deleteEdge}
                 soloRoot={soloRoot}
                 toggleScope={()=>setSoloRoot(s=>!s)}
+                nodePositions={positionsState}
+                onPositionsChange={setPositions}
               />
             </div>
           </div>
