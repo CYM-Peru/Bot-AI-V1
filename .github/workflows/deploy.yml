@@ -16,7 +16,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
+          check-latest: true
+        # OJO: sin cache porque no hay lockfile
 
       # Instala deps según lockfile disponible
       - name: Install deps (npm/pnpm/yarn)
