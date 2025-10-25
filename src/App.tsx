@@ -360,15 +360,16 @@ function FlowCanvas(props: {
             <svg className="absolute z-0" width={SURFACE_W} height={SURFACE_H}>
               {edges.map(([from,to])=>{
                 const a = getPos(from), b = getPos(to);
-                const y1 = a.y + NODE_H/2, y2 = b.y + NODE_H/2;
-                const fromRight = b.x >= a.x;
-                const IN = 14;
-                const x1 = fromRight ? a.x + NODE_W - IN : a.x + IN;
-                const x2 = fromRight ? b.x + IN : b.x + NODE_W - IN;
-                const distX = Math.max(40, Math.abs((fromRight? b.x : b.x + NODE_W) - (fromRight? a.x + NODE_W : a.x)));
-                const dx = Math.max(60, distX * 0.35);
-                const c1x = fromRight ? x1 + dx : x1 - dx;
-                const c2x = fromRight ? x2 - dx : x2 + dx;
+                const fromRight = b.x + NODE_W / 2 >= a.x + NODE_W / 2;
+                const x1 = fromRight ? a.x + NODE_W : a.x;
+                const x2 = fromRight ? b.x : b.x + NODE_W;
+                const y1 = a.y + NODE_H/2;
+                const y2 = b.y + NODE_H/2;
+                const direction = x2 >= x1 ? 1 : -1;
+                const distanceX = Math.max(80, Math.abs(x2 - x1));
+                const controlOffset = distanceX * 0.35;
+                const c1x = x1 + direction * controlOffset;
+                const c2x = x2 - direction * controlOffset;
                 const c1y = y1, c2y = y2;
                 const midX = (x1 + x2)/2;
                 const midY = (y1 + y2)/2;
@@ -405,11 +406,13 @@ function FlowCanvas(props: {
               <div
                 key={n.id}
                 data-node="true"
-                className={`absolute w-[300px] rounded-2xl border-2 bg-white shadow-lg transition border-slate-300 ${isSel ? "ring-2 ring-emerald-500 shadow-emerald-200" : "hover:ring-1 hover:ring-emerald-200"}`}
+                className={`absolute w-[300px] rounded-2xl border-2 bg-white shadow-lg transition border-slate-300 ${isSel ? "ring-2 ring-emerald-500 shadow-emerald-200" : "hover:ring-1 hover:ring-emerald-200"} relative`}
                 style={{ left: p.x, top: p.y, cursor: "move" }}
                 onPointerDown={onNodePointerDown(n.id)}
                 onClick={(e)=>{ e.stopPropagation(); onSelect(n.id); }}
               >
+                <span className="pointer-events-none absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-slate-300 bg-white shadow-sm" />
+                <span className="pointer-events-none absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-emerald-300 bg-emerald-50 shadow-sm" />
                 <div className="px-3 pt-3 text-[15px] font-semibold flex items-center gap-2 text-slate-800">
                   <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-emerald-100 text-emerald-700">{icon}</span>
                   <span className="whitespace-normal leading-tight" title={n.label}>{n.label}</span>
@@ -690,12 +693,13 @@ export default function App(): JSX.Element {
   function deleteNode(id:string){
     if (id===flow.rootId) return;
     const parentId = Object.values(flow.nodes).find(n=>n.children.includes(id))?.id;
-    if (!parentId) return;
     const next: Flow = JSON.parse(JSON.stringify(flow));
     deleteSubtree(next, id);
-    next.nodes[parentId].children = next.nodes[parentId].children.filter(c=>c!==id);
+    for (const node of Object.values(next.nodes)){
+      node.children = node.children.filter(childId=>Boolean(next.nodes[childId]));
+    }
     setFlow(next);
-    setSelectedId(parentId);
+    setSelectedId(parentId && next.nodes[parentId] ? parentId : next.rootId);
     setPositions((prev) => {
       const updated = { ...prev };
       let changed = false;
