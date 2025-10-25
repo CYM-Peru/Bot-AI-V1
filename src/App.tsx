@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { computeOffset } from "./lib/dragOffset";
 
 type NodeType = "menu" | "action";
 type ActionKind =
@@ -141,6 +142,7 @@ function FlowCanvas(props: {
   },[visibleIds, visibleSet, flow.nodes]);
 
   const { scale, tx, ty, setScale, setTx, setTy, onWheel, onMouseDown, onMouseMove, onMouseUp, containerRef } = usePanZoom();
+  const stageRef = useRef<HTMLDivElement | null>(null);
 
   const [nodePos, setNodePos] = useState<Record<string, {x:number;y:number}>>({});
   const nodePosRef = useRef<Record<string, {x:number;y:number}>>({});
@@ -158,32 +160,48 @@ function FlowCanvas(props: {
 
   const startDrag = (id:string, e:React.MouseEvent)=>{
     e.stopPropagation();
-    draggingId.current = id;
-    const rect = containerRef.current?.getBoundingClientRect();
-    const wx = (e.clientX - (rect?.left ?? 0) - tx) / scale;
-    const wy = (e.clientY - (rect?.top ?? 0) - ty) / scale;
+    const stageEl = stageRef.current;
+    if (!stageEl) return;
+    const rect = stageEl.getBoundingClientRect();
+    const pointer = computeOffset({
+      pageX: e.pageX,
+      pageY: e.pageY,
+      rect,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+      scale,
+    });
     const p = getPos(id);
-    dragOff.current = { x: wx - p.x, y: wy - p.y };
+    draggingId.current = id;
+    dragOff.current = { x: pointer.x - p.x, y: pointer.y - p.y };
   };
-  const moveDrag = (clientX:number, clientY:number)=>{
-    const rect = containerRef.current?.getBoundingClientRect();
-    const wx = (clientX - (rect?.left ?? 0) - tx) / scale;
-    const wy = (clientY - (rect?.top ?? 0) - ty) / scale;
+  const moveDrag = (pageX:number, pageY:number)=>{
     const id = draggingId.current; if (!id) return;
-    const nx = wx - dragOff.current.x; const ny = wy - dragOff.current.y;
+    const stageEl = stageRef.current;
+    if (!stageEl) return;
+    const rect = stageEl.getBoundingClientRect();
+    const pointer = computeOffset({
+      pageX,
+      pageY,
+      rect,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+      scale,
+    });
+    const nx = pointer.x - dragOff.current.x; const ny = pointer.y - dragOff.current.y;
     const gx = Math.round(nx/10)*10; const gy = Math.round(ny/10)*10;
     setNodePos(prev=>{ const next = { ...prev, [id]: { x: gx, y: gy } }; nodePosRef.current = next; return next; });
   };
 
   const onMoveStage = (e:React.MouseEvent)=>{
     if (draggingId.current){
-      moveDrag(e.clientX, e.clientY); e.preventDefault(); clearSelection();
+      moveDrag(e.pageX, e.pageY); e.preventDefault(); clearSelection();
     }else{
       onMouseMove(e);
     }
   };
   useEffect(()=>{
-    const mm=(e:MouseEvent)=>{ if (draggingId.current) moveDrag(e.clientX, e.clientY); };
+    const mm=(e:MouseEvent)=>{ if (draggingId.current) moveDrag(e.pageX, e.pageY); };
     const mu=()=>{ draggingId.current = null; };
     window.addEventListener("mousemove", mm);
     window.addEventListener("mouseup", mu);
@@ -211,6 +229,7 @@ function FlowCanvas(props: {
         className="absolute inset-0 cursor-grab active:cursor-grabbing select-none"
       >
         <div
+          ref={stageRef}
           className="absolute"
           style={{
             width: SURFACE_W, height: SURFACE_H,
