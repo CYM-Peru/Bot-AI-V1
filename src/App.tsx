@@ -40,6 +40,7 @@ const NODE_W = 300;
 const NODE_H = 128;
 const SURFACE_W = 4000;
 const SURFACE_H = 3000;
+const AUTO_SAVE_INTERVAL_MS = 5 * 60 * 1000;
 
 const demoFlow: Flow = {
   id: "flow-demo",
@@ -319,6 +320,10 @@ function FlowCanvas(props: {
     scheduleUpdate();
   }, [getStageContext, getPos, scheduleUpdate]);
 
+  const stopNodeButtonPointerDown = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    e.stopPropagation();
+  }, []);
+
   return (
     <div className="relative w-full rounded-xl border overflow-hidden bg-white" style={{ minHeight: "74vh", height: "74vh" }}>
       <div className="absolute z-20 right-3 top-3 flex gap-2 bg-white/95 backdrop-blur rounded-full border border-emerald-200 p-2 shadow-lg">
@@ -355,15 +360,16 @@ function FlowCanvas(props: {
             <svg className="absolute z-0" width={SURFACE_W} height={SURFACE_H}>
               {edges.map(([from,to])=>{
                 const a = getPos(from), b = getPos(to);
-                const y1 = a.y + NODE_H/2, y2 = b.y + NODE_H/2;
-                const fromRight = b.x >= a.x;
-                const IN = 14;
-                const x1 = fromRight ? a.x + NODE_W - IN : a.x + IN;
-                const x2 = fromRight ? b.x + IN : b.x + NODE_W - IN;
-                const distX = Math.max(40, Math.abs((fromRight? b.x : b.x + NODE_W) - (fromRight? a.x + NODE_W : a.x)));
-                const dx = Math.max(60, distX * 0.35);
-                const c1x = fromRight ? x1 + dx : x1 - dx;
-                const c2x = fromRight ? x2 - dx : x2 + dx;
+                const fromRight = b.x + NODE_W / 2 >= a.x + NODE_W / 2;
+                const x1 = fromRight ? a.x + NODE_W : a.x;
+                const x2 = fromRight ? b.x : b.x + NODE_W;
+                const y1 = a.y + NODE_H/2;
+                const y2 = b.y + NODE_H/2;
+                const direction = x2 >= x1 ? 1 : -1;
+                const distanceX = Math.max(80, Math.abs(x2 - x1));
+                const controlOffset = distanceX * 0.35;
+                const c1x = x1 + direction * controlOffset;
+                const c2x = x2 - direction * controlOffset;
                 const c1y = y1, c2y = y2;
                 const midX = (x1 + x2)/2;
                 const midY = (y1 + y2)/2;
@@ -373,8 +379,16 @@ function FlowCanvas(props: {
                     <path d={`M ${x1} ${y1} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${x2} ${y2}`} stroke="#60a5fa" strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" fill="none" />
                     <foreignObject x={midX - 24} y={midY - 14} width={120} height={28} className="pointer-events-auto">
                       <div className="flex gap-1">
-                        <button className="px-1.5 py-0.5 text-[11px] border rounded bg-white" onClick={(e)=>{e.stopPropagation(); onInsertBetween(from,to);}}>+ bloque</button>
-                        <button className="px-1.5 py-0.5 text-[11px] border rounded bg-white" onClick={(e)=>{e.stopPropagation(); onDeleteEdge(from,to);}}>borrar</button>
+                        <button
+                          className="px-1.5 py-0.5 text-[11px] border rounded bg-white"
+                          onPointerDown={stopNodeButtonPointerDown}
+                          onClick={(e)=>{e.stopPropagation(); onInsertBetween(from,to);}}
+                        >+ bloque</button>
+                        <button
+                          className="px-1.5 py-0.5 text-[11px] border rounded bg-white"
+                          onPointerDown={stopNodeButtonPointerDown}
+                          onClick={(e)=>{e.stopPropagation(); onDeleteEdge(from,to);}}
+                        >borrar</button>
                       </div>
                     </foreignObject>
                   </g>
@@ -392,11 +406,13 @@ function FlowCanvas(props: {
               <div
                 key={n.id}
                 data-node="true"
-                className={`absolute w-[300px] rounded-2xl border-2 bg-white shadow-lg transition border-slate-300 ${isSel ? "ring-2 ring-emerald-500 shadow-emerald-200" : "hover:ring-1 hover:ring-emerald-200"}`}
+                className={`absolute w-[300px] rounded-2xl border-2 bg-white shadow-lg transition border-slate-300 ${isSel ? "ring-2 ring-emerald-500 shadow-emerald-200" : "hover:ring-1 hover:ring-emerald-200"} relative`}
                 style={{ left: p.x, top: p.y, cursor: "move" }}
                 onPointerDown={onNodePointerDown(n.id)}
                 onClick={(e)=>{ e.stopPropagation(); onSelect(n.id); }}
               >
+                <span className="pointer-events-none absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-slate-300 bg-white shadow-sm" />
+                <span className="pointer-events-none absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-emerald-300 bg-emerald-50 shadow-sm" />
                 <div className="px-3 pt-3 text-[15px] font-semibold flex items-center gap-2 text-slate-800">
                   <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-emerald-100 text-emerald-700">{icon}</span>
                   <span className="whitespace-normal leading-tight" title={n.label}>{n.label}</span>
@@ -404,11 +420,27 @@ function FlowCanvas(props: {
                 </div>
                 <div className="px-3 py-2">
                   <div className="flex gap-2 flex-wrap">
-                    <button className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition" onClick={(e)=>{ e.stopPropagation(); onAddChild(n.id,"menu"); }}>+ menú</button>
-                    <button className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition" onClick={(e)=>{ e.stopPropagation(); onAddChild(n.id,"action"); }}>+ acción</button>
-                    <button className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition" onClick={(e)=>{ e.stopPropagation(); onDuplicateNode(n.id); }}>duplicar</button>
+                    <button
+                      className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+                      onPointerDown={stopNodeButtonPointerDown}
+                      onClick={(e)=>{ e.stopPropagation(); onAddChild(n.id,"menu"); }}
+                    >+ menú</button>
+                    <button
+                      className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+                      onPointerDown={stopNodeButtonPointerDown}
+                      onClick={(e)=>{ e.stopPropagation(); onAddChild(n.id,"action"); }}
+                    >+ acción</button>
+                    <button
+                      className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+                      onPointerDown={stopNodeButtonPointerDown}
+                      onClick={(e)=>{ e.stopPropagation(); onDuplicateNode(n.id); }}
+                    >duplicar</button>
                     {n.id !== flow.rootId && (
-                      <button className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition" onClick={(e)=>{ e.stopPropagation(); onDeleteNode(n.id); }}>borrar</button>
+                      <button
+                        className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+                        onPointerDown={stopNodeButtonPointerDown}
+                        onClick={(e)=>{ e.stopPropagation(); onDeleteNode(n.id); }}
+                      >borrar</button>
                     )}
                   </div>
                 </div>
@@ -590,7 +622,7 @@ export default function App(): JSX.Element {
     const interval = window.setInterval(() => {
       if (!dirtyRef.current) return;
       performSave("Auto-guardado").catch(() => {});
-    }, 5000);
+    }, AUTO_SAVE_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [performSave]);
 
@@ -661,12 +693,13 @@ export default function App(): JSX.Element {
   function deleteNode(id:string){
     if (id===flow.rootId) return;
     const parentId = Object.values(flow.nodes).find(n=>n.children.includes(id))?.id;
-    if (!parentId) return;
     const next: Flow = JSON.parse(JSON.stringify(flow));
     deleteSubtree(next, id);
-    next.nodes[parentId].children = next.nodes[parentId].children.filter(c=>c!==id);
+    for (const node of Object.values(next.nodes)){
+      node.children = node.children.filter(childId=>Boolean(next.nodes[childId]));
+    }
     setFlow(next);
-    setSelectedId(parentId);
+    setSelectedId(parentId && next.nodes[parentId] ? parentId : next.rootId);
     setPositions((prev) => {
       const updated = { ...prev };
       let changed = false;
@@ -766,53 +799,8 @@ export default function App(): JSX.Element {
 
       <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div className="lg:col-span-3 space-y-4 order-2 lg:order-1">
-          <div className="border rounded-xl overflow-hidden bg-white shadow-sm">
-            <div className="px-3 py-2 border-b text-sm font-semibold text-slate-800" style={{ background: `linear-gradient(90deg, ${channelTheme.from}, ${channelTheme.to})` }}>Canal & vista previa</div>
-            <div className="px-3 pt-3 text-sm text-slate-800">
-              <div className="flex gap-2 text-xs">
-                <button className={`${channel==='whatsapp'?'bg-emerald-500 text-white':'bg-slate-100 hover:bg-slate-200 text-slate-700'} px-3 py-1.5 rounded-full shadow-sm`} onClick={()=>setChannel('whatsapp')}>WhatsApp</button>
-                <button className={`${channel==='facebook'?'bg-blue-500 text-white':'bg-slate-100 hover:bg-slate-200 text-slate-700'} px-3 py-1.5 rounded-full shadow-sm`} onClick={()=>setChannel('facebook')}>Facebook</button>
-                <button className={`${channel==='instagram'?'bg-pink-400 text-white':'bg-slate-100 hover:bg-slate-200 text-slate-700'} px-3 py-1.5 rounded-full shadow-sm`} onClick={()=>setChannel('instagram')}>Instagram</button>
-                <button className={`${channel==='tiktok'?'bg-cyan-400 text-white':'bg-slate-100 hover:bg-slate-200 text-slate-700'} px-3 py-1.5 rounded-full shadow-sm`} onClick={()=>setChannel('tiktok')}>TikTok</button>
-              </div>
-              <div className="mt-3 text-xs">
-                <span className="px-2 py-0.5 rounded" style={{ background: channelTheme.chipBg, color: channelTheme.chipText }}>{channelTheme.name} · Vista previa</span>
-              </div>
-              <div className="mt-3 border rounded p-2 h-40 overflow-auto">
-                <div className="text-xs font-medium">Menú principal</div>
-                <div className="text-[11px] text-slate-500 mb-1">Lista de opciones</div>
-                {selected.type==="menu" ? (
-                  <ul className="text-[12px] space-y-1">
-                    {selected.children.length===0 && <li className="text-slate-400">(Sin opciones)</li>}
-                    {selected.children.map(cid=>(
-                      <li key={cid} className="truncate">{flow.nodes[cid]?.label ?? cid}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="text-[12px] text-slate-600">{selected.action?.data?.text ?? selected.action?.kind ?? "Mensaje"}</div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="border rounded-xl overflow-hidden bg-white shadow-sm">
-            <div className="px-3 py-2 border-b text-sm font-semibold">Agregar</div>
-            <div className="p-3 flex gap-2 flex-wrap">
-              <button className="px-3 py-1.5 text-sm rounded border border-emerald-200 bg-white hover:bg-emerald-50 transition" onClick={()=>addChildTo(selectedId,"menu")}>Submenú</button>
-              <button className="px-3 py-1.5 text-sm rounded border border-emerald-200 bg-white hover:bg-emerald-50 transition" onClick={()=>addChildTo(selectedId,"action")}>Acción (mensaje)</button>
-              <button className="px-3 py-1.5 text-sm rounded border border-emerald-200 bg-white hover:bg-emerald-50 transition" onClick={()=>addActionOfKind(selectedId,"buttons")}>Acción · Botones</button>
-              <button className="px-3 py-1.5 text-sm rounded border border-emerald-200 bg-white hover:bg-emerald-50 transition" onClick={()=>addActionOfKind(selectedId,"attachment")}>Acción · Adjunto</button>
-              <button className="px-3 py-1.5 text-sm rounded border border-emerald-200 bg-white hover:bg-emerald-50 transition" onClick={()=>addActionOfKind(selectedId,"webhook_out")}>Acción · Webhook OUT</button>
-              <button className="px-3 py-1.5 text-sm rounded border border-emerald-200 bg-white hover:bg-emerald-50 transition" onClick={()=>addActionOfKind(selectedId,"webhook_in")}>Acción · Webhook IN</button>
-              <button className="px-3 py-1.5 text-sm rounded border border-emerald-200 bg-white hover:bg-emerald-50 transition" onClick={()=>addActionOfKind(selectedId,"transfer")}>Acción · Transferir</button>
-              <button className="px-3 py-1.5 text-sm rounded border border-emerald-200 bg-white hover:bg-emerald-50 transition" onClick={seedDemo}>Demo rápido</button>
-            </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-6 order-1 lg:order-2">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:items-start">
+        <div className="order-2 lg:order-1 lg:col-span-9 lg:col-start-1">
           <div className="border rounded-xl bg-white shadow-sm">
             <div className="px-3 py-2 border-b bg-slate-50 text-sm font-semibold flex items-center justify-between">
               <span>Canvas de flujo</span>
@@ -839,152 +827,197 @@ export default function App(): JSX.Element {
           </div>
         </div>
 
-        <div className="lg:col-span-3 order-3">
-          <div className="border rounded-xl bg-white shadow-sm">
-            <div className="px-3 py-2 border-b text-sm font-semibold">Inspector</div>
-            <div className="p-3 space-y-3 text-sm">
-              <div className="text-xs text-slate-500">ID: {selected.id}</div>
-              <label className="block text-xs mb-1">Etiqueta</label>
-              <input className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300" value={selected.label} onChange={(e)=>updateSelected({ label:e.target.value })} />
+        <div className="order-1 lg:order-2 lg:col-span-3 lg:col-start-10 lg:self-start">
+          <div className="flex flex-col gap-4 min-w-0">
+            <div className="border rounded-xl bg-white shadow-sm">
+              <div className="px-3 py-2 border-b text-sm font-semibold">Inspector</div>
+              <div className="p-3 space-y-3 text-sm">
+                <div className="text-xs text-slate-500">ID: {selected.id}</div>
+                <label className="block text-xs mb-1">Etiqueta</label>
+                <input className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300" value={selected.label} onChange={(e)=>updateSelected({ label:e.target.value })} />
 
-              <label className="block text-xs mb-1">Tipo</label>
-              <select className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300" value={selected.type} onChange={(e)=>updateSelected({ type: e.target.value as any })}>
-                <option value="menu">Menú</option>
-                <option value="action">Acción</option>
-              </select>
+                <label className="block text-xs mb-1">Tipo</label>
+                <select className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300" value={selected.type} onChange={(e)=>updateSelected({ type: e.target.value as any })}>
+                  <option value="menu">Menú</option>
+                  <option value="action">Acción</option>
+                </select>
 
-              {selected.type==="menu" && (
-                <div className="mt-2">
-                  <div className="text-xs font-medium mb-1">Opciones</div>
-                  <div className="border rounded divide-y">
-                    {selected.children.length===0 && <div className="p-2 text-xs text-slate-500">Sin opciones.</div>}
+                {selected.type==="menu" && (
+                  <div className="mt-2">
+                    <div className="text-xs font-medium mb-1">Opciones</div>
+                    <div className="border rounded divide-y">
+                      {selected.children.length===0 && <div className="p-2 text-xs text-slate-500">Sin opciones.</div>}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {selected.type==="menu" && selected.children.length>0 && (
-                <div className="mt-2 border rounded divide-y">
-                  {selected.children.map(cid=>(
-                    <div key={cid} className="p-2 text-xs flex items-center gap-2">
-                      <span className="flex-1 truncate" title={flow.nodes[cid]?.label}>{flow.nodes[cid]?.label ?? cid}</span>
-                      <button className="px-2 py-1 border rounded" onClick={()=>setSelectedId(cid)}>Ver</button>
-                      <button className="px-2 py-1 border rounded" onClick={()=>deleteNode(cid)}>Eliminar</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {selected.type==="action" && (
-                <div className="mt-2 space-y-3">
-                  <label className="block text-xs mb-1">Tipo de acción</label>
-                  <select className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300" value={selected.action?.kind ?? "message"} onChange={(e)=>updateSelected({ action:{ kind:e.target.value as any, data:selected.action?.data ?? {} } })}>
-                    <option value="message">Mensaje</option>
-                    <option value="buttons">Botones</option>
-                    <option value="attachment">Adjunto</option>
-                    <option value="webhook_out">Webhook OUT</option>
-                    <option value="webhook_in">Webhook IN</option>
-                    <option value="transfer">Transferencia</option>
-                    <option value="handoff">Handoff (Humano)</option>
-                    <option value="ia_rag">IA · RAG</option>
-                    <option value="tool">Tool/Acción externa</option>
-                  </select>
-
-                  {(selected.action?.kind ?? "message")==="message" && (
-                    <div>
-                      <label className="block text-xs mb-1">Mensaje</label>
-                      <input className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300" value={selected.action?.data?.text ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"message", data:{ text:e.target.value } } })} />
-                    </div>
-                  )}
-
-                  {selected.action?.kind==="buttons" && (
-                    <div className="space-y-2">
-                      <div className="text-xs">Lista de botones</div>
-                      {(selected.action?.data?.items ?? []).map((it:any, idx:number)=>(
-                        <div key={idx} className="flex gap-2 text-xs">
-                          <input className="flex-1 border rounded px-2 py-1" placeholder="Etiqueta" value={it.label} onChange={(e)=>{ const items=[...(selected.action?.data?.items ?? [])]; items[idx]={...items[idx], label:e.target.value}; updateSelected({ action:{ kind:"buttons", data:{ items } } }); }} />
-                          <input className="flex-1 border rounded px-2 py-1" placeholder="Payload" value={it.payload} onChange={(e)=>{ const items=[...(selected.action?.data?.items ?? [])]; items[idx]={...items[idx], payload:e.target.value}; updateSelected({ action:{ kind:"buttons", data:{ items } } }); }} />
-                          <button className="px-2 py-1 border rounded" onClick={()=>{ const items=[...(selected.action?.data?.items ?? [])]; items.splice(idx,1); updateSelected({ action:{ kind:"buttons", data:{ items } } }); }}>✕</button>
-                        </div>
-                      ))}
-                      <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ const items=[...(selected.action?.data?.items ?? [])]; items.push({label:"Nuevo",payload:"NEW"}); updateSelected({ action:{ kind:"buttons", data:{ items } } }); }}>+ agregar botón</button>
-                    </div>
-                  )}
-
-                  {selected.action?.kind==="attachment" && (
-                    <div className="space-y-2">
-                      <div className="flex gap-2 text-xs">
-                        <select className="border rounded px-2 py-1" value={selected.action?.data?.attType ?? "image"} onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), attType:e.target.value } } })}>
-                          <option value="image">Imagen</option>
-                          <option value="file">Archivo</option>
-                          <option value="audio">Audio</option>
-                          <option value="video">Video</option>
-                        </select>
-                        <input className="flex-1 border rounded px-2 py-1" placeholder="URL" value={selected.action?.data?.url ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), url:e.target.value } } })} />
+                {selected.type==="menu" && selected.children.length>0 && (
+                  <div className="mt-2 border rounded divide-y">
+                    {selected.children.map(cid=>(
+                      <div key={cid} className="p-2 text-xs flex items-center gap-2">
+                        <span className="flex-1 truncate" title={flow.nodes[cid]?.label}>{flow.nodes[cid]?.label ?? cid}</span>
+                        <button className="px-2 py-1 border rounded" onClick={()=>setSelectedId(cid)}>Ver</button>
+                        <button className="px-2 py-1 border rounded" onClick={()=>deleteNode(cid)}>Eliminar</button>
                       </div>
-                      <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Nombre visible" value={selected.action?.data?.name ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), name:e.target.value } } })} />
-                    </div>
-                  )}
+                    ))}
+                  </div>
+                )}
 
-                  {selected.action?.kind==="webhook_out" && (
-                    <div className="space-y-2">
-                      <div className="flex gap-2 text-xs">
-                        <select className="border rounded px-2 py-1" value={selected.action?.data?.method ?? "POST"} onChange={(e)=>updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), method:e.target.value } } })}>
-                          <option value="POST">POST</option>
-                          <option value="GET">GET</option>
-                          <option value="PUT">PUT</option>
-                          <option value="PATCH">PATCH</option>
-                          <option value="DELETE">DELETE</option>
-                        </select>
-                        <input className="flex-1 border rounded px-2 py-1" placeholder="https://..." value={selected.action?.data?.url ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), url:e.target.value } } })} />
+                {selected.type==="action" && (
+                  <div className="mt-2 space-y-3">
+                    <label className="block text-xs mb-1">Tipo de acción</label>
+                    <select className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300" value={selected.action?.kind ?? "message"} onChange={(e)=>updateSelected({ action:{ kind:e.target.value as any, data:selected.action?.data ?? {} } })}>
+                      <option value="message">Mensaje</option>
+                      <option value="buttons">Botones</option>
+                      <option value="attachment">Adjunto</option>
+                      <option value="webhook_out">Webhook OUT</option>
+                      <option value="webhook_in">Webhook IN</option>
+                      <option value="transfer">Transferencia</option>
+                      <option value="handoff">Handoff (Humano)</option>
+                      <option value="ia_rag">IA · RAG</option>
+                      <option value="tool">Tool/Acción externa</option>
+                    </select>
+
+                    {(selected.action?.kind ?? "message")==="message" && (
+                      <div>
+                        <label className="block text-xs mb-1">Mensaje</label>
+                        <input className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300" value={selected.action?.data?.text ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"message", data:{ text:e.target.value } } })} />
                       </div>
-                      <div className="text-xs">Headers</div>
-                      {(selected.action?.data?.headers ?? []).map((h:any, idx:number)=>(
-                        <div key={idx} className="flex gap-2 text-xs">
-                          <input className="flex-1 border rounded px-2 py-1" placeholder="Clave" value={h.k} onChange={(e)=>{ const headers=[...(selected.action?.data?.headers||[])]; headers[idx] = {...headers[idx], k:e.target.value}; updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), headers } } }); }} />
-                          <input className="flex-1 border rounded px-2 py-1" placeholder="Valor" value={h.v} onChange={(e)=>{ const headers=[...(selected.action?.data?.headers||[])]; headers[idx] = {...headers[idx], v:e.target.value}; updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), headers } } }); }} />
-                          <button className="px-2 py-1 border rounded" onClick={()=>{ const headers=[...(selected.action?.data?.headers||[])]; headers.splice(idx,1); updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), headers } } }); }}>✕</button>
+                    )}
+
+                    {selected.action?.kind==="buttons" && (
+                      <div className="space-y-2">
+                        <div className="text-xs">Lista de botones</div>
+                        {(selected.action?.data?.items ?? []).map((it:any, idx:number)=>(
+                          <div key={idx} className="flex gap-2 text-xs">
+                            <input className="flex-1 border rounded px-2 py-1" placeholder="Etiqueta" value={it.label} onChange={(e)=>{ const items=[...(selected.action?.data?.items ?? [])]; items[idx]={...items[idx], label:e.target.value}; updateSelected({ action:{ kind:"buttons", data:{ items } } }); }} />
+                            <input className="flex-1 border rounded px-2 py-1" placeholder="Payload" value={it.payload} onChange={(e)=>{ const items=[...(selected.action?.data?.items ?? [])]; items[idx]={...items[idx], payload:e.target.value}; updateSelected({ action:{ kind:"buttons", data:{ items } } }); }} />
+                            <button className="px-2 py-1 border rounded" onClick={()=>{ const items=[...(selected.action?.data?.items ?? [])]; items.splice(idx,1); updateSelected({ action:{ kind:"buttons", data:{ items } } }); }}>✕</button>
+                          </div>
+                        ))}
+                        <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ const items=[...(selected.action?.data?.items ?? [])]; items.push({label:"Nuevo",payload:"NEW"}); updateSelected({ action:{ kind:"buttons", data:{ items } } }); }}>+ agregar botón</button>
+                      </div>
+                    )}
+
+                    {selected.action?.kind==="attachment" && (
+                      <div className="space-y-2">
+                        <div className="flex gap-2 text-xs">
+                          <select className="border rounded px-2 py-1" value={selected.action?.data?.attType ?? "image"} onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), attType:e.target.value } } })}>
+                            <option value="image">Imagen</option>
+                            <option value="file">Archivo</option>
+                            <option value="audio">Audio</option>
+                            <option value="video">Video</option>
+                          </select>
+                          <input className="flex-1 border rounded px-2 py-1" placeholder="URL" value={selected.action?.data?.url ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), url:e.target.value } } })} />
                         </div>
+                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Nombre visible" value={selected.action?.data?.name ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), name:e.target.value } } })} />
+                      </div>
+                    )}
+
+                    {selected.action?.kind==="webhook_out" && (
+                      <div className="space-y-2">
+                        <div className="flex gap-2 text-xs">
+                          <select className="border rounded px-2 py-1" value={selected.action?.data?.method ?? "POST"} onChange={(e)=>updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), method:e.target.value } } })}>
+                            <option value="POST">POST</option>
+                            <option value="GET">GET</option>
+                            <option value="PUT">PUT</option>
+                            <option value="PATCH">PATCH</option>
+                            <option value="DELETE">DELETE</option>
+                          </select>
+                          <input className="flex-1 border rounded px-2 py-1" placeholder="https://..." value={selected.action?.data?.url ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), url:e.target.value } } })} />
+                        </div>
+                        <div className="text-xs">Headers</div>
+                        {(selected.action?.data?.headers ?? []).map((h:any, idx:number)=>(
+                          <div key={idx} className="flex gap-2 text-xs">
+                            <input className="flex-1 border rounded px-2 py-1" placeholder="Clave" value={h.k} onChange={(e)=>{ const headers=[...(selected.action?.data?.headers||[])]; headers[idx] = {...headers[idx], k:e.target.value}; updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), headers } } }); }} />
+                            <input className="flex-1 border rounded px-2 py-1" placeholder="Valor" value={h.v} onChange={(e)=>{ const headers=[...(selected.action?.data?.headers||[])]; headers[idx] = {...headers[idx], v:e.target.value}; updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), headers } } }); }} />
+                            <button className="px-2 py-1 border rounded" onClick={()=>{ const headers=[...(selected.action?.data?.headers||[])]; headers.splice(idx,1); updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), headers } } }); }}>✕</button>
+                          </div>
+                        ))}
+                        <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ const headers=[...(selected.action?.data?.headers||[])]; headers.push({k:"X-Key", v:"value"}); updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), headers } } }); }}>+ header</button>
+                        <label className="block text-xs mt-2">Body (JSON)</label>
+                        <textarea className="w-full border rounded px-2 py-1 text-xs h-24 font-mono" value={selected.action?.data?.body ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), body:e.target.value } } })} />
+                      </div>
+                    )}
+
+                    {selected.action?.kind==="webhook_in" && (
+                      <div className="space-y-2">
+                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="/hooks/inbound" value={selected.action?.data?.path ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"webhook_in", data:{ ...(selected.action?.data||{}), path:e.target.value } } })} />
+                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Secret opcional" value={selected.action?.data?.secret ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"webhook_in", data:{ ...(selected.action?.data||{}), secret:e.target.value } } })} />
+                      </div>
+                    )}
+
+                    {selected.action?.kind==="transfer" && (
+                      <div className="space-y-2">
+                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Destino" value={selected.action?.data?.destination ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"transfer", data:{ ...(selected.action?.data||{}), destination:e.target.value } } })} />
+                      </div>
+                    )}
+
+                    {selected.action?.kind==="handoff" && (
+                      <div className="space-y-2">
+                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Cola" value={selected.action?.data?.queue ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"handoff", data:{ ...(selected.action?.data||{}), queue:e.target.value } } })} />
+                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Nota" value={selected.action?.data?.note ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"handoff", data:{ ...(selected.action?.data||{}), note:e.target.value } } })} />
+                      </div>
+                    )}
+
+                    {selected.action?.kind==="ia_rag" && (
+                      <div className="space-y-2">
+                        <textarea className="w-full border rounded px-2 py-1 text-xs h-24" placeholder="Prompt" value={selected.action?.data?.prompt ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"ia_rag", data:{ ...(selected.action?.data||{}), prompt:e.target.value } } })} />
+                      </div>
+                    )}
+
+                    {selected.action?.kind==="tool" && (
+                      <div className="space-y-2">
+                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Nombre del tool" value={selected.action?.data?.name ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"tool", data:{ ...(selected.action?.data||{}), name:e.target.value } } })} />
+                        <textarea className="w-full border rounded px-2 py-1 text-xs h-24 font-mono" placeholder='Args JSON' value={JSON.stringify(selected.action?.data?.args ?? {}, null, 2)} onChange={(e)=>{ let val={}; try{ val=JSON.parse(e.target.value||"{}"); }catch{} updateSelected({ action:{ kind:"tool", data:{ ...(selected.action?.data||{}), args:val } } }); }} />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="border rounded-xl overflow-hidden bg-white shadow-sm">
+              <div className="px-3 py-2 border-b text-sm font-semibold text-slate-800" style={{ background: `linear-gradient(90deg, ${channelTheme.from}, ${channelTheme.to})` }}>Canal & vista previa</div>
+              <div className="px-3 pt-3 text-sm text-slate-800">
+                <div className="flex gap-2 flex-wrap text-xs">
+                  <button className={`${channel==='whatsapp'?'bg-emerald-500 text-white shadow':'bg-slate-100 hover:bg-slate-200 text-slate-700'} px-3 py-1.5 rounded-full transition`} onClick={()=>setChannel('whatsapp')}>WhatsApp</button>
+                  <button className={`${channel==='facebook'?'bg-blue-500 text-white shadow':'bg-slate-100 hover:bg-slate-200 text-slate-700'} px-3 py-1.5 rounded-full transition`} onClick={()=>setChannel('facebook')}>Facebook</button>
+                  <button className={`${channel==='instagram'?'bg-pink-400 text-white shadow':'bg-slate-100 hover:bg-slate-200 text-slate-700'} px-3 py-1.5 rounded-full transition`} onClick={()=>setChannel('instagram')}>Instagram</button>
+                  <button className={`${channel==='tiktok'?'bg-cyan-400 text-white shadow':'bg-slate-100 hover:bg-slate-200 text-slate-700'} px-3 py-1.5 rounded-full transition`} onClick={()=>setChannel('tiktok')}>TikTok</button>
+                </div>
+                <div className="mt-3 text-xs">
+                  <span className="px-2 py-0.5 rounded" style={{ background: channelTheme.chipBg, color: channelTheme.chipText }}>{channelTheme.name} · Vista previa</span>
+                </div>
+                <div className="mt-3 border rounded p-2 h-40 overflow-auto">
+                  <div className="text-xs font-medium">Menú principal</div>
+                  <div className="text-[11px] text-slate-500 mb-1">Lista de opciones</div>
+                  {selected.type==="menu" ? (
+                    <ul className="text-[12px] space-y-1">
+                      {selected.children.length===0 && <li className="text-slate-400">(Sin opciones)</li>}
+                      {selected.children.map(cid=>(
+                        <li key={cid} className="truncate">{flow.nodes[cid]?.label ?? cid}</li>
                       ))}
-                      <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ const headers=[...(selected.action?.data?.headers||[])]; headers.push({k:"X-Key", v:"value"}); updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), headers } } }); }}>+ header</button>
-                      <label className="block text-xs mt-2">Body (JSON)</label>
-                      <textarea className="w-full border rounded px-2 py-1 text-xs h-24 font-mono" value={selected.action?.data?.body ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), body:e.target.value } } })} />
-                    </div>
-                  )}
-
-                  {selected.action?.kind==="webhook_in" && (
-                    <div className="space-y-2">
-                      <input className="w-full border rounded px-2 py-1 text-xs" placeholder="/hooks/inbound" value={selected.action?.data?.path ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"webhook_in", data:{ ...(selected.action?.data||{}), path:e.target.value } } })} />
-                      <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Secret opcional" value={selected.action?.data?.secret ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"webhook_in", data:{ ...(selected.action?.data||{}), secret:e.target.value } } })} />
-                    </div>
-                  )}
-
-                  {selected.action?.kind==="transfer" && (
-                    <div className="space-y-2">
-                      <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Destino" value={selected.action?.data?.destination ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"transfer", data:{ ...(selected.action?.data||{}), destination:e.target.value } } })} />
-                    </div>
-                  )}
-
-                  {selected.action?.kind==="handoff" && (
-                    <div className="space-y-2">
-                      <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Cola" value={selected.action?.data?.queue ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"handoff", data:{ ...(selected.action?.data||{}), queue:e.target.value } } })} />
-                      <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Nota" value={selected.action?.data?.note ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"handoff", data:{ ...(selected.action?.data||{}), note:e.target.value } } })} />
-                    </div>
-                  )}
-
-                  {selected.action?.kind==="ia_rag" && (
-                    <div className="space-y-2">
-                      <textarea className="w-full border rounded px-2 py-1 text-xs h-24" placeholder="Prompt" value={selected.action?.data?.prompt ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"ia_rag", data:{ ...(selected.action?.data||{}), prompt:e.target.value } } })} />
-                    </div>
-                  )}
-
-                  {selected.action?.kind==="tool" && (
-                    <div className="space-y-2">
-                      <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Nombre del tool" value={selected.action?.data?.name ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"tool", data:{ ...(selected.action?.data||{}), name:e.target.value } } })} />
-                      <textarea className="w-full border rounded px-2 py-1 text-xs h-24 font-mono" placeholder='Args JSON' value={JSON.stringify(selected.action?.data?.args ?? {}, null, 2)} onChange={(e)=>{ let val={}; try{ val=JSON.parse(e.target.value||"{}"); }catch{} updateSelected({ action:{ kind:"tool", data:{ ...(selected.action?.data||{}), args:val } } }); }} />
-                    </div>
+                    </ul>
+                  ) : (
+                    <div className="text-[12px] text-slate-600">{selected.action?.data?.text ?? selected.action?.kind ?? "Mensaje"}</div>
                   )}
                 </div>
-              )}
+              </div>
+            </div>
+
+            <div className="border rounded-xl overflow-hidden bg-white shadow-sm">
+              <div className="px-3 py-2 border-b text-sm font-semibold">Agregar</div>
+              <div className="p-3 flex gap-3 flex-wrap">
+                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addChildTo(selectedId,"menu")}>Submenú</button>
+                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addChildTo(selectedId,"action")}>Acción (mensaje)</button>
+                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"buttons")}>Acción · Botones</button>
+                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"attachment")}>Acción · Adjunto</button>
+                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"webhook_out")}>Acción · Webhook OUT</button>
+                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"webhook_in")}>Acción · Webhook IN</button>
+                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"transfer")}>Acción · Transferir</button>
+                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={seedDemo}>Demo rápido</button>
+              </div>
             </div>
           </div>
         </div>
