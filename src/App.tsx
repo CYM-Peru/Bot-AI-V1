@@ -1585,7 +1585,8 @@ function FlowCanvas(props: {
         const next = { ...prev, [state.nodeId]: { x: nx, y: ny } };
         return next;
       });
-      scheduleHandleRecompute();
+      // Don't recompute handles during active drag - it causes visual glitches
+      // Handles will be recomputed when drag ends
     } else if (state.type === "pan") {
       const { startClient, startPan } = state;
       const currentScale = scaleRef.current || 1;
@@ -1618,6 +1619,7 @@ function FlowCanvas(props: {
   const stopPointer = useCallback((pointerId: number) => {
     const current = pointerState.current;
     if (current?.pointerId !== pointerId) return;
+    const wasDraggingNode = current.type === "drag-node";
     pointerState.current = null;
     if (current.type === "drag-connection") {
       setConnectionDraft(null);
@@ -1626,7 +1628,11 @@ function FlowCanvas(props: {
     pointerSchedulerRef.current.cancel();
     const container = containerRef.current;
     container?.releasePointerCapture?.(pointerId);
-  }, []);
+    // Recompute handles after drag ends to sync positions
+    if (wasDraggingNode) {
+      scheduleHandleRecompute("move");
+    }
+  }, [scheduleHandleRecompute]);
 
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -1634,9 +1640,9 @@ function FlowCanvas(props: {
       latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
       clearSelection();
       pointerSchedulerRef.current.schedule();
-      scheduleHandleRecompute("move");
+      // Don't schedule handle recompute on every move - causes glitches during drag
     },
-    [clearSelection, scheduleHandleRecompute]
+    [clearSelection]
   );
 
   const handlePointerUp = useCallback(
