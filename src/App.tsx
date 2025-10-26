@@ -1522,7 +1522,10 @@ function FlowCanvas(props: {
     if (state.type === "drag-connection") {
       const viewportEl = containerRef.current;
       if (!viewportEl) return;
-      maybeAutoPan(evt.clientX, evt.clientY);
+      const autoPanned = maybeAutoPan(evt.clientX, evt.clientY);
+      if (autoPanned) {
+        pointerSchedulerRef.current.schedule();
+      }
       const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
       const pointerWorld = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
       const origin =
