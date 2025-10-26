@@ -26,6 +26,7 @@ import type {
 } from "./flow/types";
 import { screenToCanvas } from "./utils/coords";
 import { computeHandlePosition, type HandleAnchor, type NodeGeometry } from "./utils/handles";
+import { createHandleScheduler } from "./utils/scheduler";
 import { formatNextOpening, isInWindow, nextOpening, validateCustomSchedule } from "./flow/scheduler";
 
 const NODE_W = 300;
@@ -1134,7 +1135,7 @@ function FlowCanvas(props: {
 
   const pointerState = useRef<PointerState | null>(null);
   const latestEventRef = useRef<{ clientX: number; clientY: number } | null>(null);
-  const frameRef = useRef<number | null>(null);
+  const handleSchedulerRef = useRef(createHandleScheduler(() => {}));
 
   const handleStartConnection = useCallback(
     (nodeId: string, spec: HandleSpec, client: { x: number; y: number }) => {
@@ -1205,7 +1206,6 @@ function FlowCanvas(props: {
   }, []);
 
   const applyPointerUpdate = useCallback(() => {
-    frameRef.current = null;
     const evt = latestEventRef.current;
     const state = pointerState.current;
     if (!evt || !state) return;
@@ -1233,24 +1233,25 @@ function FlowCanvas(props: {
     }
   }, [setPanSafe, updateNodePos]);
 
-  const scheduleUpdate = useCallback(() => {
-    if (frameRef.current != null) return;
-    frameRef.current = requestAnimationFrame(applyPointerUpdate);
+  useEffect(() => {
+    handleSchedulerRef.current.setCallback(applyPointerUpdate);
+    return () => {
+      handleSchedulerRef.current.cancel();
+    };
   }, [applyPointerUpdate]);
 
   // Backwards compatibility alias: some downstream builds still reference the
-  // previous `scheduleHandleRecompute` helper name. Keeping this pointer ensures
-  // TypeScript has the symbol even if older codepaths invoke it.
-  const scheduleHandleRecompute = scheduleUpdate;
+  // previous `scheduleHandleRecompute` helper name. Keeping this hoisted function
+  // ensures TypeScript can resolve the symbol even if older codepaths invoke it.
+  function scheduleHandleRecompute() {
+    handleSchedulerRef.current.schedule();
+  }
 
   const stopPointer = useCallback((pointerId: number) => {
     if (pointerState.current?.pointerId !== pointerId) return;
     pointerState.current = null;
     latestEventRef.current = null;
-    if (frameRef.current) {
-      cancelAnimationFrame(frameRef.current);
-      frameRef.current = null;
-    }
+    handleSchedulerRef.current.cancel();
     const container = containerRef.current;
     container?.releasePointerCapture?.(pointerId);
   }, []);
@@ -1260,9 +1261,9 @@ function FlowCanvas(props: {
       if (!pointerState.current || pointerState.current.pointerId !== event.pointerId) return;
       latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
       clearSelection();
-      scheduleUpdate();
+      scheduleHandleRecompute();
     },
-    [scheduleUpdate]
+    [clearSelection, scheduleHandleRecompute]
   );
 
   const handlePointerUp = useCallback(
@@ -1313,9 +1314,9 @@ function FlowCanvas(props: {
       latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
       containerRef.current?.setPointerCapture?.(event.pointerId);
       clearSelection();
-      scheduleUpdate();
+      scheduleHandleRecompute();
     },
-    [getPos, scheduleUpdate]
+    [clearSelection, getPos, scheduleHandleRecompute]
   );
 
   const stopCanvasButtonPointerDown = useCallback((event: React.PointerEvent<HTMLElement>) => {
