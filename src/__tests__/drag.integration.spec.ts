@@ -36,4 +36,34 @@ describe("drag integration", () => {
     expect(nextPosition.x).toBeCloseTo(210, 5);
     expect(nextPosition.y).toBeCloseTo(160, 5);
   });
+
+  it("keeps offsets aligned across fractional zoom levels", () => {
+    const zoomViewport: Viewport = { x: 20, y: -10, zoom: 0.75 };
+    const nodePosition = { x: 140, y: 90 };
+    const pointerDown = { clientX: 260, clientY: 210 };
+    const startCanvas = screenToCanvas(pointerDown.clientX, pointerDown.clientY, viewportEl, zoomViewport);
+    const offset = { x: startCanvas.x - nodePosition.x, y: startCanvas.y - nodePosition.y };
+
+    const pointerMove = { clientX: 320, clientY: 260 };
+    const moveCanvas = screenToCanvas(pointerMove.clientX, pointerMove.clientY, viewportEl, zoomViewport);
+    const nextPosition = { x: moveCanvas.x - offset.x, y: moveCanvas.y - offset.y };
+
+    expect(nextPosition.x).toBeCloseTo(nodePosition.x + 80, 3);
+    expect(nextPosition.y).toBeCloseTo(nodePosition.y + 66.6667, 3);
+  });
+
+  it("handles high zoom precision without drift", () => {
+    const zoomViewport: Viewport = { x: -30, y: 15, zoom: 1.5 };
+    const nodePosition = { x: 90, y: 60 };
+    const pointerDown = { clientX: 240, clientY: 200 };
+    const startCanvas = screenToCanvas(pointerDown.clientX, pointerDown.clientY, viewportEl, zoomViewport);
+    const offset = { x: startCanvas.x - nodePosition.x, y: startCanvas.y - nodePosition.y };
+
+    const pointerMove = { clientX: 330, clientY: 280 };
+    const moveCanvas = screenToCanvas(pointerMove.clientX, pointerMove.clientY, viewportEl, zoomViewport);
+    const nextPosition = { x: moveCanvas.x - offset.x, y: moveCanvas.y - offset.y };
+
+    expect(nextPosition.x).toBeCloseTo(nodePosition.x + 60, 3);
+    expect(nextPosition.y).toBeCloseTo(nodePosition.y + 53.3333, 3);
+  });
 });

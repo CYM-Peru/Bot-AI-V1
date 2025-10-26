@@ -27,6 +27,8 @@ import type {
 import { screenToCanvas } from "./utils/coords";
 import { computeHandlePosition, type HandleAnchor, type NodeGeometry } from "./utils/handles";
 import { createHandleScheduler } from "./utils/scheduler";
+import { buildOrthogonalPath } from "./utils/edgePath";
+import { findNearestHandle, type HandlePointCandidate } from "./utils/hitTest";
 import { formatNextOpening, isInWindow, nextOpening, validateCustomSchedule } from "./flow/scheduler";
 
 const NODE_W = 300;
@@ -34,6 +36,7 @@ const NODE_H = 128;
 const SURFACE_W = 4000;
 const SURFACE_H = 3000;
 const GRID_SIZE = 24;
+const HANDLE_SNAP_TOLERANCE = 12;
 const AUTO_SAVE_INTERVAL_MS = 5 * 60 * 1000;
 
 const DEFAULT_TIMEZONE = "America/Lima";
@@ -136,6 +139,47 @@ export function normalizeButtonsData(data?: Partial<ButtonsActionData> | null): 
   const maxButtons = data?.maxButtons ?? DEFAULT_BUTTON_LIMIT;
   const moreTargetId = data?.moreTargetId ?? null;
   return { items: ensuredItems, maxButtons, moreTargetId };
+}
+
+export function convertButtonsOverflowToList(flow: Flow, nodeId: string): { nextFlow: Flow; listNodeId: string | null } {
+  const source = flow.nodes[nodeId];
+  if (!source || source.action?.kind !== "buttons") {
+    return { nextFlow: flow, listNodeId: null };
+  }
+  const normalized = normalizeButtonsData(source.action.data as Partial<ButtonsActionData> | undefined);
+  if (normalized.items.length <= normalized.maxButtons) {
+    return { nextFlow: flow, listNodeId: null };
+  }
+  const overflowItems = normalized.items.slice(normalized.maxButtons);
+  if (overflowItems.length === 0) {
+    return { nextFlow: flow, listNodeId: null };
+  }
+  const next: Flow = JSON.parse(JSON.stringify(flow));
+  const target = next.nodes[nodeId];
+  if (!target || target.action?.kind !== "buttons") {
+    return { nextFlow: flow, listNodeId: null };
+  }
+  const listNodeId = nextChildId(next, nodeId);
+  const listOptions = overflowItems.map((item, idx) =>
+    createMenuOption(idx, { label: item.label, value: item.value, targetId: item.targetId ?? null })
+  );
+  const listNode: FlowNode = {
+    id: listNodeId,
+    label: `${target.label} · Lista`,
+    type: "menu",
+    children: listOptions.map((option) => option.targetId).filter((id): id is string => Boolean(id)),
+    menuOptions: listOptions,
+  } as FlowNode;
+  next.nodes[listNodeId] = listNode;
+  const trimmedItems = normalized.items.slice(0, normalized.maxButtons);
+  target.action = {
+    ...target.action,
+    data: { ...normalized, items: trimmedItems, moreTargetId: listNodeId },
+  };
+  target.children = Array.from(
+    new Set([...(target.children ?? []), listNodeId, ...listNode.children])
+  );
+  return { nextFlow: normalizeFlow(next), listNodeId };
 }
 
 export function normalizeNode(node: FlowNode): FlowNode {
@@ -569,10 +613,15 @@ function NodePreview({ node, flow, channel }: NodePreviewProps) {
   }
 
   if (node.action?.kind === "message") {
+    const rawText = typeof node.action?.data?.text === "string" ? node.action.data.text : "";
+    const trimmed = rawText.trim();
     return (
       <div className="text-[11px] space-y-1">
         <div className="text-xs font-semibold text-slate-700">Mensaje</div>
-        <div className="text-slate-600">{node.action?.data?.text ?? "Mensaje sin contenido"}</div>
+        <div className={trimmed ? "text-slate-600" : "text-rose-600 font-medium"}>
+          {trimmed || "Mensaje sin contenido"}
+        </div>
+        {!trimmed && <div className="text-[10px] text-rose-500">Completa este mensaje para publicar.</div>}
       </div>
     );
   }
@@ -721,12 +770,286 @@ function deleteSubtree(flow: Flow, id: string){
   for (const cid of node.children) deleteSubtree(flow, cid);
   delete flow.nodes[id];
 }
-function cubicMid(x1:number,y1:number,c1x:number,c1y:number,c2x:number,c2y:number,x2:number,y2:number,t:number){
-  const mt = 1 - t;
-  const X = mt*mt*mt*x1 + 3*mt*mt*t*c1x + 3*mt*t*t*c2x + t*t*t*x2;
-  const Y = mt*mt*mt*y1 + 3*mt*mt*t*c1y + 3*mt*t*t*c2y + t*t*t*y2;
-  return { X, Y };
-}
+type EdgeSpec = {
+  key: string;
+  from: string;
+  to: string;
+  sourceHandleId: string;
+  targetHandleId: string;
+  sourceSpec: HandleSpec;
+  sourceCount: number;
+};
+
+type ConnectionCreationKind = "menu" | "message" | "buttons" | "ask";
+
+type ConnectionPromptState = {
+  sourceId: string;
+  handleId: string;
+  spec: HandleSpec;
+  anchor: { x: number; y: number };
+  currentTargetId: string | null;
+};
+
+type HandlePointProps = {
+  nodeId: string;
+  handleKey: string;
+  spec: HandleSpec;
+  positionPercent: number;
+  isConnected: boolean;
+  registerHandle?: (key: string, nodeId: string, spec: HandleSpec, element: HTMLElement | null) => void;
+  onStartConnection?: (
+    event: React.PointerEvent<HTMLElement>,
+    clientPosition: { x: number; y: number }
+  ) => void;
+};
+
+const HandlePoint: React.FC<HandlePointProps> = ({
+  nodeId,
+  handleKey,
+  spec,
+  positionPercent,
+  isConnected,
+  registerHandle,
+  onStartConnection,
+}) => {
+  const spanRef = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    if (!registerHandle) return;
+    const element = spanRef.current;
+    if (!element) return;
+    registerHandle(handleKey, nodeId, spec, element);
+    return () => {
+      registerHandle(handleKey, nodeId, spec, null);
+    };
+  }, [handleKey, nodeId, registerHandle, spec]);
+
+  const sideClass = spec.side === "left" ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2";
+  const variantClass =
+    spec.variant === "more"
+      ? "bg-violet-50 border-violet-300"
+      : spec.variant === "invalid"
+      ? "bg-amber-50 border-amber-300"
+      : spec.variant === "answer"
+      ? "bg-emerald-50 border-emerald-300"
+      : "bg-white border-slate-300";
+  const connectedClass = isConnected ? "shadow-[0_0_0_3px_rgba(16,185,129,0.25)] border-emerald-400" : "shadow-sm";
+
+  return (
+    <span
+      ref={spanRef}
+      data-handle={spec.id}
+      className={`absolute ${sideClass} -translate-y-1/2 w-4 h-4 rounded-full border ${variantClass} ${connectedClass}`}
+      style={{ top: `${positionPercent * 100}%` }}
+      title={spec.label}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        if (spec.type === "output" && onStartConnection) {
+          const rect = spanRef.current?.getBoundingClientRect();
+          const clientX = rect ? rect.left + rect.width / 2 : event.clientX;
+          const clientY = rect ? rect.top + rect.height / 2 : event.clientY;
+          onStartConnection(event, { x: clientX, y: clientY });
+        }
+      }}
+    />
+  );
+};
+
+type CanvasNodeProps = {
+  node: FlowNode;
+  position: { x: number; y: number };
+  selected: boolean;
+  onSelect: (id: string) => void;
+  onNodePointerDown: (id: string) => (event: React.PointerEvent<HTMLDivElement>) => void;
+  onAddChild: (parentId: string, type: NodeType) => void;
+  onDuplicateNode: (id: string) => void;
+  onDeleteNode: (id: string) => void;
+  stopNodeButtonPointerDown: (event: React.PointerEvent<HTMLElement>) => void;
+  outputSpecs: HandleSpec[];
+  handleAssignments: Record<string, string | null>;
+  rootId: string;
+  registerHandle: (key: string, nodeId: string, spec: HandleSpec, element: HTMLElement | null) => void;
+  onStartConnection: (
+    nodeId: string,
+    spec: HandleSpec,
+    event: React.PointerEvent<HTMLElement>,
+    clientPosition: { x: number; y: number }
+  ) => void;
+  onSizeChange: (nodeId: string, size: { width: number; height: number }) => void;
+  duplicatePending: boolean;
+  hasValidationError: boolean;
+};
+
+const CanvasNode = React.memo((props: CanvasNodeProps) => {
+  const {
+    node,
+    position,
+    selected,
+    onSelect,
+    onNodePointerDown,
+    onAddChild,
+    onDuplicateNode,
+    onDeleteNode,
+    stopNodeButtonPointerDown,
+    outputSpecs,
+    handleAssignments,
+    rootId,
+    registerHandle,
+    onStartConnection,
+    onSizeChange,
+    duplicatePending,
+    hasValidationError,
+  } = props;
+  const nodeRef = useRef<HTMLDivElement | null>(null);
+  const badge = node.type === "menu" ? "bg-emerald-50 border-emerald-300 text-emerald-600" : "bg-violet-50 border-violet-300 text-violet-600";
+  const icon = node.type === "menu" ? "🟢" : "🔗";
+  const outputCount = outputSpecs.length || 1;
+  const inputSpec = useMemo<HandleSpec>(
+    () => ({ id: "in", label: "Entrada", side: "left", type: "input", order: 0, variant: "default" }),
+    []
+  );
+  const buttonData = node.action?.kind === "buttons" ? getButtonsData(node) : null;
+  const overflowCount = buttonData && buttonData.items.length > buttonData.maxButtons
+    ? buttonData.items.length - buttonData.maxButtons
+    : 0;
+  const borderClass = hasValidationError ? "border-rose-300" : "border-slate-300";
+  const ringClass = hasValidationError
+    ? "ring-2 ring-rose-400 shadow-rose-100"
+    : selected
+    ? "ring-2 ring-emerald-500 shadow-emerald-200"
+    : "hover:ring-1 hover:ring-emerald-200";
+
+  useEffect(() => {
+    const element = nodeRef.current;
+    if (!element) return;
+
+    const report = () => {
+      const width = element.offsetWidth;
+      const height = element.offsetHeight;
+      const next = { width, height };
+      onSizeChange(node.id, next);
+    };
+
+    report();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(() => {
+        report();
+      });
+      observer.observe(element);
+      return () => observer.disconnect();
+    }
+
+    return () => {
+      /* noop */
+    };
+  }, [node.id, onSizeChange]);
+
+  return (
+    <div
+      ref={nodeRef}
+      key={node.id}
+      data-node="true"
+      className={`absolute w-[300px] rounded-2xl border-2 bg-white shadow-lg transition ${borderClass} ${ringClass} relative`}
+      style={{ left: position.x, top: position.y, cursor: "move" }}
+      onPointerDown={onNodePointerDown(node.id)}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect(node.id);
+      }}
+    >
+      <HandlePoint
+        nodeId={node.id}
+        handleKey={`${node.id}:${inputSpec.id}`}
+        spec={inputSpec}
+        positionPercent={0.5}
+        isConnected={true}
+        registerHandle={registerHandle}
+      />
+      {outputSpecs.map((spec) => {
+        const positionPercent = (spec.order + 1) / (outputCount + 1);
+        return (
+          <HandlePoint
+            key={spec.id}
+            nodeId={node.id}
+            handleKey={`${node.id}:${spec.id}`}
+            spec={spec}
+            positionPercent={positionPercent}
+            isConnected={Boolean(handleAssignments[spec.id])}
+            registerHandle={registerHandle}
+            onStartConnection={(event, client) => onStartConnection(node.id, spec, event, client)}
+          />
+        );
+      })}
+      <div className="px-3 pt-3 text-[15px] font-semibold flex items-center gap-2 text-slate-800">
+        <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-emerald-100 text-emerald-700">{icon}</span>
+        <span className="whitespace-normal leading-tight" title={node.label}>{node.label}</span>
+        <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full border ${badge}`}>{node.type}</span>
+      </div>
+      <div className="px-3 py-2">
+        <div className="flex gap-2 flex-wrap">
+          <button
+            className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+            onPointerDown={stopNodeButtonPointerDown}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddChild(node.id, "menu");
+            }}
+          >
+            + menú
+          </button>
+          <button
+            className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+            onPointerDown={stopNodeButtonPointerDown}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddChild(node.id, "action");
+            }}
+          >
+            + acción
+          </button>
+          <button
+            className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+            onPointerDown={stopNodeButtonPointerDown}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDuplicateNode(node.id);
+            }}
+          >
+            <span className="inline-flex items-center gap-1">
+              {duplicatePending && (
+                <span
+                  className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"
+                  aria-hidden="true"
+                />
+              )}
+              <span>duplicar</span>
+            </span>
+          </button>
+          {node.id !== rootId && (
+            <button
+              className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+              onPointerDown={stopNodeButtonPointerDown}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDeleteNode(node.id);
+              }}
+            >
+              borrar
+            </button>
+          )}
+        </div>
+      </div>
+      <div className={`px-3 pb-3 text-xs ${hasValidationError ? "text-rose-600" : "text-slate-500"}`}>
+        {node.type === "menu"
+          ? `${(node.menuOptions ?? []).length} opción(es)`
+          : buttonData
+          ? `${buttonData.items.length} botón(es)${overflowCount ? ` · ${overflowCount} en lista` : ""}`
+          : node.action?.kind ?? "acción"}
+      </div>
+    </div>
+  );
+});
 
 type EdgeSpec = {
   key: string;
@@ -948,11 +1271,13 @@ function FlowCanvas(props: {
   onSelect: (id: string) => void;
   onAddChild: (parentId: string, type: NodeType) => void;
   onDeleteNode: (id: string) => void;
-  onDuplicateNode: (id: string) => void;
+  onDuplicateNode: (id: string) => void | Promise<void>;
   onInsertBetween: (parentId: string, childId: string) => void;
   onDeleteEdge: (parentId: string, childId: string) => void;
   onConnectHandle: (sourceId: string, handleId: string, targetId: string | null) => boolean;
   onCreateForHandle: (sourceId: string, handleId: string, kind: ConnectionCreationKind) => string | null;
+  onInvalidConnection: (message: string) => void;
+  invalidMessageIds: Set<string>;
   soloRoot: boolean;
   toggleScope: () => void;
   nodePositions: Record<string, { x: number; y: number }>;
@@ -973,6 +1298,8 @@ function FlowCanvas(props: {
     onDeleteEdge,
     onConnectHandle,
     onCreateForHandle,
+    onInvalidConnection,
+    invalidMessageIds,
     soloRoot,
     toggleScope,
     nodePositions,
@@ -1003,6 +1330,9 @@ function FlowCanvas(props: {
     }
     return map;
   }, [nodes]);
+  useEffect(() => {
+    scheduleHandleRecompute("resize");
+  }, [nodes, scheduleHandleRecompute]);
   const edges = useMemo(() => {
     const list: EdgeSpec[] = [];
     for (const node of nodes) {
@@ -1034,22 +1364,82 @@ function FlowCanvas(props: {
   const [connectionPrompt, setConnectionPrompt] = useState<ConnectionPromptState | null>(null);
   const connectionPromptRef = useRef<HTMLDivElement | null>(null);
 
+  type PointerState =
+    | { type: "pan"; pointerId: number; startClient: { x: number; y: number }; startPan: { x: number; y: number } }
+    | { type: "drag-node"; pointerId: number; nodeId: string; offset: { x: number; y: number } }
+    | {
+        type: "drag-connection";
+        pointerId: number;
+        nodeId: string;
+        handleId: string;
+        handleKey: string;
+        spec: HandleSpec;
+        anchorClient: { x: number; y: number };
+      };
+
+  type HandleRecomputeReason = "move" | "zoom" | "scroll" | "resize";
+  type RegisteredHandle = {
+    key: string;
+    nodeId: string;
+    spec: HandleSpec;
+    element: HTMLElement;
+  };
+  type ConnectionDraft = {
+    sourceId: string;
+    handleId: string;
+    handleKey: string;
+    from: { x: number; y: number };
+    to: { x: number; y: number };
+    targetHandleKey: string | null;
+  };
+
+  const pointerState = useRef<PointerState | null>(null);
+  const latestEventRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const pointerSchedulerRef = useRef(createHandleScheduler(() => {}));
+  const handleMeasureSchedulerRef = useRef(createHandleScheduler(() => {}));
+  const pendingHandleReasonsRef = useRef<Set<HandleRecomputeReason>>(new Set());
+  const handleElementsRef = useRef<Map<string, RegisteredHandle>>(new Map());
+  const [handlePositions, setHandlePositions] = useState<Record<string, { x: number; y: number }>>({});
+  const handlePositionsRef = useRef(handlePositions);
+  const [connectionDraft, setConnectionDraft] = useState<ConnectionDraft | null>(null);
+  const connectionDraftRef = useRef(connectionDraft);
+  const [pendingDuplicateId, setPendingDuplicateId] = useState<string | null>(null);
+
+  function scheduleHandleRecompute(reason: HandleRecomputeReason): void {
+    pendingHandleReasonsRef.current.add(reason);
+    handleMeasureSchedulerRef.current.schedule();
+  }
+
   useEffect(() => {
     scaleRef.current = scale;
   }, [scale]);
   useEffect(() => {
     panRef.current = pan;
   }, [pan]);
+  useEffect(() => {
+    handlePositionsRef.current = handlePositions;
+  }, [handlePositions]);
+  useEffect(() => {
+    connectionDraftRef.current = connectionDraft;
+  }, [connectionDraft]);
 
-  const setScaleSafe = useCallback((next: number) => {
-    scaleRef.current = next;
-    setScaleState(next);
-  }, []);
+  const setScaleSafe = useCallback(
+    (next: number) => {
+      scaleRef.current = next;
+      setScaleState(next);
+      scheduleHandleRecompute("zoom");
+    },
+    [scheduleHandleRecompute]
+  );
 
-  const setPanSafe = useCallback((next: { x: number; y: number }) => {
-    panRef.current = next;
-    setPanState(next);
-  }, []);
+  const setPanSafe = useCallback(
+    (next: { x: number; y: number }) => {
+      panRef.current = next;
+      setPanState(next);
+      scheduleHandleRecompute("scroll");
+    },
+    [scheduleHandleRecompute]
+  );
 
   useEffect(() => {
     if (!connectionPrompt) return;
@@ -1129,32 +1519,52 @@ function FlowCanvas(props: {
     [nodePositions, autoLayout]
   );
 
-  type PointerState =
-    | { type: "pan"; pointerId: number; startClient: { x: number; y: number }; startPan: { x: number; y: number } }
-    | { type: "drag-node"; pointerId: number; nodeId: string; offset: { x: number; y: number } };
-
-  const pointerState = useRef<PointerState | null>(null);
-  const latestEventRef = useRef<{ clientX: number; clientY: number } | null>(null);
-  const handleSchedulerRef = useRef(createHandleScheduler(() => {}));
-
   const handleStartConnection = useCallback(
-    (nodeId: string, spec: HandleSpec, client: { x: number; y: number }) => {
+    (nodeId: string, spec: HandleSpec, event: React.PointerEvent<HTMLElement>, client: { x: number; y: number }) => {
       if (spec.type !== "output") return;
-      const containerRect = containerRef.current?.getBoundingClientRect();
-      const anchor = {
-        x: client.x - (containerRect?.left ?? 0),
-        y: client.y - (containerRect?.top ?? 0),
+      const viewportEl = containerRef.current;
+      if (!viewportEl) return;
+      setConnectionPrompt(null);
+      pointerState.current = {
+        type: "drag-connection",
+        pointerId: event.pointerId,
+        nodeId,
+        handleId: spec.id,
+        handleKey: `${nodeId}:${spec.id}`,
+        spec,
+        anchorClient: { x: client.x, y: client.y },
       };
-      const assignments = handleAssignmentsByNode.get(nodeId) ?? {};
-      setConnectionPrompt({
+      latestEventRef.current = { clientX: client.x, clientY: client.y };
+      viewportEl.setPointerCapture?.(event.pointerId);
+      const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
+      const origin =
+        handlePositionsRef.current[`${nodeId}:${spec.id}`] ??
+        screenToCanvas(client.x, client.y, viewportEl, viewportState);
+      setConnectionDraft({
         sourceId: nodeId,
         handleId: spec.id,
-        spec,
-        anchor,
-        currentTargetId: assignments[spec.id] ?? null,
+        handleKey: `${nodeId}:${spec.id}`,
+        from: origin,
+        to: origin,
+        targetHandleKey: null,
       });
+      pointerSchedulerRef.current.schedule();
+      scheduleHandleRecompute("move");
     },
-    [handleAssignmentsByNode]
+    [scheduleHandleRecompute]
+  );
+
+  const handleDuplicate = useCallback(
+    (id: string) => {
+      const result = onDuplicateNode(id);
+      if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+        setPendingDuplicateId(id);
+        Promise.resolve(result).finally(() => {
+          setPendingDuplicateId((current) => (current === id ? null : current));
+        });
+      }
+    },
+    [onDuplicateNode]
   );
 
   const handleConnectSelection = useCallback(
@@ -1162,10 +1572,14 @@ function FlowCanvas(props: {
       setConnectionPrompt((prev) => {
         if (!prev) return prev;
         const success = onConnectHandle(prev.sourceId, prev.handleId, targetId);
-        return success ? null : prev;
+        if (success) {
+          scheduleHandleRecompute("move");
+          return null;
+        }
+        return prev;
       });
     },
-    [onConnectHandle]
+    [onConnectHandle, scheduleHandleRecompute]
   );
 
   const handleCreateSelection = useCallback(
@@ -1203,6 +1617,60 @@ function FlowCanvas(props: {
       }
       return { ...prev, [id]: size };
     });
+    scheduleHandleRecompute("resize");
+  }, []);
+
+  const registerHandle = useCallback(
+    (key: string, nodeId: string, spec: HandleSpec, element: HTMLElement | null) => {
+      if (!element) {
+        handleElementsRef.current.delete(key);
+      } else {
+        handleElementsRef.current.set(key, { key, nodeId, spec, element });
+      }
+      scheduleHandleRecompute("resize");
+    },
+    []
+  );
+
+  const recomputeHandles = useCallback(() => {
+    const viewportEl = containerRef.current;
+    if (!viewportEl) {
+      pendingHandleReasonsRef.current.clear();
+      return;
+    }
+    const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
+    const devicePixelRatio = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1;
+    const nextPositions: Record<string, { x: number; y: number }> = {};
+    handleElementsRef.current.forEach((entry, key) => {
+      const rect = entry.element.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const canvasPoint = screenToCanvas(centerX, centerY, viewportEl, viewportState);
+      nextPositions[key] = {
+        x: Math.round(canvasPoint.x * devicePixelRatio) / devicePixelRatio,
+        y: Math.round(canvasPoint.y * devicePixelRatio) / devicePixelRatio,
+      };
+    });
+    setHandlePositions((prev) => {
+      const prevKeys = Object.keys(prev);
+      const nextKeys = Object.keys(nextPositions);
+      if (prevKeys.length === nextKeys.length) {
+        let same = true;
+        for (const key of nextKeys) {
+          const prevPoint = prev[key];
+          const nextPoint = nextPositions[key];
+          if (!prevPoint || Math.abs(prevPoint.x - nextPoint.x) > 0.5 || Math.abs(prevPoint.y - nextPoint.y) > 0.5) {
+            same = false;
+            break;
+          }
+        }
+        if (same) {
+          return prev;
+        }
+      }
+      return nextPositions;
+    });
+    pendingHandleReasonsRef.current.clear();
   }, []);
 
   useEffect(() => {
@@ -1219,6 +1687,50 @@ function FlowCanvas(props: {
     const evt = latestEventRef.current;
     const state = pointerState.current;
     if (!evt || !state) return;
+    if (state.type === "drag-connection") {
+      const viewportEl = containerRef.current;
+      if (!viewportEl) return;
+      const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
+      const pointerWorld = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
+      const origin =
+        handlePositionsRef.current[state.handleKey] ?? (() => {
+          const entry = handleElementsRef.current.get(state.handleKey);
+          if (!entry) {
+            return pointerWorld;
+          }
+          const rect = entry.element.getBoundingClientRect();
+          return screenToCanvas(rect.left + rect.width / 2, rect.top + rect.height / 2, viewportEl, viewportState);
+        })();
+
+      const candidates: HandlePointCandidate[] = [];
+      handleElementsRef.current.forEach((entry, key) => {
+        const point = handlePositionsRef.current[key];
+        if (!point) return;
+        candidates.push({
+          id: key,
+          nodeId: entry.nodeId,
+          type: entry.spec.type,
+          x: point.x,
+          y: point.y,
+        });
+      });
+      const hit = findNearestHandle(
+        pointerWorld,
+        candidates,
+        HANDLE_SNAP_TOLERANCE,
+        (candidate) => candidate.type === "input" && candidate.id !== state.handleKey
+      );
+      setConnectionDraft({
+        sourceId: state.nodeId,
+        handleId: state.handleId,
+        handleKey: state.handleKey,
+        from: origin,
+        to: hit ? { x: hit.handle.x, y: hit.handle.y } : pointerWorld,
+        targetHandleKey: hit ? hit.handle.id : null,
+      });
+      return;
+    }
+
     if (state.type === "drag-node") {
       const viewportEl = containerRef.current;
       if (!viewportEl) return;
@@ -1242,27 +1754,37 @@ function FlowCanvas(props: {
       const dy = (evt.clientY - startClient.y) / currentScale;
       setPanSafe({ x: startPan.x - dx, y: startPan.y - dy });
     }
-  }, [setPanSafe, updateNodePos]);
+  }, [setPanSafe, updateNodePos, setConnectionDraft]);
 
   useEffect(() => {
-    handleSchedulerRef.current.setCallback(applyPointerUpdate);
+    pointerSchedulerRef.current.setCallback(applyPointerUpdate);
     return () => {
-      handleSchedulerRef.current.cancel();
+      pointerSchedulerRef.current.cancel();
     };
   }, [applyPointerUpdate]);
 
-  // Backwards compatibility alias: some downstream builds still reference the
-  // previous `scheduleHandleRecompute` helper name. Keeping this hoisted function
-  // ensures TypeScript can resolve the symbol even if older codepaths invoke it.
-  function scheduleHandleRecompute() {
-    handleSchedulerRef.current.schedule();
-  }
+  useEffect(() => {
+    handleMeasureSchedulerRef.current.setCallback(() => {
+      if (typeof queueMicrotask === "function") {
+        queueMicrotask(recomputeHandles);
+      } else {
+        Promise.resolve().then(recomputeHandles);
+      }
+    });
+    return () => {
+      handleMeasureSchedulerRef.current.cancel();
+    };
+  }, [recomputeHandles]);
 
   const stopPointer = useCallback((pointerId: number) => {
-    if (pointerState.current?.pointerId !== pointerId) return;
+    const current = pointerState.current;
+    if (current?.pointerId !== pointerId) return;
     pointerState.current = null;
+    if (current.type === "drag-connection") {
+      setConnectionDraft(null);
+    }
     latestEventRef.current = null;
-    handleSchedulerRef.current.cancel();
+    pointerSchedulerRef.current.cancel();
     const container = containerRef.current;
     container?.releasePointerCapture?.(pointerId);
   }, []);
@@ -1272,16 +1794,52 @@ function FlowCanvas(props: {
       if (!pointerState.current || pointerState.current.pointerId !== event.pointerId) return;
       latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
       clearSelection();
-      scheduleHandleRecompute();
+      pointerSchedulerRef.current.schedule();
+      scheduleHandleRecompute("move");
     },
     [clearSelection, scheduleHandleRecompute]
   );
 
   const handlePointerUp = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
+      const state = pointerState.current;
+      if (state?.pointerId === event.pointerId && state.type === "drag-connection") {
+        const draft = connectionDraftRef.current;
+        setConnectionDraft(null);
+        if (draft?.targetHandleKey) {
+          const targetId = draft.targetHandleKey.split(":")[0];
+          if (!onConnectHandle(state.nodeId, state.handleId, targetId)) {
+            onInvalidConnection("No se pudo conectar el bloque seleccionado");
+          } else {
+            scheduleHandleRecompute("move");
+          }
+        } else {
+          onInvalidConnection("Conecta el enlace a un puerto válido");
+          const containerRect = containerRef.current?.getBoundingClientRect();
+          const anchor = {
+            x: state.anchorClient.x - (containerRect?.left ?? 0),
+            y: state.anchorClient.y - (containerRect?.top ?? 0),
+          };
+          const assignments = handleAssignmentsByNode.get(state.nodeId) ?? {};
+          setConnectionPrompt({
+            sourceId: state.nodeId,
+            handleId: state.handleId,
+            spec: state.spec,
+            anchor,
+            currentTargetId: assignments[state.handleId] ?? null,
+          });
+          scheduleHandleRecompute("move");
+        }
+      }
       stopPointer(event.pointerId);
     },
-    [stopPointer]
+    [
+      stopPointer,
+      onConnectHandle,
+      onInvalidConnection,
+      handleAssignmentsByNode,
+      scheduleHandleRecompute,
+    ]
   );
 
   const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -1301,9 +1859,11 @@ function FlowCanvas(props: {
 
   const handlePointerCancel = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
+      setConnectionDraft(null);
+      scheduleHandleRecompute("move");
       stopPointer(event.pointerId);
     },
-    [stopPointer]
+    [stopPointer, scheduleHandleRecompute]
   );
 
   const onNodePointerDown = useCallback(
@@ -1325,7 +1885,8 @@ function FlowCanvas(props: {
       latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
       containerRef.current?.setPointerCapture?.(event.pointerId);
       clearSelection();
-      scheduleHandleRecompute();
+      pointerSchedulerRef.current.schedule();
+      scheduleHandleRecompute("move");
     },
     [clearSelection, getPos, scheduleHandleRecompute]
   );
@@ -1419,7 +1980,7 @@ function FlowCanvas(props: {
               transformOrigin: "0 0",
             }}
           >
-            {edges.length > 0 && (
+            {(edges.length > 0 || connectionDraft) && (
               <svg className="absolute z-0" width={SURFACE_W} height={SURFACE_H}>
                 {edges.map((edge) => {
                   const sourceNode = getNodeGeometry(edge.from);
@@ -1429,21 +1990,26 @@ function FlowCanvas(props: {
                     ? { dx: 0, dy: sourceNode.size.height * sourcePercent }
                     : { dx: sourceNode.size.width, dy: sourceNode.size.height * sourcePercent };
                   const targetAnchor: HandleAnchor = { dx: 0, dy: targetNode.size.height * 0.5 };
-                  const source = computeHandlePosition(sourceNode, sourceAnchor);
-                  const target = computeHandlePosition(targetNode, targetAnchor);
-                  const direction = target.x >= source.x ? 1 : -1;
-                  const distanceX = Math.max(80, Math.abs(target.x - source.x));
-                  const controlOffset = distanceX * 0.35;
-                  const c1x = source.x + direction * controlOffset;
-                  const c2x = target.x - direction * controlOffset;
-                  const c1y = source.y;
-                  const c2y = target.y;
-                  const mid = cubicMid(source.x, source.y, c1x, c1y, c2x, c2y, target.x, target.y, 0.5);
+                  const measuredSource = handlePositions[edge.sourceHandleId];
+                  const measuredTarget = handlePositions[edge.targetHandleId];
+                  const source = measuredSource ?? computeHandlePosition(sourceNode, sourceAnchor);
+                  const target = measuredTarget ?? computeHandlePosition(targetNode, targetAnchor);
+                  const label = { x: (source.x + target.x) / 2, y: (source.y + target.y) / 2 };
+                  const overlayRect = {
+                    left: label.x - 60,
+                    right: label.x + 60,
+                    top: label.y - 18,
+                    bottom: label.y + 18,
+                  };
+                  const pathD = buildOrthogonalPath(source, target, {
+                    avoid: overlayRect,
+                    padding: 12,
+                  });
 
                   return (
                     <g key={edge.key}>
                       <path
-                        d={`M ${source.x} ${source.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${target.x} ${target.y}`}
+                        d={pathD}
                         stroke="#60a5fa"
                         strokeWidth={2}
                         strokeLinecap="round"
@@ -1451,10 +2017,10 @@ function FlowCanvas(props: {
                         fill="none"
                       />
                       <foreignObject
-                        x={mid.X - 24}
-                        y={mid.Y - 14}
-                        width={120}
-                        height={28}
+                        x={overlayRect.left}
+                        y={overlayRect.top}
+                        width={overlayRect.right - overlayRect.left}
+                        height={overlayRect.bottom - overlayRect.top}
                         className="pointer-events-auto"
                       >
                         <div className="flex gap-1">
@@ -1483,6 +2049,17 @@ function FlowCanvas(props: {
                     </g>
                   );
                 })}
+                {connectionDraft && (
+                  <path
+                    d={buildOrthogonalPath(connectionDraft.from, connectionDraft.to)}
+                    stroke="#60a5fa"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                    fill="none"
+                    strokeDasharray="6 4"
+                  />
+                )}
               </svg>
             )}
 
@@ -1499,14 +2076,17 @@ function FlowCanvas(props: {
                   onSelect={onSelect}
                   onNodePointerDown={onNodePointerDown}
                   onAddChild={onAddChild}
-                  onDuplicateNode={onDuplicateNode}
+                  onDuplicateNode={handleDuplicate}
                   onDeleteNode={onDeleteNode}
                   stopNodeButtonPointerDown={stopCanvasButtonPointerDown}
                   outputSpecs={outputSpecs}
                   handleAssignments={assignments}
                   rootId={flow.rootId}
+                  registerHandle={registerHandle}
                   onStartConnection={handleStartConnection}
                   onSizeChange={handleNodeSizeChange}
+                  duplicatePending={pendingDuplicateId === node.id}
+                  hasValidationError={invalidMessageIds.has(node.id)}
                 />
               );
             })}
@@ -1614,6 +2194,10 @@ export default function App(): JSX.Element {
   const [workspaceId, setWorkspaceId] = useState(flow.id);
   const [toast, setToast] = useState<Toast | null>(null);
 
+  const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
+    setToast({ id: Date.now(), message, type });
+  }, []);
+
   const suppressDirtyRef = useRef(false);
   const flowRef = useRef(flow);
   const positionsRef = useRef(positionsState);
@@ -1668,6 +2252,20 @@ export default function App(): JSX.Element {
   }, []);
 
   const selected = flow.nodes[selectedId] ?? flow.nodes[flow.rootId];
+  const emptyMessageNodes = useMemo(() => {
+    const ids = new Set<string>();
+    for (const node of Object.values(flow.nodes)) {
+      if (node.action?.kind === "message") {
+        const text = typeof node.action.data?.text === "string" ? node.action.data.text.trim() : "";
+        if (!text) {
+          ids.add(node.id);
+        }
+      }
+    }
+    return ids;
+  }, [flow.nodes]);
+  const hasBlockingErrors = emptyMessageNodes.size > 0;
+  const selectedHasMessageError = emptyMessageNodes.has(selected.id);
   const menuOptionsForSelected = selected.type === "menu" ? getMenuOptions(selected) : [];
   const buttonsDataForSelected = getButtonsData(selected);
   const askDataForSelected = getAskData(selected);
@@ -1768,6 +2366,21 @@ export default function App(): JSX.Element {
     },
     [selectedId, setFlow]
   );
+
+  const handleConvertButtonsToList = useCallback(() => {
+    let createdId: string | null = null;
+    setFlow((prev) => {
+      const { nextFlow, listNodeId } = convertButtonsOverflowToList(prev, selectedId);
+      createdId = listNodeId;
+      return nextFlow;
+    });
+    if (createdId) {
+      setSelectedId(createdId);
+      showToast("Se movieron las opciones extra a un bloque Lista", "success");
+    } else {
+      showToast("No hay botones adicionales para convertir", "error");
+    }
+  }, [selectedId, setFlow, setSelectedId, showToast]);
 
   const handleAskUpdate = useCallback(
     (patch: Partial<Record<string, any>>) => {
@@ -1937,10 +2550,6 @@ export default function App(): JSX.Element {
     },
     [handleSchedulerUpdate]
   );
-
-  const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
-    setToast({ id: Date.now(), message, type });
-  }, []);
 
   useEffect(() => {
     if (!toast || typeof window === "undefined") return;
@@ -2633,12 +3242,37 @@ export default function App(): JSX.Element {
           <h1 className="text-lg md:text-2xl font-semibold truncate">{flow.name}</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-emerald-50 border-emerald-200" onClick={handleSaveClick}>Guardar</button>
+          <button
+            className={`px-3 py-1.5 text-sm border rounded ${
+              hasBlockingErrors
+                ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                : "bg-white hover:bg-emerald-50 border-emerald-200"
+            }`}
+            onClick={handleSaveClick}
+            disabled={hasBlockingErrors}
+          >
+            Guardar
+          </button>
           <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleLoad}>Cargar</button>
           <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleExport}>Exportar JSON</button>
           <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleImportClick}>Importar JSON</button>
-          <button className="px-3 py-1.5 text-sm rounded bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm">Publicar</button>
+          <button
+            className={`px-3 py-1.5 text-sm rounded ${
+              hasBlockingErrors
+                ? "bg-slate-300 text-slate-500 cursor-not-allowed"
+                : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+            }`}
+            disabled={hasBlockingErrors}
+          >
+            Publicar
+          </button>
         </div>
+        {hasBlockingErrors && (
+          <div className="text-xs text-rose-600 flex items-center gap-1">
+            <span aria-hidden="true">⚠️</span>
+            <span>Completa los mensajes vacíos antes de guardar o publicar.</span>
+          </div>
+        )}
       </div>
 
       <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
@@ -2664,6 +3298,8 @@ export default function App(): JSX.Element {
                 onDeleteEdge={deleteEdge}
                 onConnectHandle={handleConnectHandle}
                 onCreateForHandle={handleCreateForHandle}
+                onInvalidConnection={(message) => showToast(message, "error")}
+                invalidMessageIds={emptyMessageNodes}
                 soloRoot={soloRoot}
                 toggleScope={()=>setSoloRoot(s=>!s)}
                 nodePositions={positionsState}
@@ -2768,9 +3404,21 @@ export default function App(): JSX.Element {
                     </select>
 
                     {(selected.action?.kind ?? "message")==="message" && (
-                      <div>
+                      <div className="space-y-1">
                         <label className="block text-xs mb-1">Mensaje</label>
-                        <input className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300" value={selected.action?.data?.text ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"message", data:{ text:e.target.value } } })} />
+                        <input
+                          className={`w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 ${
+                            selectedHasMessageError
+                              ? "border-rose-300 focus:ring-rose-300"
+                              : "focus:ring-emerald-300"
+                          }`}
+                          aria-invalid={selectedHasMessageError}
+                          value={selected.action?.data?.text ?? ""}
+                          onChange={(e)=>updateSelected({ action:{ kind:"message", data:{ text:e.target.value } } })}
+                        />
+                        {selectedHasMessageError && (
+                          <p className="text-[11px] text-rose-600">Este mensaje no puede estar vacío.</p>
+                        )}
                       </div>
                     )}
 
@@ -2788,6 +3436,20 @@ export default function App(): JSX.Element {
                         <div className="text-[11px] text-slate-500">
                           Máximo visible: {buttonsDataForSelected.maxButtons} · Se usa la política más restrictiva (WhatsApp/Facebook).
                         </div>
+                        {buttonsDataForSelected.items.length > buttonsDataForSelected.maxButtons && (
+                          <div className="border rounded p-2 text-[11px] bg-amber-50 text-amber-700 space-y-2">
+                            <div className="font-semibold">
+                              Superaste el límite de {buttonsDataForSelected.maxButtons} botones visibles.
+                            </div>
+                            <div>Convierte las opciones adicionales en una lista para cumplir con la política multi-canal.</div>
+                            <button
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-amber-600 text-white hover:bg-amber-700"
+                              onClick={handleConvertButtonsToList}
+                            >
+                              Convertir a lista automáticamente
+                            </button>
+                          </div>
+                        )}
                         {buttonsDataForSelected.items.map((item, idx) => {
                           const isOverflow = idx >= buttonsDataForSelected.maxButtons;
                           return (
