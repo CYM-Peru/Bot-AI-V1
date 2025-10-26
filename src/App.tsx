@@ -1188,7 +1188,7 @@ function FlowCanvas(props: {
   const connectionDraftRef = useRef(connectionDraft);
   const [pendingDuplicateId, setPendingDuplicateId] = useState<string | null>(null);
 
-  function scheduleHandleRecompute(reason: HandleRecomputeReason): void {
+  function scheduleHandleRecompute(reason: HandleRecomputeReason = "move"): void {
     pendingHandleReasonsRef.current.add(reason);
     handleMeasureSchedulerRef.current.schedule();
   }
