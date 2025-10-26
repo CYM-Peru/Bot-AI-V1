@@ -1158,6 +1158,7 @@ function FlowCanvas(props: {
         nodeId: string;
         startClient: { x: number; y: number };
         startNodePosition: { x: number; y: number };
+        startPan: { x: number; y: number };
         startZoom: number;
       }
     | {
@@ -1568,11 +1569,14 @@ function FlowCanvas(props: {
 
     if (state.type === "drag-node") {
       maybeAutoPan(evt.clientX, evt.clientY);
-      // Calculate position using delta from start, making it independent of autopan
-      const dx = (evt.clientX - state.startClient.x) / state.startZoom;
-      const dy = (evt.clientY - state.startClient.y) / state.startZoom;
-      const nx = state.startNodePosition.x + dx;
-      const ny = state.startNodePosition.y + dy;
+      // Calculate position using delta from start + compensating for viewport pan changes
+      const mouseDx = (evt.clientX - state.startClient.x) / state.startZoom;
+      const mouseDy = (evt.clientY - state.startClient.y) / state.startZoom;
+      // Compensate for pan changes caused by autopan
+      const panDeltaX = panRef.current.x - state.startPan.x;
+      const panDeltaY = panRef.current.y - state.startPan.y;
+      const nx = state.startNodePosition.x + mouseDx + panDeltaX;
+      const ny = state.startNodePosition.y + mouseDy + panDeltaY;
       updateNodePos((prev) => {
         const current = prev[state.nodeId];
         if (current && Math.abs(current.x - nx) < 0.1 && Math.abs(current.y - ny) < 0.1) {
@@ -1715,6 +1719,7 @@ function FlowCanvas(props: {
         nodeId: id,
         startClient: { x: event.clientX, y: event.clientY },
         startNodePosition: { x: position.x, y: position.y },
+        startPan: { x: panRef.current.x, y: panRef.current.y },
         startZoom: scaleRef.current || 1,
       };
       latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
