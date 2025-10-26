@@ -5,7 +5,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { toWorldCoords } from "./utils/computeOffset";
 import { loadFlow, saveFlow } from "./data/persistence";
 import { debounce } from "./utils/debounce";
 import { CHANNEL_BUTTON_LIMITS, DEFAULT_BUTTON_LIMIT } from "./flow/channelLimits";
@@ -25,7 +24,8 @@ import type {
   DateException,
   Weekday,
 } from "./flow/types";
-import { computeHandlePosition, quantizeForDPR } from "./utils/handlePosition";
+import { screenToCanvas } from "./utils/coords";
+import { computeHandlePosition, type HandleAnchor, type NodeGeometry } from "./utils/handles";
 import { formatNextOpening, isInWindow, nextOpening, validateCustomSchedule } from "./flow/scheduler";
 
 const NODE_W = 300;
@@ -727,13 +727,6 @@ function cubicMid(x1:number,y1:number,c1x:number,c1y:number,c2x:number,c2y:numbe
   return { X, Y };
 }
 
-type HandleRegistryValue = {
-  registerHandle: (handleId: string, nodeElement: HTMLElement, handleElement: HTMLElement) => void;
-  unregisterHandle: (handleId: string) => void;
-};
-
-const HandleRegistryContext = React.createContext<HandleRegistryValue | null>(null);
-
 type EdgeSpec = {
   key: string;
   from: string;
@@ -741,6 +734,7 @@ type EdgeSpec = {
   sourceHandleId: string;
   targetHandleId: string;
   sourceSpec: HandleSpec;
+  sourceCount: number;
 };
 
 type ConnectionCreationKind = "menu" | "message" | "buttons" | "ask";
@@ -754,33 +748,14 @@ type ConnectionPromptState = {
 };
 
 type HandlePointProps = {
-  nodeId: string;
   spec: HandleSpec;
-  nodeRef: React.RefObject<HTMLDivElement>;
   positionPercent: number;
   isConnected: boolean;
   onStartConnection?: (clientPosition: { x: number; y: number }) => void;
 };
 
-const HandlePoint: React.FC<HandlePointProps> = ({
-  nodeId,
-  spec,
-  nodeRef,
-  positionPercent,
-  isConnected,
-  onStartConnection,
-}) => {
-  const registry = React.useContext(HandleRegistryContext);
+const HandlePoint: React.FC<HandlePointProps> = ({ spec, positionPercent, isConnected, onStartConnection }) => {
   const spanRef = useRef<HTMLSpanElement | null>(null);
-
-  useEffect(() => {
-    const handleElement = spanRef.current;
-    const nodeElement = nodeRef.current;
-    if (!registry || !handleElement || !nodeElement) return;
-    const handleKey = `${nodeId}:${spec.id}`;
-    registry.registerHandle(handleKey, nodeElement, handleElement);
-    return () => registry.unregisterHandle(handleKey);
-  }, [registry, nodeRef, nodeId, spec.id]);
 
   const sideClass = spec.side === "left" ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2";
   const variantClass =
@@ -827,6 +802,7 @@ type CanvasNodeProps = {
   handleAssignments: Record<string, string | null>;
   rootId: string;
   onStartConnection: (nodeId: string, spec: HandleSpec, clientPosition: { x: number; y: number }) => void;
+  onSizeChange: (nodeId: string, size: { width: number; height: number }) => void;
 };
 
 const CanvasNode = React.memo((props: CanvasNodeProps) => {
@@ -844,11 +820,37 @@ const CanvasNode = React.memo((props: CanvasNodeProps) => {
     handleAssignments,
     rootId,
     onStartConnection,
+    onSizeChange,
   } = props;
   const nodeRef = useRef<HTMLDivElement | null>(null);
   const badge = node.type === "menu" ? "bg-emerald-50 border-emerald-300 text-emerald-600" : "bg-violet-50 border-violet-300 text-violet-600";
   const icon = node.type === "menu" ? "🟢" : "🔗";
   const outputCount = outputSpecs.length || 1;
+
+  useEffect(() => {
+    const element = nodeRef.current;
+    if (!element) return;
+
+    const report = () => {
+      const rect = element.getBoundingClientRect();
+      const next = { width: rect.width, height: rect.height };
+      onSizeChange(node.id, next);
+    };
+
+    report();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(() => {
+        report();
+      });
+      observer.observe(element);
+      return () => observer.disconnect();
+    }
+
+    return () => {
+      /* noop */
+    };
+  }, [node.id, onSizeChange]);
 
   return (
     <div
@@ -864,9 +866,7 @@ const CanvasNode = React.memo((props: CanvasNodeProps) => {
       }}
     >
       <HandlePoint
-        nodeId={node.id}
         spec={{ id: "in", label: "Entrada", side: "left", type: "input", order: 0, variant: "default" }}
-        nodeRef={nodeRef}
         positionPercent={0.5}
         isConnected={true}
       />
@@ -875,9 +875,7 @@ const CanvasNode = React.memo((props: CanvasNodeProps) => {
         return (
           <HandlePoint
             key={spec.id}
-            nodeId={node.id}
             spec={spec}
-            nodeRef={nodeRef}
             positionPercent={positionPercent}
             isConnected={Boolean(handleAssignments[spec.id])}
             onStartConnection={(client) => onStartConnection(node.id, spec, client)}
@@ -1018,6 +1016,7 @@ function FlowCanvas(props: {
           sourceHandleId: `${node.id}:${spec.id}`,
           targetHandleId: `${targetId}:in`,
           sourceSpec: spec,
+          sourceCount: specs.length || 1,
         });
       }
     }
@@ -1026,13 +1025,10 @@ function FlowCanvas(props: {
 
   const [scale, setScaleState] = useState(1);
   const [pan, setPanState] = useState({ x: 0, y: 0 });
+  const [nodeSizes, setNodeSizes] = useState<Record<string, { width: number; height: number }>>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const stageRef = useRef<HTMLDivElement | null>(null);
   const scaleRef = useRef(scale);
   const panRef = useRef(pan);
-  const handleElements = useRef(new Map<string, { nodeElement: HTMLElement; handleElement: HTMLElement }>());
-  const handleFrameRef = useRef<number | null>(null);
-  const [handlePositions, setHandlePositions] = useState<Record<string, { x: number; y: number }>>({});
   const [connectionPrompt, setConnectionPrompt] = useState<ConnectionPromptState | null>(null);
   const connectionPromptRef = useRef<HTMLDivElement | null>(null);
 
@@ -1145,21 +1141,72 @@ function FlowCanvas(props: {
   const latestEventRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const frameRef = useRef<number | null>(null);
 
-  const getStageContext = useCallback(() => {
-    const stageEl = stageRef.current;
-    if (!stageEl) return null;
-    const rect = stageEl.getBoundingClientRect();
-    const viewport = containerRef.current;
-    const scrollLeft = viewport ? viewport.scrollLeft : typeof window !== "undefined" ? window.scrollX : 0;
-    const scrollTop = viewport ? viewport.scrollTop : typeof window !== "undefined" ? window.scrollY : 0;
-    return {
-      rect,
-      scrollLeft,
-      scrollTop,
-      scale: scaleRef.current,
-      pan: panRef.current,
-      devicePixelRatio: typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1,
-    };
+  const handleStartConnection = useCallback(
+    (nodeId: string, spec: HandleSpec, client: { x: number; y: number }) => {
+      if (spec.type !== "output") return;
+      const containerRect = containerRef.current?.getBoundingClientRect();
+      const anchor = {
+        x: client.x - (containerRect?.left ?? 0),
+        y: client.y - (containerRect?.top ?? 0),
+      };
+      const assignments = handleAssignmentsByNode.get(nodeId) ?? {};
+      setConnectionPrompt({
+        sourceId: nodeId,
+        handleId: spec.id,
+        spec,
+        anchor,
+        currentTargetId: assignments[spec.id] ?? null,
+      });
+    },
+    [handleAssignmentsByNode]
+  );
+
+  const handleConnectSelection = useCallback(
+    (targetId: string | null) => {
+      setConnectionPrompt((prev) => {
+        if (!prev) return prev;
+        const success = onConnectHandle(prev.sourceId, prev.handleId, targetId);
+        return success ? null : prev;
+      });
+    },
+    [onConnectHandle]
+  );
+
+  const handleCreateSelection = useCallback(
+    (kind: ConnectionCreationKind) => {
+      setConnectionPrompt((prev) => {
+        if (!prev) return prev;
+        const createdId = onCreateForHandle(prev.sourceId, prev.handleId, kind);
+        return createdId ? null : prev;
+      });
+    },
+    [onCreateForHandle]
+  );
+
+  const targetOptions = useMemo(() => {
+    if (!connectionPrompt) return [];
+    return Object.values(flow.nodes)
+      .filter((node) => node.id !== connectionPrompt.sourceId)
+      .map((node) => ({
+        id: node.id,
+        label: node.label,
+        descriptor:
+          node.type === "menu"
+            ? "Menú"
+            : node.action?.kind
+            ? `Acción · ${node.action.kind}`
+            : "Acción",
+      }));
+  }, [connectionPrompt, flow.nodes]);
+
+  const handleNodeSizeChange = useCallback((id: string, size: { width: number; height: number }) => {
+    setNodeSizes((prev) => {
+      const current = prev[id];
+      if (current && Math.abs(current.width - size.width) < 0.5 && Math.abs(current.height - size.height) < 0.5) {
+        return prev;
+      }
+      return { ...prev, [id]: size };
+    });
   }, []);
 
   const recomputeHandlePositions = useCallback(() => {
@@ -1283,9 +1330,10 @@ function FlowCanvas(props: {
     const state = pointerState.current;
     if (!evt || !state) return;
     if (state.type === "drag-node") {
-      const context = getStageContext();
-      if (!context) return;
-      const pointerWorld = toWorldCoords(evt, context);
+      const viewportEl = containerRef.current;
+      if (!viewportEl) return;
+      const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
+      const pointerWorld = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
       const nx = pointerWorld.x - state.offset.x;
       const ny = pointerWorld.y - state.offset.y;
       const gx = Math.round(nx / 10) * 10;
@@ -1304,7 +1352,7 @@ function FlowCanvas(props: {
       const dy = (evt.clientY - startClient.y) / currentScale;
       setPanSafe({ x: startPan.x - dx, y: startPan.y - dy });
     }
-  }, [getStageContext, scheduleHandleRecompute, setPanSafe, updateNodePos]);
+  }, [setPanSafe, updateNodePos]);
 
   const scheduleUpdate = useCallback(() => {
     if (frameRef.current != null) return;
@@ -1367,9 +1415,10 @@ function FlowCanvas(props: {
       if (event.button !== 0) return;
       event.preventDefault();
       event.stopPropagation();
-      const context = getStageContext();
-      if (!context) return;
-      const pointerWorld = toWorldCoords(event, context);
+      const viewportEl = containerRef.current;
+      if (!viewportEl) return;
+      const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
+      const pointerWorld = screenToCanvas(event.clientX, event.clientY, viewportEl, viewportState);
       const position = getPos(id);
       pointerState.current = {
         type: "drag-node",
@@ -1382,7 +1431,7 @@ function FlowCanvas(props: {
       clearSelection();
       scheduleUpdate();
     },
-    [getStageContext, getPos, scheduleUpdate]
+    [getPos, scheduleUpdate]
   );
 
   const stopCanvasButtonPointerDown = useCallback((event: React.PointerEvent<HTMLElement>) => {
@@ -1401,33 +1450,18 @@ function FlowCanvas(props: {
     };
   }, [pan.x, pan.y, scale]);
 
-  const handleContextValue = useMemo<HandleRegistryValue>(() => ({ registerHandle, unregisterHandle }), [registerHandle, unregisterHandle]);
-
-  const getSourceFallback = useCallback(
-    (edge: EdgeSpec) => {
-      const specs = outputSpecsByNode.get(edge.from) ?? [edge.sourceSpec];
-      const count = specs.length || 1;
-      const ratio = (edge.sourceSpec.order + 1) / (count + 1);
-      const pos = getPos(edge.from);
-      const x = pos.x + (edge.sourceSpec.side === "right" ? NODE_W : 0);
-      const y = pos.y + ratio * NODE_H;
-      return { x, y };
+  const getNodeGeometry = useCallback(
+    (id: string): NodeGeometry => {
+      const position = getPos(id);
+      const size = nodeSizes[id] ?? { width: NODE_W, height: NODE_H };
+      return { position, size };
     },
-    [getPos, outputSpecsByNode]
-  );
-
-  const getTargetFallback = useCallback(
-    (nodeId: string) => {
-      const pos = getPos(nodeId);
-      return { x: pos.x, y: pos.y + NODE_H / 2 };
-    },
-    [getPos]
+    [getPos, nodeSizes]
   );
 
   return (
-    <HandleRegistryContext.Provider value={handleContextValue}>
-      <div className="relative w-full rounded-xl border overflow-hidden bg-white" style={{ minHeight: "74vh", height: "74vh" }}>
-        <div className="absolute z-20 right-3 top-3 flex gap-2 bg-white/95 backdrop-blur rounded-full border border-emerald-200 p-2 shadow-lg">
+    <div className="relative w-full rounded-xl border overflow-hidden bg-white" style={{ minHeight: "74vh", height: "74vh" }}>
+      <div className="absolute z-20 right-3 top-3 flex gap-2 bg-white/95 backdrop-blur rounded-full border border-emerald-200 p-2 shadow-lg">
           <button
             className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition"
             onClick={() => setScaleSafe(scaleRef.current)}
@@ -1481,7 +1515,6 @@ function FlowCanvas(props: {
           style={gridStyle}
         >
           <div
-            ref={stageRef}
             className="absolute"
             style={{
               width: SURFACE_W,
@@ -1493,8 +1526,15 @@ function FlowCanvas(props: {
             {edges.length > 0 && (
               <svg className="absolute z-0" width={SURFACE_W} height={SURFACE_H}>
                 {edges.map((edge) => {
-                  const source = handlePositions[edge.sourceHandleId] ?? getSourceFallback(edge);
-                  const target = handlePositions[edge.targetHandleId] ?? getTargetFallback(edge.to);
+                  const sourceNode = getNodeGeometry(edge.from);
+                  const targetNode = getNodeGeometry(edge.to);
+                  const sourcePercent = (edge.sourceSpec.order + 1) / (edge.sourceCount + 1);
+                  const sourceAnchor: HandleAnchor = edge.sourceSpec.side === "left"
+                    ? { dx: 0, dy: sourceNode.size.height * sourcePercent }
+                    : { dx: sourceNode.size.width, dy: sourceNode.size.height * sourcePercent };
+                  const targetAnchor: HandleAnchor = { dx: 0, dy: targetNode.size.height * 0.5 };
+                  const source = computeHandlePosition(sourceNode, sourceAnchor);
+                  const target = computeHandlePosition(targetNode, targetAnchor);
                   const direction = target.x >= source.x ? 1 : -1;
                   const distanceX = Math.max(80, Math.abs(target.x - source.x));
                   const controlOffset = distanceX * 0.35;
@@ -1570,6 +1610,7 @@ function FlowCanvas(props: {
                   handleAssignments={assignments}
                   rootId={flow.rootId}
                   onStartConnection={handleStartConnection}
+                  onSizeChange={handleNodeSizeChange}
                 />
               );
             })}
@@ -1650,7 +1691,6 @@ function FlowCanvas(props: {
           )}
         </div>
       </div>
-    </HandleRegistryContext.Provider>
   );
 }
 type PersistedState = {
