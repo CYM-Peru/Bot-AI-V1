@@ -1152,14 +1152,7 @@ function FlowCanvas(props: {
 
   type PointerState =
     | { type: "pan"; pointerId: number; startClient: { x: number; y: number }; startPan: { x: number; y: number } }
-    | {
-        type: "drag-node";
-        pointerId: number;
-        nodeId: string;
-        startClient: { x: number; y: number };
-        startNodePosition: { x: number; y: number };
-        startZoom: number;
-      }
+    | { type: "drag-node"; pointerId: number; nodeId: string; offset: { x: number; y: number } }
     | {
         type: "drag-connection";
         pointerId: number;
@@ -1524,7 +1517,10 @@ function FlowCanvas(props: {
     if (state.type === "drag-connection") {
       const viewportEl = containerRef.current;
       if (!viewportEl) return;
-      maybeAutoPan(evt.clientX, evt.clientY);
+      const autoPanned = maybeAutoPan(evt.clientX, evt.clientY);
+      if (autoPanned) {
+        pointerSchedulerRef.current.schedule();
+      }
       const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
       const pointerWorld = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
       const origin =
@@ -1567,12 +1563,16 @@ function FlowCanvas(props: {
     }
 
     if (state.type === "drag-node") {
-      maybeAutoPan(evt.clientX, evt.clientY);
-      // Calculate position using delta from start, making it independent of autopan
-      const dx = (evt.clientX - state.startClient.x) / state.startZoom;
-      const dy = (evt.clientY - state.startClient.y) / state.startZoom;
-      const nx = state.startNodePosition.x + dx;
-      const ny = state.startNodePosition.y + dy;
+      const viewportEl = containerRef.current;
+      if (!viewportEl) return;
+      const autoPanned = maybeAutoPan(evt.clientX, evt.clientY);
+      if (autoPanned) {
+        pointerSchedulerRef.current.schedule();
+      }
+      const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
+      const pointerWorld = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
+      const nx = pointerWorld.x - state.offset.x;
+      const ny = pointerWorld.y - state.offset.y;
       updateNodePos((prev) => {
         const current = prev[state.nodeId];
         if (current && Math.abs(current.x - nx) < 0.1 && Math.abs(current.y - ny) < 0.1) {
@@ -1708,14 +1708,14 @@ function FlowCanvas(props: {
       event.stopPropagation();
       const viewportEl = containerRef.current;
       if (!viewportEl) return;
+      const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
+      const pointerWorld = screenToCanvas(event.clientX, event.clientY, viewportEl, viewportState);
       const position = getPos(id);
       pointerState.current = {
         type: "drag-node",
         pointerId: event.pointerId,
         nodeId: id,
-        startClient: { x: event.clientX, y: event.clientY },
-        startNodePosition: { x: position.x, y: position.y },
-        startZoom: scaleRef.current || 1,
+        offset: { x: pointerWorld.x - position.x, y: pointerWorld.y - position.y },
       };
       latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
       containerRef.current?.setPointerCapture?.(event.pointerId);
