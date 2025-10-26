@@ -30,6 +30,7 @@ import { createHandleScheduler } from "./utils/scheduler";
 import { buildOrthogonalPath } from "./utils/edgePath";
 import { findNearestHandle, type HandlePointCandidate } from "./utils/hitTest";
 import { formatNextOpening, isInWindow, nextOpening, validateCustomSchedule } from "./flow/scheduler";
+import { computeAutoPanDelta } from "./utils/autoPan";
 
 const NODE_W = 300;
 const NODE_H = 128;
@@ -38,6 +39,8 @@ const SURFACE_H = 3000;
 const GRID_SIZE = 24;
 const HANDLE_SNAP_TOLERANCE = 12;
 const AUTO_SAVE_INTERVAL_MS = 5 * 60 * 1000;
+const AUTOPAN_MARGIN = 96;
+const AUTOPAN_MAX_SPEED = 24;
 
 const DEFAULT_TIMEZONE = "America/Lima";
 const DEFAULT_SCHEDULE_WINDOW: TimeWindow = {
@@ -1228,6 +1231,43 @@ function FlowCanvas(props: {
     [scheduleHandleRecompute]
   );
 
+  const maybeAutoPan = useCallback(
+    (clientX: number, clientY: number) => {
+      const viewportEl = containerRef.current;
+      if (!viewportEl) return false;
+
+      const rect = viewportEl.getBoundingClientRect();
+      const { dx, dy } = computeAutoPanDelta({
+        clientX,
+        clientY,
+        rect,
+        margin: AUTOPAN_MARGIN,
+        maxSpeed: AUTOPAN_MAX_SPEED,
+      });
+
+      if (dx === 0 && dy === 0) {
+        return false;
+      }
+
+      const currentScale = scaleRef.current || 1;
+      const next = {
+        x: panRef.current.x - dx / currentScale,
+        y: panRef.current.y - dy / currentScale,
+      };
+
+      if (
+        Math.abs(next.x - panRef.current.x) < 0.001 &&
+        Math.abs(next.y - panRef.current.y) < 0.001
+      ) {
+        return false;
+      }
+
+      setPanSafe(next);
+      return true;
+    },
+    [setPanSafe]
+  );
+
   useEffect(() => {
     if (!connectionPrompt) return;
     const handlePointerDown = (event: PointerEvent) => {
@@ -1477,6 +1517,7 @@ function FlowCanvas(props: {
     if (state.type === "drag-connection") {
       const viewportEl = containerRef.current;
       if (!viewportEl) return;
+      maybeAutoPan(evt.clientX, evt.clientY);
       const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
       const pointerWorld = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
       const origin =
@@ -1521,6 +1562,7 @@ function FlowCanvas(props: {
     if (state.type === "drag-node") {
       const viewportEl = containerRef.current;
       if (!viewportEl) return;
+      maybeAutoPan(evt.clientX, evt.clientY);
       const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
       const pointerWorld = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
       const nx = pointerWorld.x - state.offset.x;
@@ -1541,7 +1583,7 @@ function FlowCanvas(props: {
       const dy = (evt.clientY - startClient.y) / currentScale;
       setPanSafe({ x: startPan.x - dx, y: startPan.y - dy });
     }
-  }, [setPanSafe, updateNodePos, setConnectionDraft]);
+  }, [maybeAutoPan, setPanSafe, updateNodePos, setConnectionDraft]);
 
   useEffect(() => {
     pointerSchedulerRef.current.setCallback(applyPointerUpdate);
