@@ -1152,7 +1152,12 @@ function FlowCanvas(props: {
 
   type PointerState =
     | { type: "pan"; pointerId: number; startClient: { x: number; y: number }; startPan: { x: number; y: number } }
-    | { type: "drag-node"; pointerId: number; nodeId: string; offset: { x: number; y: number } }
+    | {
+        type: "drag-node";
+        pointerId: number;
+        nodeId: string;
+        offsetInCanvas: { x: number; y: number };
+      }
     | {
         type: "drag-connection";
         pointerId: number;
@@ -1565,23 +1570,48 @@ function FlowCanvas(props: {
     if (state.type === "drag-node") {
       const viewportEl = containerRef.current;
       if (!viewportEl) return;
-      const autoPanned = maybeAutoPan(evt.clientX, evt.clientY);
-      if (autoPanned) {
-        pointerSchedulerRef.current.schedule();
+
+      // Capture pan state before autopan
+      const panBefore = { x: panRef.current.x, y: panRef.current.y };
+
+      // Apply autopan if needed
+      const didAutoPan = maybeAutoPan(evt.clientX, evt.clientY);
+
+      // If autopan changed the viewport, adjust the offset to compensate
+      let adjustedOffset = state.offsetInCanvas;
+      if (didAutoPan) {
+        const panAfter = panRef.current;
+        const panDelta = {
+          x: panAfter.x - panBefore.x,
+          y: panAfter.y - panBefore.y,
+        };
+        // When viewport pans, offset needs to shift in opposite direction
+        adjustedOffset = {
+          x: state.offsetInCanvas.x - panDelta.x,
+          y: state.offsetInCanvas.y - panDelta.y,
+        };
+        // Update the offset in the state for next frame
+        pointerState.current = {
+          ...state,
+          offsetInCanvas: adjustedOffset,
+        };
       }
+
+      // Calculate node position: mouse position in canvas - offset
       const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
-      const pointerWorld = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
-      const nx = pointerWorld.x - state.offset.x;
-      const ny = pointerWorld.y - state.offset.y;
+      const mouseInCanvas = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
+      const nx = mouseInCanvas.x - adjustedOffset.x;
+      const ny = mouseInCanvas.y - adjustedOffset.y;
+
       updateNodePos((prev) => {
         const current = prev[state.nodeId];
         if (current && Math.abs(current.x - nx) < 0.1 && Math.abs(current.y - ny) < 0.1) {
           return prev;
         }
-        const next = { ...prev, [state.nodeId]: { x: nx, y: ny } };
-        return next;
+        return { ...prev, [state.nodeId]: { x: nx, y: ny } };
       });
-      scheduleHandleRecompute();
+      // Don't recompute handles during active drag - it causes visual glitches
+      // Handles will be recomputed when drag ends
     } else if (state.type === "pan") {
       const { startClient, startPan } = state;
       const currentScale = scaleRef.current || 1;
@@ -1614,6 +1644,7 @@ function FlowCanvas(props: {
   const stopPointer = useCallback((pointerId: number) => {
     const current = pointerState.current;
     if (current?.pointerId !== pointerId) return;
+    const wasDraggingNode = current.type === "drag-node";
     pointerState.current = null;
     if (current.type === "drag-connection") {
       setConnectionDraft(null);
@@ -1622,7 +1653,11 @@ function FlowCanvas(props: {
     pointerSchedulerRef.current.cancel();
     const container = containerRef.current;
     container?.releasePointerCapture?.(pointerId);
-  }, []);
+    // Recompute handles after drag ends to sync positions
+    if (wasDraggingNode) {
+      scheduleHandleRecompute("move");
+    }
+  }, [scheduleHandleRecompute]);
 
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -1630,9 +1665,9 @@ function FlowCanvas(props: {
       latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
       clearSelection();
       pointerSchedulerRef.current.schedule();
-      scheduleHandleRecompute("move");
+      // Don't schedule handle recompute on every move - causes glitches during drag
     },
-    [clearSelection, scheduleHandleRecompute]
+    [clearSelection]
   );
 
   const handlePointerUp = useCallback(
@@ -1709,21 +1744,25 @@ function FlowCanvas(props: {
       const viewportEl = containerRef.current;
       if (!viewportEl) return;
       const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
-      const pointerWorld = screenToCanvas(event.clientX, event.clientY, viewportEl, viewportState);
-      const position = getPos(id);
+      const mouseInCanvas = screenToCanvas(event.clientX, event.clientY, viewportEl, viewportState);
+      const nodePosition = getPos(id);
+      // Calculate offset: how far is the mouse from the node's top-left corner (in canvas coords)
+      const offsetInCanvas = {
+        x: mouseInCanvas.x - nodePosition.x,
+        y: mouseInCanvas.y - nodePosition.y,
+      };
       pointerState.current = {
         type: "drag-node",
         pointerId: event.pointerId,
         nodeId: id,
-        offset: { x: pointerWorld.x - position.x, y: pointerWorld.y - position.y },
+        offsetInCanvas,
       };
       latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
       containerRef.current?.setPointerCapture?.(event.pointerId);
       clearSelection();
       pointerSchedulerRef.current.schedule();
-      scheduleHandleRecompute("move");
     },
-    [clearSelection, getPos, scheduleHandleRecompute]
+    [clearSelection, getPos]
   );
 
   const stopCanvasButtonPointerDown = useCallback((event: React.PointerEvent<HTMLElement>) => {
