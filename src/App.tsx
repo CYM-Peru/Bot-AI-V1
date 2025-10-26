@@ -1116,9 +1116,6 @@ function FlowCanvas(props: {
     }
     return map;
   }, [nodes]);
-  useEffect(() => {
-    scheduleHandleRecompute("resize");
-  }, [nodes, scheduleHandleRecompute]);
   const edges = useMemo(() => {
     const list: EdgeSpec[] = [];
     for (const node of nodes) {
@@ -1195,6 +1192,10 @@ function FlowCanvas(props: {
     pendingHandleReasonsRef.current.add(reason);
     handleMeasureSchedulerRef.current.schedule();
   }
+
+  useEffect(() => {
+    scheduleHandleRecompute("resize");
+  }, [nodes, scheduleHandleRecompute]);
 
   useEffect(() => {
     scaleRef.current = scale;
@@ -1404,59 +1405,6 @@ function FlowCanvas(props: {
       return { ...prev, [id]: size };
     });
     scheduleHandleRecompute("resize");
-  }, []);
-
-  const registerHandle = useCallback(
-    (key: string, nodeId: string, spec: HandleSpec, element: HTMLElement | null) => {
-      if (!element) {
-        handleElementsRef.current.delete(key);
-      } else {
-        handleElementsRef.current.set(key, { key, nodeId, spec, element });
-      }
-      scheduleHandleRecompute("resize");
-    },
-    []
-  );
-
-  const recomputeHandles = useCallback(() => {
-    const viewportEl = containerRef.current;
-    if (!viewportEl) {
-      pendingHandleReasonsRef.current.clear();
-      return;
-    }
-    const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
-    const devicePixelRatio = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1;
-    const nextPositions: Record<string, { x: number; y: number }> = {};
-    handleElementsRef.current.forEach((entry, key) => {
-      const rect = entry.element.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      const canvasPoint = screenToCanvas(centerX, centerY, viewportEl, viewportState);
-      nextPositions[key] = {
-        x: Math.round(canvasPoint.x * devicePixelRatio) / devicePixelRatio,
-        y: Math.round(canvasPoint.y * devicePixelRatio) / devicePixelRatio,
-      };
-    });
-    setHandlePositions((prev) => {
-      const prevKeys = Object.keys(prev);
-      const nextKeys = Object.keys(nextPositions);
-      if (prevKeys.length === nextKeys.length) {
-        let same = true;
-        for (const key of nextKeys) {
-          const prevPoint = prev[key];
-          const nextPoint = nextPositions[key];
-          if (!prevPoint || Math.abs(prevPoint.x - nextPoint.x) > 0.5 || Math.abs(prevPoint.y - nextPoint.y) > 0.5) {
-            same = false;
-            break;
-          }
-        }
-        if (same) {
-          return prev;
-        }
-      }
-      return nextPositions;
-    });
-    pendingHandleReasonsRef.current.clear();
   }, []);
 
   const registerHandle = useCallback(
