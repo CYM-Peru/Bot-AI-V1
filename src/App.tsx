@@ -1088,11 +1088,6 @@ function FlowCanvas(props: {
     [setPanSafe, setScaleSafe]
   );
 
-  const nodePosRef = useRef(nodePositions);
-  useEffect(() => {
-    nodePosRef.current = nodePositions;
-  }, [nodePositions]);
-
   const updateNodePos = useCallback(
     (
       updater:
@@ -1105,11 +1100,10 @@ function FlowCanvas(props: {
   );
 
   useEffect(() => {
-    const current = nodePosRef.current;
     let needsUpdate = false;
     const missing: Record<string, { x: number; y: number }> = {};
     for (const id of Object.keys(autoLayout)) {
-      if (!current[id]) {
+      if (!nodePositions[id]) {
         missing[id] = autoLayout[id];
         needsUpdate = true;
       }
@@ -1126,11 +1120,11 @@ function FlowCanvas(props: {
       }
       return changed ? next : prev;
     });
-  }, [autoLayout, onPositionsChange]);
+  }, [autoLayout, nodePositions, onPositionsChange]);
 
   const getPos = useCallback(
-    (id: string) => nodePosRef.current[id] ?? autoLayout[id] ?? { x: 0, y: 0 },
-    [autoLayout]
+    (id: string) => nodePositions[id] ?? autoLayout[id] ?? { x: 0, y: 0 },
+    [nodePositions, autoLayout]
   );
 
   type PointerState =
@@ -1209,111 +1203,6 @@ function FlowCanvas(props: {
     });
   }, []);
 
-  const recomputeHandlePositions = useCallback(() => {
-    const context = getStageContext();
-    if (!context) return;
-    const viewport = { stageRect: context.rect, scale: context.scale, pan: context.pan };
-    const next: Record<string, { x: number; y: number }> = {};
-    handleElements.current.forEach(({ nodeElement, handleElement }, id) => {
-      if (!nodeElement || !handleElement) return;
-      const nodeRect = nodeElement.getBoundingClientRect();
-      const handleRect = handleElement.getBoundingClientRect();
-      if (nodeRect.width === 0 || nodeRect.height === 0) return;
-      const anchor = {
-        x: (handleRect.left - nodeRect.left + handleRect.width / 2) / nodeRect.width,
-        y: (handleRect.top - nodeRect.top + handleRect.height / 2) / nodeRect.height,
-      };
-      const position = computeHandlePosition(nodeRect, anchor, viewport);
-      const quantized = quantizeForDPR(position, context.devicePixelRatio);
-      next[id] = quantized;
-    });
-    setHandlePositions(next);
-  }, [getStageContext]);
-
-  const scheduleHandleRecompute = useCallback(() => {
-    if (handleFrameRef.current != null) return;
-    handleFrameRef.current = requestAnimationFrame(() => {
-      handleFrameRef.current = null;
-      recomputeHandlePositions();
-    });
-  }, [recomputeHandlePositions]);
-
-  const registerHandle = useCallback(
-    (handleId: string, nodeElement: HTMLElement, handleElement: HTMLElement) => {
-      handleElements.current.set(handleId, { nodeElement, handleElement });
-      scheduleHandleRecompute();
-    },
-    [scheduleHandleRecompute]
-  );
-
-  const handleStartConnection = useCallback(
-    (nodeId: string, spec: HandleSpec, client: { x: number; y: number }) => {
-      if (spec.type !== "output") return;
-      const containerRect = containerRef.current?.getBoundingClientRect();
-      const anchor = {
-        x: client.x - (containerRect?.left ?? 0),
-        y: client.y - (containerRect?.top ?? 0),
-      };
-      const assignments = handleAssignmentsByNode.get(nodeId) ?? {};
-      setConnectionPrompt({
-        sourceId: nodeId,
-        handleId: spec.id,
-        spec,
-        anchor,
-        currentTargetId: assignments[spec.id] ?? null,
-      });
-    },
-    [handleAssignmentsByNode]
-  );
-
-  const handleConnectSelection = useCallback(
-    (targetId: string | null) => {
-      setConnectionPrompt((prev) => {
-        if (!prev) return prev;
-        const success = onConnectHandle(prev.sourceId, prev.handleId, targetId);
-        return success ? null : prev;
-      });
-    },
-    [onConnectHandle]
-  );
-
-  const handleCreateSelection = useCallback(
-    (kind: ConnectionCreationKind) => {
-      setConnectionPrompt((prev) => {
-        if (!prev) return prev;
-        const createdId = onCreateForHandle(prev.sourceId, prev.handleId, kind);
-        return createdId ? null : prev;
-      });
-    },
-    [onCreateForHandle]
-  );
-
-  const targetOptions = useMemo(() => {
-    if (!connectionPrompt) return [];
-    return Object.values(flow.nodes)
-      .filter((node) => node.id !== connectionPrompt.sourceId)
-      .map((node) => ({
-        id: node.id,
-        label: node.label,
-        descriptor:
-          node.type === "menu"
-            ? "Menú"
-            : node.action?.kind
-            ? `Acción · ${node.action.kind}`
-            : "Acción",
-      }));
-  }, [connectionPrompt, flow.nodes]);
-
-  const unregisterHandle = useCallback((handleId: string) => {
-    handleElements.current.delete(handleId);
-    setHandlePositions((prev) => {
-      if (!(handleId in prev)) return prev;
-      const next = { ...prev };
-      delete next[handleId];
-      return next;
-    });
-  }, []);
-
   useEffect(() => {
     scheduleHandleRecompute();
   }, [scheduleHandleRecompute, scale, pan, nodes, edges]);
@@ -1336,12 +1225,12 @@ function FlowCanvas(props: {
       const pointerWorld = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
       const nx = pointerWorld.x - state.offset.x;
       const ny = pointerWorld.y - state.offset.y;
-      const gx = Math.round(nx / 10) * 10;
-      const gy = Math.round(ny / 10) * 10;
       updateNodePos((prev) => {
         const current = prev[state.nodeId];
-        if (current && current.x === gx && current.y === gy) return prev;
-        const next = { ...prev, [state.nodeId]: { x: gx, y: gy } };
+        if (current && Math.abs(current.x - nx) < 0.1 && Math.abs(current.y - ny) < 0.1) {
+          return prev;
+        }
+        const next = { ...prev, [state.nodeId]: { x: nx, y: ny } };
         return next;
       });
       scheduleHandleRecompute();
