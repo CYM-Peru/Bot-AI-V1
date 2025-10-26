@@ -832,8 +832,9 @@ const CanvasNode = React.memo((props: CanvasNodeProps) => {
     if (!element) return;
 
     const report = () => {
-      const rect = element.getBoundingClientRect();
-      const next = { width: rect.width, height: rect.height };
+      const width = element.offsetWidth;
+      const height = element.offsetHeight;
+      const next = { width, height };
       onSizeChange(node.id, next);
     };
 
