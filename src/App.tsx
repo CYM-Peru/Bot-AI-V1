@@ -1159,7 +1159,6 @@ function FlowCanvas(props: {
         startClient: { x: number; y: number };
         startNodePosition: { x: number; y: number };
         startPan: { x: number; y: number };
-        startZoom: number;
       }
     | {
         type: "drag-connection";
@@ -1569,14 +1568,17 @@ function FlowCanvas(props: {
 
     if (state.type === "drag-node") {
       maybeAutoPan(evt.clientX, evt.clientY);
-      // Calculate position using delta from start + compensating for viewport pan changes
-      const mouseDx = (evt.clientX - state.startClient.x) / state.startZoom;
-      const mouseDy = (evt.clientY - state.startClient.y) / state.startZoom;
-      // Compensate for pan changes caused by autopan
+      // Calculate position: start + mouse delta + pan delta
+      // This keeps node under cursor even when autopan shifts viewport
+      const currentZoom = scaleRef.current || 1;
+      const screenDx = evt.clientX - state.startClient.x;
+      const screenDy = evt.clientY - state.startClient.y;
+      const canvasDx = screenDx / currentZoom;
+      const canvasDy = screenDy / currentZoom;
       const panDeltaX = panRef.current.x - state.startPan.x;
       const panDeltaY = panRef.current.y - state.startPan.y;
-      const nx = state.startNodePosition.x + mouseDx + panDeltaX;
-      const ny = state.startNodePosition.y + mouseDy + panDeltaY;
+      const nx = state.startNodePosition.x + canvasDx + panDeltaX;
+      const ny = state.startNodePosition.y + canvasDy + panDeltaY;
       updateNodePos((prev) => {
         const current = prev[state.nodeId];
         if (current && Math.abs(current.x - nx) < 0.1 && Math.abs(current.y - ny) < 0.1) {
@@ -1726,15 +1728,13 @@ function FlowCanvas(props: {
         startClient: { x: event.clientX, y: event.clientY },
         startNodePosition: { x: position.x, y: position.y },
         startPan: { x: panRef.current.x, y: panRef.current.y },
-        startZoom: scaleRef.current || 1,
       };
       latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
       containerRef.current?.setPointerCapture?.(event.pointerId);
       clearSelection();
       pointerSchedulerRef.current.schedule();
-      scheduleHandleRecompute("move");
     },
-    [clearSelection, getPos, scheduleHandleRecompute]
+    [clearSelection, getPos]
   );
 
   const stopCanvasButtonPointerDown = useCallback((event: React.PointerEvent<HTMLElement>) => {
