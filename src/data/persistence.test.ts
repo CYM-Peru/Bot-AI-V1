@@ -61,6 +61,8 @@ describe("persistence", () => {
       },
       load: async () => ({ id: "x", value: 1 }),
     });
-    await expect(saveFlow(workspaceId, { id: "x", value: 1 })).rejects.toThrow("fail");
+    await expect(saveFlow(workspaceId, { id: "x", value: 1 })).rejects.toThrow(
+      "Error saving flow: fail"
+    );
   });
 });
