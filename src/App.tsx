@@ -1461,6 +1461,16 @@ function FlowCanvas(props: {
     scheduleHandleRecompute("resize");
   }, []);
 
+  useEffect(() => {
+    scheduleHandleRecompute();
+  }, [scheduleHandleRecompute, scale, pan, nodes, edges]);
+
+  useEffect(() => {
+    const onResize = () => scheduleHandleRecompute();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [scheduleHandleRecompute]);
+
   const applyPointerUpdate = useCallback(() => {
     const evt = latestEventRef.current;
     const state = pointerState.current;
@@ -1512,6 +1522,8 @@ function FlowCanvas(props: {
         const next = { ...prev, [state.nodeId]: { x: nx, y: ny } };
         return next;
       });
+      // Don't recompute handles during active drag - it causes visual glitches
+      // Handles will be recomputed when drag ends
     } else if (state.type === "pan") {
       const { startClient, startPan } = state;
       const currentScale = scaleRef.current || 1;
@@ -1527,6 +1539,19 @@ function FlowCanvas(props: {
       pointerSchedulerRef.current.cancel();
     };
   }, [applyPointerUpdate]);
+
+  useEffect(() => {
+    handleMeasureSchedulerRef.current.setCallback(() => {
+      if (typeof queueMicrotask === "function") {
+        queueMicrotask(recomputeHandles);
+      } else {
+        Promise.resolve().then(recomputeHandles);
+      }
+    });
+    return () => {
+      handleMeasureSchedulerRef.current.cancel();
+    };
+  }, [recomputeHandles]);
 
   const stopPointer = useCallback((pointerId: number) => {
     const current = pointerState.current;
