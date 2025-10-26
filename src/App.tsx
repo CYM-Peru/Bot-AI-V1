@@ -230,6 +230,96 @@ export function getAskData(node: FlowNode): AskActionData | null {
   };
 }
 
+function applyHandleAssignment(flow: Flow, sourceId: string, handleId: string, targetId: string | null): boolean {
+  const node = flow.nodes[sourceId];
+  if (!node) return false;
+
+  if (node.type === "menu" && handleId.startsWith("out:menu:")) {
+    const options = getMenuOptions(node);
+    const index = options.findIndex((option) => `out:menu:${option.id}` === handleId);
+    if (index === -1) return false;
+    const current = options[index].targetId ?? null;
+    if (current === targetId) return false;
+    options[index] = { ...options[index], targetId };
+    node.menuOptions = options;
+    const children = new Set<string>();
+    for (const option of options) {
+      if (option.targetId) {
+        children.add(option.targetId);
+      }
+    }
+    node.children = Array.from(children);
+    return true;
+  }
+
+  if (node.action?.kind === "buttons" && handleId.startsWith("out:button:")) {
+    const data = normalizeButtonsData(node.action.data as Partial<ButtonsActionData> | undefined);
+    const token = handleId.split(":")[2];
+    if (!token) return false;
+    if (token === "more") {
+      const current = data.moreTargetId ?? null;
+      if (current === targetId) return false;
+      data.moreTargetId = targetId;
+    } else {
+      const index = data.items.findIndex((item) => item.id === token);
+      if (index === -1) return false;
+      const current = data.items[index].targetId ?? null;
+      if (current === targetId) return false;
+      data.items[index] = { ...data.items[index], targetId };
+    }
+    node.action = { ...node.action, data };
+    const children = new Set<string>();
+    for (const item of data.items) {
+      if (item.targetId) {
+        children.add(item.targetId);
+      }
+    }
+    if (data.moreTargetId) {
+      children.add(data.moreTargetId);
+    }
+    node.children = Array.from(children);
+    return true;
+  }
+
+  if (node.action?.kind === "ask") {
+    const ask = getAskData(node);
+    if (!ask) return false;
+    const updated: AskActionData = { ...ask };
+    if (handleId === "out:answer") {
+      if (updated.answerTargetId === targetId) return false;
+      updated.answerTargetId = targetId;
+    } else if (handleId === "out:invalid") {
+      if (updated.invalidTargetId === targetId) return false;
+      updated.invalidTargetId = targetId;
+    } else {
+      return false;
+    }
+    node.action = { ...node.action, data: updated };
+    const children = new Set<string>();
+    if (updated.answerTargetId) children.add(updated.answerTargetId);
+    if (updated.invalidTargetId) children.add(updated.invalidTargetId);
+    node.children = Array.from(children);
+    return true;
+  }
+
+  if (handleId === "out:default") {
+    const current = node.children?.[0] ?? null;
+    if (current === targetId) return false;
+    node.children = targetId ? [targetId] : [];
+    return true;
+  }
+
+  if (!targetId) {
+    return false;
+  }
+
+  const existing = new Set(node.children ?? []);
+  if (existing.has(targetId)) return false;
+  existing.add(targetId);
+  node.children = Array.from(existing);
+  return true;
+}
+
 type HandleSpec = {
   id: string;
   label: string;
@@ -470,15 +560,33 @@ type EdgeSpec = {
   sourceSpec: HandleSpec;
 };
 
+type ConnectionCreationKind = "menu" | "message" | "buttons" | "ask";
+
+type ConnectionPromptState = {
+  sourceId: string;
+  handleId: string;
+  spec: HandleSpec;
+  anchor: { x: number; y: number };
+  currentTargetId: string | null;
+};
+
 type HandlePointProps = {
   nodeId: string;
   spec: HandleSpec;
   nodeRef: React.RefObject<HTMLDivElement>;
   positionPercent: number;
   isConnected: boolean;
+  onStartConnection?: (clientPosition: { x: number; y: number }) => void;
 };
 
-const HandlePoint: React.FC<HandlePointProps> = ({ nodeId, spec, nodeRef, positionPercent, isConnected }) => {
+const HandlePoint: React.FC<HandlePointProps> = ({
+  nodeId,
+  spec,
+  nodeRef,
+  positionPercent,
+  isConnected,
+  onStartConnection,
+}) => {
   const registry = React.useContext(HandleRegistryContext);
   const spanRef = useRef<HTMLSpanElement | null>(null);
 
@@ -509,7 +617,15 @@ const HandlePoint: React.FC<HandlePointProps> = ({ nodeId, spec, nodeRef, positi
       className={`absolute ${sideClass} -translate-y-1/2 w-4 h-4 rounded-full border ${variantClass} ${connectedClass}`}
       style={{ top: `${positionPercent * 100}%` }}
       title={spec.label}
-      onPointerDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        if (spec.type === "output" && onStartConnection) {
+          const rect = spanRef.current?.getBoundingClientRect();
+          const clientX = rect ? rect.left + rect.width / 2 : event.clientX;
+          const clientY = rect ? rect.top + rect.height / 2 : event.clientY;
+          onStartConnection({ x: clientX, y: clientY });
+        }
+      }}
     />
   );
 };
@@ -527,6 +643,7 @@ type CanvasNodeProps = {
   outputSpecs: HandleSpec[];
   handleAssignments: Record<string, string | null>;
   rootId: string;
+  onStartConnection: (nodeId: string, spec: HandleSpec, clientPosition: { x: number; y: number }) => void;
 };
 
 const CanvasNode = React.memo((props: CanvasNodeProps) => {
@@ -543,6 +660,7 @@ const CanvasNode = React.memo((props: CanvasNodeProps) => {
     outputSpecs,
     handleAssignments,
     rootId,
+    onStartConnection,
   } = props;
   const nodeRef = useRef<HTMLDivElement | null>(null);
   const badge = node.type === "menu" ? "bg-emerald-50 border-emerald-300 text-emerald-600" : "bg-violet-50 border-violet-300 text-violet-600";
@@ -579,6 +697,7 @@ const CanvasNode = React.memo((props: CanvasNodeProps) => {
             nodeRef={nodeRef}
             positionPercent={positionPercent}
             isConnected={Boolean(handleAssignments[spec.id])}
+            onStartConnection={(client) => onStartConnection(node.id, spec, client)}
           />
         );
       })}
@@ -649,6 +768,8 @@ function FlowCanvas(props: {
   onDuplicateNode: (id: string) => void;
   onInsertBetween: (parentId: string, childId: string) => void;
   onDeleteEdge: (parentId: string, childId: string) => void;
+  onConnectHandle: (sourceId: string, handleId: string, targetId: string | null) => boolean;
+  onCreateForHandle: (sourceId: string, handleId: string, kind: ConnectionCreationKind) => string | null;
   soloRoot: boolean;
   toggleScope: () => void;
   nodePositions: Record<string, { x: number; y: number }>;
@@ -667,6 +788,8 @@ function FlowCanvas(props: {
     onDuplicateNode,
     onInsertBetween,
     onDeleteEdge,
+    onConnectHandle,
+    onCreateForHandle,
     soloRoot,
     toggleScope,
     nodePositions,
@@ -727,6 +850,8 @@ function FlowCanvas(props: {
   const handleElements = useRef(new Map<string, { nodeElement: HTMLElement; handleElement: HTMLElement }>());
   const handleFrameRef = useRef<number | null>(null);
   const [handlePositions, setHandlePositions] = useState<Record<string, { x: number; y: number }>>({});
+  const [connectionPrompt, setConnectionPrompt] = useState<ConnectionPromptState | null>(null);
+  const connectionPromptRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     scaleRef.current = scale;
@@ -744,6 +869,27 @@ function FlowCanvas(props: {
     panRef.current = next;
     setPanState(next);
   }, []);
+
+  useEffect(() => {
+    if (!connectionPrompt) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!connectionPromptRef.current) return;
+      const target = event.target as Node | null;
+      if (target && connectionPromptRef.current.contains(target)) return;
+      setConnectionPrompt(null);
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setConnectionPrompt(null);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [connectionPrompt]);
 
   const onWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
@@ -869,6 +1015,64 @@ function FlowCanvas(props: {
     },
     [scheduleHandleRecompute]
   );
+
+  const handleStartConnection = useCallback(
+    (nodeId: string, spec: HandleSpec, client: { x: number; y: number }) => {
+      if (spec.type !== "output") return;
+      const containerRect = containerRef.current?.getBoundingClientRect();
+      const anchor = {
+        x: client.x - (containerRect?.left ?? 0),
+        y: client.y - (containerRect?.top ?? 0),
+      };
+      const assignments = handleAssignmentsByNode.get(nodeId) ?? {};
+      setConnectionPrompt({
+        sourceId: nodeId,
+        handleId: spec.id,
+        spec,
+        anchor,
+        currentTargetId: assignments[spec.id] ?? null,
+      });
+    },
+    [handleAssignmentsByNode]
+  );
+
+  const handleConnectSelection = useCallback(
+    (targetId: string | null) => {
+      setConnectionPrompt((prev) => {
+        if (!prev) return prev;
+        const success = onConnectHandle(prev.sourceId, prev.handleId, targetId);
+        return success ? null : prev;
+      });
+    },
+    [onConnectHandle]
+  );
+
+  const handleCreateSelection = useCallback(
+    (kind: ConnectionCreationKind) => {
+      setConnectionPrompt((prev) => {
+        if (!prev) return prev;
+        const createdId = onCreateForHandle(prev.sourceId, prev.handleId, kind);
+        return createdId ? null : prev;
+      });
+    },
+    [onCreateForHandle]
+  );
+
+  const targetOptions = useMemo(() => {
+    if (!connectionPrompt) return [];
+    return Object.values(flow.nodes)
+      .filter((node) => node.id !== connectionPrompt.sourceId)
+      .map((node) => ({
+        id: node.id,
+        label: node.label,
+        descriptor:
+          node.type === "menu"
+            ? "Menú"
+            : node.action?.kind
+            ? `Acción · ${node.action.kind}`
+            : "Acción",
+      }));
+  }, [connectionPrompt, flow.nodes]);
 
   const unregisterHandle = useCallback((handleId: string) => {
     handleElements.current.delete(handleId);
@@ -1171,10 +1375,85 @@ function FlowCanvas(props: {
                   outputSpecs={outputSpecs}
                   handleAssignments={assignments}
                   rootId={flow.rootId}
+                  onStartConnection={handleStartConnection}
                 />
               );
             })}
           </div>
+          {connectionPrompt && (
+            <div
+              className="absolute z-30"
+              style={{ left: connectionPrompt.anchor.x, top: connectionPrompt.anchor.y }}
+            >
+              <div
+                ref={connectionPromptRef}
+                className="min-w-[240px] max-w-[280px] -translate-x-1/2 translate-y-3 rounded-xl border border-emerald-200 bg-white p-3 shadow-xl"
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                <div className="text-[11px] font-semibold text-slate-600 mb-2">
+                  Siguiente paso · {connectionPrompt.spec.label}
+                </div>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <button
+                    className="px-2.5 py-1 text-xs rounded-full bg-emerald-500 text-white shadow-sm hover:bg-emerald-600"
+                    onClick={() => handleCreateSelection("message")}
+                  >
+                    Nuevo mensaje
+                  </button>
+                  <button
+                    className="px-2.5 py-1 text-xs rounded-full bg-emerald-500 text-white shadow-sm hover:bg-emerald-600"
+                    onClick={() => handleCreateSelection("buttons")}
+                  >
+                    Botones
+                  </button>
+                  <button
+                    className="px-2.5 py-1 text-xs rounded-full bg-emerald-500 text-white shadow-sm hover:bg-emerald-600"
+                    onClick={() => handleCreateSelection("ask")}
+                  >
+                    Pregunta
+                  </button>
+                  <button
+                    className="px-2.5 py-1 text-xs rounded-full bg-emerald-200 text-emerald-700 shadow-sm hover:bg-emerald-300"
+                    onClick={() => handleCreateSelection("menu")}
+                  >
+                    Submenú
+                  </button>
+                </div>
+                <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">
+                  Conectar con existente
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-1">
+                  {targetOptions.length === 0 ? (
+                    <div className="text-[11px] text-slate-400">No hay otros nodos disponibles.</div>
+                  ) : (
+                    targetOptions.map((option) => {
+                      const isActive = option.id === connectionPrompt.currentTargetId;
+                      return (
+                        <button
+                          key={option.id}
+                          className={`w-full text-left px-2 py-1 rounded-lg border text-xs flex flex-col gap-0.5 transition hover:border-emerald-300 hover:bg-emerald-50 ${
+                            isActive ? "border-emerald-400 bg-emerald-50" : "border-slate-200"
+                          }`}
+                          onClick={() => handleConnectSelection(option.id)}
+                        >
+                          <span className="font-medium text-slate-700 truncate">{option.label}</span>
+                          <span className="text-[10px] text-slate-400">{option.descriptor}</span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+                {connectionPrompt.currentTargetId && (
+                  <button
+                    className="mt-3 w-full px-2.5 py-1 text-xs rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50"
+                    onClick={() => handleConnectSelection(null)}
+                  >
+                    Quitar destino
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </HandleRegistryContext.Provider>
@@ -1774,6 +2053,110 @@ export default function App(): JSX.Element {
     setSelectedId(nid);
   }
 
+  const handleConnectHandle = useCallback(
+    (sourceId: string, handleId: string, targetId: string | null) => {
+      let updated = false;
+      setFlow((prev) => {
+        const next: Flow = JSON.parse(JSON.stringify(prev));
+        if (targetId && !next.nodes[targetId]) {
+          return prev;
+        }
+        if (!applyHandleAssignment(next, sourceId, handleId, targetId ?? null)) {
+          return prev;
+        }
+        updated = true;
+        return next;
+      });
+      return updated;
+    },
+    [setFlow]
+  );
+
+  const handleCreateForHandle = useCallback(
+    (sourceId: string, handleId: string, kind: ConnectionCreationKind) => {
+      let createdId: string | null = null;
+      setFlow((prev) => {
+        const next: Flow = JSON.parse(JSON.stringify(prev));
+        const source = next.nodes[sourceId];
+        if (!source) return prev;
+        const nid = nextChildId(next, sourceId);
+        const baseLabel =
+          kind === "menu"
+            ? "Nuevo submenú"
+            : kind === "ask"
+            ? "Pregunta al cliente"
+            : kind === "buttons"
+            ? "Acción · botones"
+            : "Acción · mensaje";
+        let newNode: FlowNode;
+        if (kind === "menu") {
+          newNode = { id: nid, label: baseLabel, type: "menu", children: [], menuOptions: [] } as FlowNode;
+        } else if (kind === "ask") {
+          newNode = {
+            id: nid,
+            label: baseLabel,
+            type: "action",
+            children: [],
+            action: {
+              kind: "ask",
+              data: {
+                questionText: "¿Cuál es tu respuesta?",
+                varName: "respuesta",
+                varType: "text",
+                validation: { type: "none" },
+                retryMessage: "Lo siento, ¿puedes intentarlo de nuevo?",
+                answerTargetId: null,
+                invalidTargetId: null,
+              },
+            },
+          } as FlowNode;
+        } else if (kind === "buttons") {
+          newNode = {
+            id: nid,
+            label: baseLabel,
+            type: "action",
+            children: [],
+            action: {
+              kind: "buttons",
+              data: normalizeButtonsData({
+                items: [
+                  createButtonOption(0, { label: "Opción 1", value: "OP_1" }),
+                  createButtonOption(1, { label: "Opción 2", value: "OP_2" }),
+                ],
+                maxButtons: DEFAULT_BUTTON_LIMIT,
+              }),
+            },
+          } as FlowNode;
+        } else {
+          newNode = {
+            id: nid,
+            label: baseLabel,
+            type: "action",
+            children: [],
+            action: { kind: "message", data: { text: "Mensaje" } },
+          } as FlowNode;
+        }
+        next.nodes[nid] = newNode;
+        if (!applyHandleAssignment(next, sourceId, handleId, nid)) {
+          delete next.nodes[nid];
+          return prev;
+        }
+        createdId = nid;
+        return next;
+      });
+      if (createdId) {
+        const parentPos = positionsRef.current[sourceId] ?? computeLayout(flowRef.current)[sourceId] ?? { x: 0, y: 0 };
+        setPositions((prev) => ({
+          ...prev,
+          [createdId as string]: { x: parentPos.x + NODE_W + 40, y: parentPos.y + NODE_H + 40 },
+        }));
+        setSelectedId(createdId);
+      }
+      return createdId;
+    },
+    [setFlow, setPositions, setSelectedId]
+  );
+
   function insertBetween(parentId:string, childId:string){
     const nid = nextChildId(flow, parentId);
     setFlow(prev=>{
@@ -1930,6 +2313,8 @@ export default function App(): JSX.Element {
                 onDuplicateNode={duplicateNode}
                 onInsertBetween={insertBetween}
                 onDeleteEdge={deleteEdge}
+                onConnectHandle={handleConnectHandle}
+                onCreateForHandle={handleCreateForHandle}
                 soloRoot={soloRoot}
                 toggleScope={()=>setSoloRoot(s=>!s)}
                 nodePositions={positionsState}
