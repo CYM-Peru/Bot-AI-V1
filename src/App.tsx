@@ -1156,13 +1156,24 @@ function FlowCanvas(props: {
   const pointerState = useRef<PointerState | null>(null);
   const latestEventRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const pointerSchedulerRef = useRef(createHandleScheduler(() => {}));
+  const handleMeasureSchedulerRef = useRef(createHandleScheduler(() => {}));
   const [connectionDraft, setConnectionDraft] = useState<ConnectionDraft | null>(null);
   const connectionDraftRef = useRef(connectionDraft);
   const [pendingDuplicateId, setPendingDuplicateId] = useState<string | null>(null);
+  const pendingHandleMeasureRef = useRef(false);
 
-  function scheduleHandleRecompute(_reason: HandleRecomputeReason = "move"): void {
-    /* handle anchors derive directly from node geometry */
-  }
+  const scheduleHandleRecompute = useCallback(
+    (reason: HandleRecomputeReason = "move") => {
+      const state = pointerState.current;
+      if (reason === "move" && state?.type === "drag-node") {
+        pendingHandleMeasureRef.current = true;
+        return;
+      }
+      pendingHandleMeasureRef.current = false;
+      handleMeasureSchedulerRef.current.schedule();
+    },
+    []
+  );
 
   useEffect(() => {
     scaleRef.current = scale;
@@ -1361,6 +1372,71 @@ function FlowCanvas(props: {
     });
   }, [nodes, getHandlePoint]);
 
+  const recomputeHandles = useCallback(() => {
+    const viewportEl = containerRef.current;
+    const viewportState = viewportEl
+      ? { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current }
+      : null;
+    const containerRect = viewportEl?.getBoundingClientRect();
+
+    const within = (a: number, b: number, epsilon = 0.5) => Math.abs(a - b) < epsilon;
+
+    if (viewportEl && viewportState && containerRect) {
+      setConnectionPrompt((current) => {
+        if (!current) return current;
+        const origin = getHandlePoint(current.sourceId, current.spec);
+        const screenPoint = canvasToScreen(origin.x, origin.y, viewportEl, viewportState);
+        const anchor = {
+          x: screenPoint.clientX - containerRect.left,
+          y: screenPoint.clientY - containerRect.top,
+        };
+        if (within(anchor.x, current.anchor.x) && within(anchor.y, current.anchor.y)) {
+          return current;
+        }
+        return { ...current, anchor };
+      });
+    }
+
+    setConnectionDraft((current) => {
+      if (!current) return current;
+
+      const pointer = pointerState.current;
+      let spec: HandleSpec | null = null;
+      if (pointer?.type === "drag-connection" && pointer.handleKey === current.handleKey) {
+        spec = pointer.spec;
+      } else {
+        const specs = outputSpecsByNode.get(current.sourceId) ?? [];
+        spec = specs.find((candidate) => candidate.id === current.handleId) ?? null;
+      }
+
+      if (!spec) {
+        return current;
+      }
+
+      const origin = getHandlePoint(current.sourceId, spec);
+      let nextTo = current.to;
+      if (current.targetHandleKey) {
+        const [targetNodeId] = current.targetHandleKey.split(":");
+        nextTo = getHandlePoint(targetNodeId, INPUT_HANDLE_SPEC);
+      }
+
+      if (
+        within(origin.x, current.from.x) &&
+        within(origin.y, current.from.y) &&
+        within(nextTo.x, current.to.x) &&
+        within(nextTo.y, current.to.y)
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        from: origin,
+        to: current.targetHandleKey ? nextTo : current.to,
+      };
+    });
+  }, [getHandlePoint, outputSpecsByNode, setConnectionDraft, setConnectionPrompt]);
+
   const handleStartConnection = useCallback(
     (nodeId: string, spec: HandleSpec, event: React.PointerEvent<HTMLElement>) => {
       if (spec.type !== "output") return;
@@ -1450,16 +1526,19 @@ function FlowCanvas(props: {
       }));
   }, [connectionPrompt, flow.nodes]);
 
-  const handleNodeSizeChange = useCallback((id: string, size: { width: number; height: number }) => {
-    setNodeSizes((prev) => {
-      const current = prev[id];
-      if (current && Math.abs(current.width - size.width) < 0.5 && Math.abs(current.height - size.height) < 0.5) {
-        return prev;
-      }
-      return { ...prev, [id]: size };
-    });
-    scheduleHandleRecompute("resize");
-  }, []);
+  const handleNodeSizeChange = useCallback(
+    (id: string, size: { width: number; height: number }) => {
+      setNodeSizes((prev) => {
+        const current = prev[id];
+        if (current && Math.abs(current.width - size.width) < 0.5 && Math.abs(current.height - size.height) < 0.5) {
+          return prev;
+        }
+        return { ...prev, [id]: size };
+      });
+      scheduleHandleRecompute("resize");
+    },
+    [scheduleHandleRecompute]
+  );
 
   useEffect(() => {
     scheduleHandleRecompute();
@@ -1559,6 +1638,10 @@ function FlowCanvas(props: {
     pointerState.current = null;
     if (current.type === "drag-connection") {
       setConnectionDraft(null);
+    }
+    if (current.type === "drag-node" && pendingHandleMeasureRef.current) {
+      pendingHandleMeasureRef.current = false;
+      handleMeasureSchedulerRef.current.schedule();
     }
     latestEventRef.current = null;
     pointerSchedulerRef.current.cancel();
