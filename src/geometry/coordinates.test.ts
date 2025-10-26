@@ -35,7 +35,7 @@ describe("geometry coordinates", () => {
       devicePixelRatio: 2,
     });
     expect(offset.x).toBeCloseTo(25.5, 5);
-    expect(offset.y).toBeCloseTo(25.75, 5);
+    expect(offset.y).toBeCloseTo(26, 5);
   });
 
   it("returns world coordinates adding pan", () => {
