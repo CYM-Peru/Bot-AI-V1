@@ -31,6 +31,7 @@ import { buildOrthogonalPath } from "./utils/edgePath";
 import { findNearestHandle, type HandlePointCandidate } from "./utils/hitTest";
 import { formatNextOpening, isInWindow, nextOpening, validateCustomSchedule } from "./flow/scheduler";
 import { computeAutoPanDelta } from "./utils/autoPan";
+import { ReactFlowCanvas } from "./ReactFlowCanvas";
 
 const NODE_W = 300;
 const NODE_H = 128;
@@ -3161,7 +3162,7 @@ export default function App(): JSX.Element {
               </div>
             </div>
             <div className="p-2" style={{ minHeight: "76vh" }}>
-              <FlowCanvas
+              <ReactFlowCanvas
                 flow={flow}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
