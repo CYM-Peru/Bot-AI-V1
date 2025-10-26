@@ -82,7 +82,10 @@ export async function saveFlow<T>(workspaceId: string, state: T): Promise<void> 
     await activeStrategy.save(workspaceId, state);
   } catch (error) {
     console.error("Error saving flow", error);
-    throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    const enhanced = new Error(`Error saving flow: ${message}`);
+    (enhanced as any).cause = error;
+    throw enhanced;
   }
 }
 
@@ -91,6 +94,9 @@ export async function loadFlow<T>(workspaceId: string): Promise<T | null> {
     return await activeStrategy.load(workspaceId);
   } catch (error) {
     console.error("Error loading flow", error);
-    throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    const enhanced = new Error(`Error loading flow: ${message}`);
+    (enhanced as any).cause = error;
+    throw enhanced;
   }
 }
