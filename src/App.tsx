@@ -1156,9 +1156,7 @@ function FlowCanvas(props: {
         type: "drag-node";
         pointerId: number;
         nodeId: string;
-        startClient: { x: number; y: number };
-        startNodePosition: { x: number; y: number };
-        startPan: { x: number; y: number };
+        offsetInCanvas: { x: number; y: number };
       }
     | {
         type: "drag-connection";
@@ -1567,25 +1565,47 @@ function FlowCanvas(props: {
     }
 
     if (state.type === "drag-node") {
-      maybeAutoPan(evt.clientX, evt.clientY);
-      // Calculate position: start + mouse delta + pan delta
-      // This keeps node under cursor even when autopan shifts viewport
-      const currentZoom = scaleRef.current || 1;
-      const screenDx = evt.clientX - state.startClient.x;
-      const screenDy = evt.clientY - state.startClient.y;
-      const canvasDx = screenDx / currentZoom;
-      const canvasDy = screenDy / currentZoom;
-      const panDeltaX = panRef.current.x - state.startPan.x;
-      const panDeltaY = panRef.current.y - state.startPan.y;
-      const nx = state.startNodePosition.x + canvasDx + panDeltaX;
-      const ny = state.startNodePosition.y + canvasDy + panDeltaY;
+      const viewportEl = containerRef.current;
+      if (!viewportEl) return;
+
+      // Capture pan state before autopan
+      const panBefore = { x: panRef.current.x, y: panRef.current.y };
+
+      // Apply autopan if needed
+      const didAutoPan = maybeAutoPan(evt.clientX, evt.clientY);
+
+      // If autopan changed the viewport, adjust the offset to compensate
+      let adjustedOffset = state.offsetInCanvas;
+      if (didAutoPan) {
+        const panAfter = panRef.current;
+        const panDelta = {
+          x: panAfter.x - panBefore.x,
+          y: panAfter.y - panBefore.y,
+        };
+        // When viewport pans, offset needs to shift in opposite direction
+        adjustedOffset = {
+          x: state.offsetInCanvas.x - panDelta.x,
+          y: state.offsetInCanvas.y - panDelta.y,
+        };
+        // Update the offset in the state for next frame
+        pointerState.current = {
+          ...state,
+          offsetInCanvas: adjustedOffset,
+        };
+      }
+
+      // Calculate node position: mouse position in canvas - offset
+      const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
+      const mouseInCanvas = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
+      const nx = mouseInCanvas.x - adjustedOffset.x;
+      const ny = mouseInCanvas.y - adjustedOffset.y;
+
       updateNodePos((prev) => {
         const current = prev[state.nodeId];
         if (current && Math.abs(current.x - nx) < 0.1 && Math.abs(current.y - ny) < 0.1) {
           return prev;
         }
-        const next = { ...prev, [state.nodeId]: { x: nx, y: ny } };
-        return next;
+        return { ...prev, [state.nodeId]: { x: nx, y: ny } };
       });
       // Don't recompute handles during active drag - it causes visual glitches
       // Handles will be recomputed when drag ends
@@ -1720,14 +1740,19 @@ function FlowCanvas(props: {
       event.stopPropagation();
       const viewportEl = containerRef.current;
       if (!viewportEl) return;
-      const position = getPos(id);
+      const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
+      const mouseInCanvas = screenToCanvas(event.clientX, event.clientY, viewportEl, viewportState);
+      const nodePosition = getPos(id);
+      // Calculate offset: how far is the mouse from the node's top-left corner (in canvas coords)
+      const offsetInCanvas = {
+        x: mouseInCanvas.x - nodePosition.x,
+        y: mouseInCanvas.y - nodePosition.y,
+      };
       pointerState.current = {
         type: "drag-node",
         pointerId: event.pointerId,
         nodeId: id,
-        startClient: { x: event.clientX, y: event.clientY },
-        startNodePosition: { x: position.x, y: position.y },
-        startPan: { x: panRef.current.x, y: panRef.current.y },
+        offsetInCanvas,
       };
       latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
       containerRef.current?.setPointerCapture?.(event.pointerId);
