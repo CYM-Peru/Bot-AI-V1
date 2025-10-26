@@ -25,6 +25,7 @@ const NODE_W = 300;
 const NODE_H = 128;
 const SURFACE_W = 4000;
 const SURFACE_H = 3000;
+const GRID_SIZE = 24;
 const AUTO_SAVE_INTERVAL_MS = 5 * 60 * 1000;
 
 function createId(prefix: string): string {
@@ -1206,6 +1207,18 @@ function FlowCanvas(props: {
     event.stopPropagation();
   }, []);
 
+  const gridStyle = useMemo<React.CSSProperties>(() => {
+    const scaledSize = GRID_SIZE * scale;
+    const offsetX = ((-pan.x * scale) % scaledSize + scaledSize) % scaledSize;
+    const offsetY = ((-pan.y * scale) % scaledSize + scaledSize) % scaledSize;
+
+    return {
+      backgroundImage: "radial-gradient(var(--grid-dot) 1px, transparent 1px)",
+      backgroundSize: `${scaledSize}px ${scaledSize}px`,
+      backgroundPosition: `${offsetX}px ${offsetY}px`,
+    };
+  }, [pan.x, pan.y, scale]);
+
   const handleContextValue = useMemo<HandleRegistryValue>(() => ({ registerHandle, unregisterHandle }), [registerHandle, unregisterHandle]);
 
   const getSourceFallback = useCallback(
@@ -1283,6 +1296,7 @@ function FlowCanvas(props: {
           onPointerLeave={handlePointerUp}
           onPointerCancel={handlePointerCancel}
           className="absolute inset-0 cursor-grab active:cursor-grabbing select-none"
+          style={gridStyle}
         >
           <div
             ref={stageRef}
@@ -1292,8 +1306,6 @@ function FlowCanvas(props: {
               height: SURFACE_H,
               transform: `scale(${scale}) translate(${-pan.x}px, ${-pan.y}px)`,
               transformOrigin: "0 0",
-              backgroundImage: "radial-gradient(var(--grid-dot) 1px, transparent 1px)",
-              backgroundSize: "24px 24px",
             }}
           >
             {edges.length > 0 && (
