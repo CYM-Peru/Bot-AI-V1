@@ -1025,6 +1025,10 @@ function FlowCanvas(props: {
     [getPos]
   );
 
+  const stopNodeButtonPointerDown = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    e.stopPropagation();
+  }, []);
+
   return (
     <HandleRegistryContext.Provider value={handleContextValue}>
       <div className="relative w-full rounded-xl border overflow-hidden bg-white" style={{ minHeight: "74vh", height: "74vh" }}>
