@@ -998,7 +998,7 @@ function FlowCanvas(props: {
     [getStageContext, getPos, scheduleUpdate]
   );
 
-  const stopNodeButtonPointerDown = useCallback((event: React.PointerEvent<HTMLElement>) => {
+  const stopCanvasButtonPointerDown = useCallback((event: React.PointerEvent<HTMLElement>) => {
     event.stopPropagation();
   }, []);
 
@@ -1024,10 +1024,6 @@ function FlowCanvas(props: {
     },
     [getPos]
   );
-
-  const stopNodeButtonPointerDown = useCallback((e: React.PointerEvent<HTMLElement>) => {
-    e.stopPropagation();
-  }, []);
 
   return (
     <HandleRegistryContext.Provider value={handleContextValue}>
@@ -1130,7 +1126,7 @@ function FlowCanvas(props: {
                         <div className="flex gap-1">
                           <button
                             className="px-1.5 py-0.5 text-[11px] border rounded bg-white"
-                            onPointerDown={stopNodeButtonPointerDown}
+                            onPointerDown={stopCanvasButtonPointerDown}
                             onClick={(event) => {
                               event.stopPropagation();
                               onInsertBetween(edge.from, edge.to);
@@ -1140,7 +1136,7 @@ function FlowCanvas(props: {
                           </button>
                           <button
                             className="px-1.5 py-0.5 text-[11px] border rounded bg-white"
-                            onPointerDown={stopNodeButtonPointerDown}
+                            onPointerDown={stopCanvasButtonPointerDown}
                             onClick={(event) => {
                               event.stopPropagation();
                               onDeleteEdge(edge.from, edge.to);
@@ -1171,7 +1167,7 @@ function FlowCanvas(props: {
                   onAddChild={onAddChild}
                   onDuplicateNode={onDuplicateNode}
                   onDeleteNode={onDeleteNode}
-                  stopNodeButtonPointerDown={stopNodeButtonPointerDown}
+                  stopNodeButtonPointerDown={stopCanvasButtonPointerDown}
                   outputSpecs={outputSpecs}
                   handleAssignments={assignments}
                   rootId={flow.rootId}
