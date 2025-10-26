@@ -1203,6 +1203,16 @@ function FlowCanvas(props: {
     });
   }, []);
 
+  useEffect(() => {
+    scheduleHandleRecompute();
+  }, [scheduleHandleRecompute, scale, pan, nodes, edges]);
+
+  useEffect(() => {
+    const onResize = () => scheduleHandleRecompute();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [scheduleHandleRecompute]);
+
   const applyPointerUpdate = useCallback(() => {
     frameRef.current = null;
     const evt = latestEventRef.current;
@@ -1223,6 +1233,7 @@ function FlowCanvas(props: {
         const next = { ...prev, [state.nodeId]: { x: nx, y: ny } };
         return next;
       });
+      scheduleHandleRecompute();
     } else if (state.type === "pan") {
       const { startClient, startPan } = state;
       const currentScale = scaleRef.current || 1;
