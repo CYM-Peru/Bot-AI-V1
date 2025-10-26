@@ -5,7 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { toWorldCoords } from "./geometry/coordinates";
+import { toWorldCoords } from "./utils/computeOffset";
 import { loadFlow, saveFlow } from "./data/persistence";
 import { debounce } from "./utils/debounce";
 import { CHANNEL_BUTTON_LIMITS, DEFAULT_BUTTON_LIMIT } from "./flow/channelLimits";
@@ -18,8 +18,15 @@ import type {
   MenuOption,
   NodeType,
   AskActionData,
+  SchedulerMode,
+  SchedulerNodeData,
+  CustomSchedule,
+  TimeWindow,
+  DateException,
+  Weekday,
 } from "./flow/types";
 import { computeHandlePosition, quantizeForDPR } from "./utils/handlePosition";
+import { formatNextOpening, isInWindow, nextOpening, validateCustomSchedule } from "./flow/scheduler";
 
 const NODE_W = 300;
 const NODE_H = 128;
@@ -27,6 +34,75 @@ const SURFACE_W = 4000;
 const SURFACE_H = 3000;
 const GRID_SIZE = 24;
 const AUTO_SAVE_INTERVAL_MS = 5 * 60 * 1000;
+
+const DEFAULT_TIMEZONE = "America/Lima";
+const DEFAULT_SCHEDULE_WINDOW: TimeWindow = {
+  weekdays: [1, 2, 3, 4, 5],
+  start: "09:00",
+  end: "18:00",
+  overnight: false,
+};
+
+const WEEKDAY_CHOICES: { value: Weekday; label: string; title: string }[] = [
+  { value: 1, label: "L", title: "Lunes" },
+  { value: 2, label: "Ma", title: "Martes" },
+  { value: 3, label: "Mi", title: "Miércoles" },
+  { value: 4, label: "J", title: "Jueves" },
+  { value: 5, label: "V", title: "Viernes" },
+  { value: 6, label: "S", title: "Sábado" },
+  { value: 7, label: "D", title: "Domingo" },
+];
+
+function sanitizeWeekdays(weekdays: Weekday[] | undefined): Weekday[] {
+  if (!Array.isArray(weekdays)) {
+    return [...DEFAULT_SCHEDULE_WINDOW.weekdays];
+  }
+  const filtered = weekdays.filter((day): day is Weekday => typeof day === "number" && day >= 1 && day <= 7);
+  return Array.from(new Set(filtered));
+}
+
+function sanitizeTimeWindow(window: Partial<TimeWindow> | undefined): TimeWindow {
+  if (!window) {
+    return { ...DEFAULT_SCHEDULE_WINDOW };
+  }
+  const weekdayList = window.weekdays === undefined ? DEFAULT_SCHEDULE_WINDOW.weekdays : sanitizeWeekdays(window.weekdays);
+  return {
+    weekdays: weekdayList,
+    start: typeof window.start === "string" && window.start.trim() ? window.start : DEFAULT_SCHEDULE_WINDOW.start,
+    end: typeof window.end === "string" && window.end.trim() ? window.end : DEFAULT_SCHEDULE_WINDOW.end,
+    overnight: Boolean(window.overnight),
+  };
+}
+
+function sanitizeExceptions(exceptions: DateException[] | undefined): DateException[] {
+  if (!exceptions) return [];
+  return exceptions
+    .filter((item) => typeof item?.date === "string" && item.date.trim().length > 0)
+    .map((item) => ({
+      date: item.date,
+      closed: Boolean(item.closed),
+      start: item.start,
+      end: item.end,
+    }));
+}
+
+export function normalizeSchedulerData(data?: Partial<SchedulerNodeData> | null): SchedulerNodeData {
+  const mode: SchedulerMode = data?.mode === "bitrix" ? "bitrix" : "custom";
+  const baseCustom: CustomSchedule = {
+    timezone: typeof data?.custom?.timezone === "string" ? data.custom.timezone : DEFAULT_TIMEZONE,
+    windows:
+      data?.custom?.windows && data.custom.windows.length > 0
+        ? data.custom.windows.map((window) => sanitizeTimeWindow(window))
+        : [sanitizeTimeWindow(undefined)],
+    exceptions: sanitizeExceptions(data?.custom?.exceptions),
+  };
+  return {
+    mode,
+    custom: mode === "custom" ? baseCustom : data?.custom ?? baseCustom,
+    inWindowTargetId: typeof data?.inWindowTargetId === "string" ? data.inWindowTargetId : null,
+    outOfWindowTargetId: typeof data?.outOfWindowTargetId === "string" ? data.outOfWindowTargetId : null,
+  };
+}
 
 function createId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
@@ -179,6 +255,36 @@ export function normalizeNode(node: FlowNode): FlowNode {
     }
   }
 
+  if (node.action?.kind === "scheduler") {
+    const data = node.action.data as Partial<SchedulerNodeData> | undefined;
+    const normalized = normalizeSchedulerData(data ?? undefined);
+    const childSet = new Set(node.children ?? []);
+    if (normalized.inWindowTargetId) childSet.add(normalized.inWindowTargetId);
+    if (normalized.outOfWindowTargetId) childSet.add(normalized.outOfWindowTargetId);
+    const childList = Array.from(childSet);
+    const dataChanged =
+      (data?.mode === "bitrix" ? "bitrix" : "custom") !== normalized.mode ||
+      (normalized.custom?.timezone ?? DEFAULT_TIMEZONE) !==
+        (typeof data?.custom?.timezone === "string" ? data.custom.timezone : DEFAULT_TIMEZONE) ||
+      JSON.stringify((data?.custom?.windows ?? []).map((window) => sanitizeTimeWindow(window))) !==
+        JSON.stringify(normalized.custom?.windows ?? []) ||
+      JSON.stringify(sanitizeExceptions(data?.custom?.exceptions)) !==
+        JSON.stringify(normalized.custom?.exceptions ?? []) ||
+      (typeof data?.inWindowTargetId === "string" ? data.inWindowTargetId : null) !== normalized.inWindowTargetId ||
+      (typeof data?.outOfWindowTargetId === "string" ? data.outOfWindowTargetId : null) !== normalized.outOfWindowTargetId;
+    const childrenChanged =
+      childList.length !== node.children.length ||
+      childList.some((id, idx) => node.children[idx] !== id);
+    if (dataChanged || childrenChanged) {
+      next = {
+        ...next,
+        action: { ...node.action, data: normalized },
+        children: childList,
+      };
+      changed = true;
+    }
+  }
+
   return changed ? next : node;
 }
 
@@ -190,8 +296,9 @@ export function normalizeFlow(flow: Flow): Flow {
     nodes[id] = normalized;
     if (normalized !== node) mutated = true;
   }
-  if (!mutated) return flow;
-  return { ...flow, nodes };
+  const version = typeof flow.version === "number" ? flow.version : 1;
+  if (!mutated && version === flow.version) return flow;
+  return { ...flow, version, nodes };
 }
 
 export function getMenuOptions(node: FlowNode): MenuOption[] {
@@ -229,6 +336,12 @@ export function getAskData(node: FlowNode): AskActionData | null {
     answerTargetId,
     invalidTargetId,
   };
+}
+
+export function getSchedulerData(node: FlowNode): SchedulerNodeData | null {
+  if (node.action?.kind !== "scheduler") return null;
+  const data = node.action.data as Partial<SchedulerNodeData> | undefined;
+  return normalizeSchedulerData(data ?? undefined);
 }
 
 function applyHandleAssignment(flow: Flow, sourceId: string, handleId: string, targetId: string | null): boolean {
@@ -300,6 +413,31 @@ function applyHandleAssignment(flow: Flow, sourceId: string, handleId: string, t
     if (updated.answerTargetId) children.add(updated.answerTargetId);
     if (updated.invalidTargetId) children.add(updated.invalidTargetId);
     node.children = Array.from(children);
+    return true;
+  }
+
+  if (node.action?.kind === "scheduler") {
+    const scheduler = getSchedulerData(node);
+    if (!scheduler) return false;
+    const updated = { ...scheduler };
+    const previousIn = scheduler.inWindowTargetId;
+    const previousOut = scheduler.outOfWindowTargetId;
+    if (handleId === "out:schedule:in") {
+      if (updated.inWindowTargetId === targetId) return false;
+      updated.inWindowTargetId = targetId;
+    } else if (handleId === "out:schedule:out") {
+      if (updated.outOfWindowTargetId === targetId) return false;
+      updated.outOfWindowTargetId = targetId;
+    } else {
+      return false;
+    }
+    node.action = { ...node.action, data: updated };
+    const childSet = new Set(node.children ?? []);
+    if (previousIn && previousIn !== updated.inWindowTargetId) childSet.delete(previousIn);
+    if (previousOut && previousOut !== updated.outOfWindowTargetId) childSet.delete(previousOut);
+    if (updated.inWindowTargetId) childSet.add(updated.inWindowTargetId);
+    if (updated.outOfWindowTargetId) childSet.add(updated.outOfWindowTargetId);
+    node.children = Array.from(childSet);
     return true;
   }
 
@@ -400,6 +538,35 @@ function NodePreview({ node, flow, channel }: NodePreviewProps) {
     ) : null;
   }
 
+  if (node.action?.kind === "scheduler") {
+    const scheduler = getSchedulerData(node);
+    if (!scheduler) return null;
+    const schedule = scheduler.mode === "custom" ? scheduler.custom : undefined;
+    const errors = scheduler.mode === "custom" ? validateCustomSchedule(schedule) : [];
+    const now = new Date();
+    const openNow = schedule ? isInWindow(now, schedule) : false;
+    const nextSlot = schedule ? formatNextOpening(nextOpening(now, schedule)) : null;
+    return (
+      <div className="space-y-1 text-[11px]">
+        <div className="text-xs font-semibold text-slate-700">Scheduler</div>
+        <div className="text-slate-600">Zona horaria: {schedule?.timezone ?? ""}</div>
+        <div className={`font-medium ${openNow ? "text-emerald-600" : "text-amber-600"}`}>
+          {openNow ? "Abierto ahora" : "Fuera de horario"}
+        </div>
+        {nextSlot && (
+          <div className="text-slate-500">Próxima ventana: {nextSlot}</div>
+        )}
+        {errors.length > 0 && (
+          <ul className="text-rose-500 list-disc list-inside space-y-0.5">
+            {errors.slice(0, 2).map((error) => (
+              <li key={error}>{error}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
   if (node.action?.kind === "message") {
     return (
       <div className="text-[11px] space-y-1">
@@ -457,6 +624,13 @@ export function getOutputHandleSpecs(node: FlowNode): HandleSpec[] {
       { id: "out:invalid", label: "On invalid", side: "right", type: "output", order: 1, variant: "invalid" },
     ];
   }
+  const scheduler = getSchedulerData(node);
+  if (scheduler) {
+    return [
+      { id: "out:schedule:in", label: "Dentro de horario", side: "right", type: "output", order: 0, variant: "default" },
+      { id: "out:schedule:out", label: "Fuera de horario", side: "right", type: "output", order: 1, variant: "default" },
+    ];
+  }
   return [
     { id: "out:default", label: "Siguiente", side: "right", type: "output", order: 0, variant: "default" },
   ];
@@ -489,10 +663,18 @@ export function getHandleAssignments(node: FlowNode): Record<string, string | nu
       "out:invalid": ask.invalidTargetId ?? null,
     };
   }
+  const scheduler = getSchedulerData(node);
+  if (scheduler) {
+    return {
+      "out:schedule:in": scheduler.inWindowTargetId ?? null,
+      "out:schedule:out": scheduler.outOfWindowTargetId ?? null,
+    };
+  }
   return { "out:default": node.children[0] ?? null };
 }
 
 const demoFlow: Flow = normalizeFlow({
+  version: 1,
   id: "flow-demo",
   name: "Azaleia · Menú principal",
   rootId: "root",
@@ -1555,6 +1737,7 @@ export default function App(): JSX.Element {
   const askDataForSelected = getAskData(selected);
   const askValidationOptions =
     askDataForSelected?.validation?.type === "options" ? askDataForSelected.validation.options : [];
+  const schedulerDataForSelected = getSchedulerData(selected);
 
   const handleMenuOptionUpdate = useCallback(
     (optionId: string, patch: Partial<MenuOption>) => {
@@ -1661,6 +1844,162 @@ export default function App(): JSX.Element {
       });
     },
     [selectedId, setFlow]
+  );
+
+  const handleSchedulerUpdate = useCallback(
+    (updater: (current: SchedulerNodeData) => SchedulerNodeData) => {
+      setFlow((prev) => {
+        const next: Flow = JSON.parse(JSON.stringify(prev));
+        const node = next.nodes[selectedId];
+        if (!node || node.action?.kind !== "scheduler") return next;
+        const current = getSchedulerData(node);
+        if (!current) return next;
+        const updated = normalizeSchedulerData(updater(current));
+        node.action = { ...node.action, data: updated };
+        return next;
+      });
+    },
+    [selectedId, setFlow]
+  );
+
+  const handleSchedulerModeChange = useCallback(
+    (mode: SchedulerMode) => {
+      handleSchedulerUpdate((current) => ({ ...current, mode }));
+    },
+    [handleSchedulerUpdate]
+  );
+
+  const handleSchedulerTimezoneChange = useCallback(
+    (timezone: string) => {
+      handleSchedulerUpdate((current) => ({
+        ...current,
+        custom: current.custom ? { ...current.custom, timezone } : undefined,
+      }));
+    },
+    [handleSchedulerUpdate]
+  );
+
+  const handleSchedulerWindowChange = useCallback(
+    (index: number, patch: Partial<TimeWindow>) => {
+      handleSchedulerUpdate((current) => {
+        const windows = [...(current.custom?.windows ?? [])];
+        if (!windows[index]) return current;
+        windows[index] = sanitizeTimeWindow({ ...windows[index], ...patch });
+        return {
+          ...current,
+          custom: current.custom ? { ...current.custom, windows } : undefined,
+        };
+      });
+    },
+    [handleSchedulerUpdate]
+  );
+
+  const handleSchedulerToggleWeekday = useCallback(
+    (index: number, day: Weekday) => {
+      handleSchedulerUpdate((current) => {
+        const windows = [...(current.custom?.windows ?? [])];
+        const target = windows[index];
+        if (!target) return current;
+        const set = new Set(target.weekdays);
+        if (set.has(day)) {
+          set.delete(day);
+        } else {
+          set.add(day);
+        }
+        const nextWeekdays = Array.from(set).sort((a, b) => a - b) as Weekday[];
+        windows[index] = { ...target, weekdays: nextWeekdays };
+        return {
+          ...current,
+          custom: current.custom ? { ...current.custom, windows } : undefined,
+        };
+      });
+    },
+    [handleSchedulerUpdate]
+  );
+
+  const handleSchedulerToggleOvernight = useCallback(
+    (index: number) => {
+      handleSchedulerUpdate((current) => {
+        const windows = [...(current.custom?.windows ?? [])];
+        const target = windows[index];
+        if (!target) return current;
+        windows[index] = { ...target, overnight: !target.overnight };
+        return {
+          ...current,
+          custom: current.custom ? { ...current.custom, windows } : undefined,
+        };
+      });
+    },
+    [handleSchedulerUpdate]
+  );
+
+  const handleSchedulerAddWindow = useCallback(() => {
+    handleSchedulerUpdate((current) => ({
+      ...current,
+      custom: current.custom
+        ? { ...current.custom, windows: [...current.custom.windows, sanitizeTimeWindow(undefined)] }
+        : undefined,
+    }));
+  }, [handleSchedulerUpdate]);
+
+  const handleSchedulerRemoveWindow = useCallback(
+    (index: number) => {
+      handleSchedulerUpdate((current) => {
+        const windows = [...(current.custom?.windows ?? [])];
+        windows.splice(index, 1);
+        return {
+          ...current,
+          custom: current.custom
+            ? { ...current.custom, windows: windows.length > 0 ? windows : [sanitizeTimeWindow(undefined)] }
+            : undefined,
+        };
+      });
+    },
+    [handleSchedulerUpdate]
+  );
+
+  const handleSchedulerExceptionChange = useCallback(
+    (index: number, patch: Partial<DateException>) => {
+      handleSchedulerUpdate((current) => {
+        const exceptions = [...(current.custom?.exceptions ?? [])];
+        if (!exceptions[index]) return current;
+        exceptions[index] = { ...exceptions[index], ...patch };
+        return {
+          ...current,
+          custom: current.custom ? { ...current.custom, exceptions } : undefined,
+        };
+      });
+    },
+    [handleSchedulerUpdate]
+  );
+
+  const handleSchedulerAddException = useCallback(() => {
+    handleSchedulerUpdate((current) => ({
+      ...current,
+      custom: current.custom
+        ? {
+            ...current.custom,
+            exceptions: [
+              ...(current.custom.exceptions ?? []),
+              { date: "", closed: true } as DateException,
+            ],
+          }
+        : undefined,
+    }));
+  }, [handleSchedulerUpdate]);
+
+  const handleSchedulerRemoveException = useCallback(
+    (index: number) => {
+      handleSchedulerUpdate((current) => {
+        const exceptions = [...(current.custom?.exceptions ?? [])];
+        exceptions.splice(index, 1);
+        return {
+          ...current,
+          custom: current.custom ? { ...current.custom, exceptions } : undefined,
+        };
+      });
+    },
+    [handleSchedulerUpdate]
   );
 
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
@@ -1851,6 +2190,21 @@ export default function App(): JSX.Element {
             parentNode.action = { ...parentNode.action, data: updated };
           }
         }
+      } else if (parentNode.action?.kind === "scheduler") {
+        const scheduler = getSchedulerData(parentNode);
+        if (scheduler) {
+          const updated: SchedulerNodeData = { ...scheduler };
+          if (!updated.inWindowTargetId) {
+            updated.inWindowTargetId = nid;
+            linked = true;
+          } else if (!updated.outOfWindowTargetId) {
+            updated.outOfWindowTargetId = nid;
+            linked = true;
+          }
+          if (linked) {
+            parentNode.action = { ...parentNode.action, data: updated };
+          }
+        }
       } else {
         linked = true;
       }
@@ -1869,7 +2223,18 @@ export default function App(): JSX.Element {
 
   function addActionOfKind(
     parentId: string,
-    kind: "message" | "buttons" | "attachment" | "webhook_out" | "webhook_in" | "transfer" | "handoff" | "ia_rag" | "tool" | "ask"
+    kind:
+      | "message"
+      | "buttons"
+      | "attachment"
+      | "webhook_out"
+      | "webhook_in"
+      | "transfer"
+      | "handoff"
+      | "ia_rag"
+      | "tool"
+      | "ask"
+      | "scheduler"
   ) {
     const nid = nextChildId(flow, parentId);
     const defaults: Record<string, any> = {
@@ -1902,6 +2267,7 @@ export default function App(): JSX.Element {
         answerTargetId: null,
         invalidTargetId: null,
       },
+      scheduler: normalizeSchedulerData(undefined),
     };
     const newNode: FlowNode = {
       id: nid,
@@ -1962,6 +2328,19 @@ export default function App(): JSX.Element {
           node.action = { ...node.action, data: updated };
         }
       }
+      if (node.action?.kind === "scheduler") {
+        const scheduler = getSchedulerData(node);
+        if (scheduler) {
+          const updated: SchedulerNodeData = { ...scheduler };
+          if (updated.inWindowTargetId && !next.nodes[updated.inWindowTargetId]) {
+            updated.inWindowTargetId = null;
+          }
+          if (updated.outOfWindowTargetId && !next.nodes[updated.outOfWindowTargetId]) {
+            updated.outOfWindowTargetId = null;
+          }
+          node.action = { ...node.action, data: updated };
+        }
+      }
     }
     setFlow(next);
     setSelectedId(parentId && next.nodes[parentId] ? parentId : next.rootId);
@@ -2007,6 +2386,16 @@ export default function App(): JSX.Element {
             answerTargetId: null,
             invalidTargetId: null,
           };
+      clone.action = {
+        ...clone.action,
+        data: normalized,
+      };
+    }
+    if (clone.action?.kind === "scheduler") {
+      const scheduler = getSchedulerData(clone);
+      const normalized: SchedulerNodeData = scheduler
+        ? { ...scheduler, inWindowTargetId: null, outOfWindowTargetId: null }
+        : normalizeSchedulerData(undefined);
       clone.action = {
         ...clone.action,
         data: normalized,
@@ -2250,6 +2639,18 @@ export default function App(): JSX.Element {
           }
           if (updated.invalidTargetId === childId) {
             updated.invalidTargetId = null;
+          }
+          parentNode.action = { ...parentNode.action, data: updated };
+        }
+      } else if (parentNode.action?.kind === "scheduler") {
+        const scheduler = getSchedulerData(parentNode);
+        if (scheduler) {
+          const updated: SchedulerNodeData = { ...scheduler };
+          if (updated.inWindowTargetId === childId) {
+            updated.inWindowTargetId = null;
+          }
+          if (updated.outOfWindowTargetId === childId) {
+            updated.outOfWindowTargetId = null;
           }
           parentNode.action = { ...parentNode.action, data: updated };
         }
@@ -2660,6 +3061,179 @@ export default function App(): JSX.Element {
                       </div>
                     )}
 
+                    {selected.action?.kind === "scheduler" && schedulerDataForSelected && (
+                      <div className="space-y-3 text-xs">
+                        <div className="space-y-1">
+                          <label className="block text-[11px] text-slate-500">Modo</label>
+                          <select
+                            className="w-full border rounded px-2 py-1"
+                            value={schedulerDataForSelected.mode}
+                            onChange={(event) => handleSchedulerModeChange(event.target.value as SchedulerMode)}
+                          >
+                            <option value="custom">Horario personalizado</option>
+                            <option value="bitrix">Bitrix (compatibilidad)</option>
+                          </select>
+                        </div>
+                        {schedulerDataForSelected.mode === "custom" && schedulerDataForSelected.custom && (
+                          <div className="space-y-3">
+                            <div className="space-y-1">
+                              <label className="block text-[11px] text-slate-500">Zona horaria (IANA)</label>
+                              <input
+                                className="w-full border rounded px-2 py-1"
+                                value={schedulerDataForSelected.custom.timezone}
+                                onChange={(event) => handleSchedulerTimezoneChange(event.target.value)}
+                                placeholder="America/Lima"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold text-slate-600">Ventanas horarias</span>
+                                <button
+                                  type="button"
+                                  className="px-2 py-0.5 border rounded"
+                                  onClick={handleSchedulerAddWindow}
+                                >
+                                  + ventana
+                                </button>
+                              </div>
+                              {schedulerDataForSelected.custom.windows.map((window, idx) => (
+                                <div key={idx} className="border rounded p-2 space-y-2">
+                                  <div className="flex items-center justify-between text-[11px] font-medium">
+                                    <span>Ventana {idx + 1}</span>
+                                    <button
+                                      type="button"
+                                      className="px-2 py-0.5 border rounded"
+                                      onClick={() => handleSchedulerRemoveWindow(idx)}
+                                    >
+                                      Eliminar
+                                    </button>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {WEEKDAY_CHOICES.map((choice) => {
+                                      const active = window.weekdays.includes(choice.value);
+                                      return (
+                                        <button
+                                          key={choice.value}
+                                          type="button"
+                                          title={choice.title}
+                                          className={`px-2 py-0.5 rounded border ${
+                                            active
+                                              ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+                                              : "border-slate-200 text-slate-500"
+                                          }`}
+                                          onClick={() => handleSchedulerToggleWeekday(idx, choice.value)}
+                                        >
+                                          {choice.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div className="space-y-1">
+                                      <label className="block text-[11px] text-slate-500">Inicio</label>
+                                      <input
+                                        className="w-full border rounded px-2 py-1"
+                                        value={window.start}
+                                        onChange={(event) => handleSchedulerWindowChange(idx, { start: event.target.value })}
+                                        placeholder="09:00"
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <label className="block text-[11px] text-slate-500">Fin</label>
+                                      <input
+                                        className="w-full border rounded px-2 py-1"
+                                        value={window.end}
+                                        onChange={(event) => handleSchedulerWindowChange(idx, { end: event.target.value })}
+                                        placeholder="18:00"
+                                      />
+                                    </div>
+                                  </div>
+                                  <label className="flex items-center gap-2 text-[11px] text-slate-500">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(window.overnight)}
+                                      onChange={() => handleSchedulerToggleOvernight(idx)}
+                                    />
+                                    Cruza medianoche
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold text-slate-600">Excepciones</span>
+                                <button
+                                  type="button"
+                                  className="px-2 py-0.5 border rounded"
+                                  onClick={handleSchedulerAddException}
+                                >
+                                  + excepción
+                                </button>
+                              </div>
+                              {(schedulerDataForSelected.custom.exceptions ?? []).map((exception, idx) => (
+                                <div key={idx} className="border rounded p-2 space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <input
+                                      type="date"
+                                      className="flex-1 border rounded px-2 py-1"
+                                      value={exception.date}
+                                      onChange={(event) =>
+                                        handleSchedulerExceptionChange(idx, { date: event.target.value })
+                                      }
+                                    />
+                                    <button
+                                      type="button"
+                                      className="ml-2 px-2 py-0.5 border rounded"
+                                      onClick={() => handleSchedulerRemoveException(idx)}
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                  <label className="flex items-center gap-2 text-[11px] text-slate-500">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(exception.closed)}
+                                      onChange={(event) =>
+                                        handleSchedulerExceptionChange(idx, { closed: event.target.checked })
+                                      }
+                                    />
+                                    Cerrado todo el día
+                                  </label>
+                                  {!exception.closed && (
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <input
+                                        className="border rounded px-2 py-1"
+                                        value={exception.start ?? ""}
+                                        onChange={(event) =>
+                                          handleSchedulerExceptionChange(idx, { start: event.target.value })
+                                        }
+                                        placeholder="Inicio"
+                                      />
+                                      <input
+                                        className="border rounded px-2 py-1"
+                                        value={exception.end ?? ""}
+                                        onChange={(event) =>
+                                          handleSchedulerExceptionChange(idx, { end: event.target.value })
+                                        }
+                                        placeholder="Fin"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                            {schedulerDataForSelected.mode === "custom" && (
+                              <div className="text-[11px] text-rose-500 space-y-1">
+                                {validateCustomSchedule(schedulerDataForSelected.custom).map((error) => (
+                                  <div key={error}>{error}</div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {selected.action?.kind==="webhook_out" && (
                       <div className="space-y-2">
                         <div className="flex gap-2 text-xs">
@@ -2755,6 +3329,7 @@ export default function App(): JSX.Element {
                 <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"webhook_out")}>Acción · Webhook OUT</button>
                 <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"webhook_in")}>Acción · Webhook IN</button>
                 <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"transfer")}>Acción · Transferir</button>
+                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"scheduler")}>Acción · Scheduler</button>
                 <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={seedDemo}>Demo rápido</button>
               </div>
             </div>

@@ -22,6 +22,7 @@ describe("normalizeButtonsData", () => {
 describe("normalizeFlow", () => {
   it("ensures button nodes expose handles for overflow", () => {
     const flow: Flow = {
+      version: 1,
       id: "flow",
       name: "Test",
       rootId: "root",
@@ -68,6 +69,7 @@ describe("normalizeFlow", () => {
 
   it("normalizes ask nodes and tracks answer targets", () => {
     const flow: Flow = {
+      version: 1,
       id: "ask-flow",
       name: "Ask",
       rootId: "ask",

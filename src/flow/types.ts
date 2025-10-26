@@ -10,7 +10,8 @@ export type ActionKind =
   | "handoff"
   | "ia_rag"
   | "tool"
-  | "ask";
+  | "ask"
+  | "scheduler";
 
 export type MenuOption = {
   id: string;
@@ -47,6 +48,37 @@ export type AskActionData = {
   invalidTargetId: string | null;
 };
 
+export type Weekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+export interface TimeWindow {
+  weekdays: Weekday[];
+  start: string;
+  end: string;
+  overnight?: boolean;
+}
+
+export interface DateException {
+  date: string;
+  closed?: boolean;
+  start?: string;
+  end?: string;
+}
+
+export interface CustomSchedule {
+  timezone: string;
+  windows: TimeWindow[];
+  exceptions?: DateException[];
+}
+
+export type SchedulerMode = "custom" | "bitrix";
+
+export interface SchedulerNodeData {
+  mode: SchedulerMode;
+  custom?: CustomSchedule;
+  inWindowTargetId: string | null;
+  outOfWindowTargetId: string | null;
+}
+
 export type FlowAction = {
   kind: ActionKind;
   data?: Record<string, any>;
@@ -63,6 +95,7 @@ export type FlowNode = {
 };
 
 export type Flow = {
+  version: number;
   id: string;
   name: string;
   rootId: string;
