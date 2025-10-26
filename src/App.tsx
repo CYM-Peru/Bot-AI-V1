@@ -1209,6 +1209,121 @@ function FlowCanvas(props: {
     });
   }, []);
 
+  const recomputeHandlePositions = useCallback(() => {
+    const context = getStageContext();
+    if (!context) return;
+    const viewport = { stageRect: context.rect, scale: context.scale, pan: context.pan };
+    const next: Record<string, { x: number; y: number }> = {};
+    handleElements.current.forEach(({ nodeElement, handleElement }, id) => {
+      if (!nodeElement || !handleElement) return;
+      const nodeRect = nodeElement.getBoundingClientRect();
+      const handleRect = handleElement.getBoundingClientRect();
+      if (nodeRect.width === 0 || nodeRect.height === 0) return;
+      const anchor = {
+        x: (handleRect.left - nodeRect.left + handleRect.width / 2) / nodeRect.width,
+        y: (handleRect.top - nodeRect.top + handleRect.height / 2) / nodeRect.height,
+      };
+      const position = computeHandlePosition(nodeRect, anchor, viewport);
+      const quantized = quantizeForDPR(position, context.devicePixelRatio);
+      next[id] = quantized;
+    });
+    setHandlePositions(next);
+  }, [getStageContext]);
+
+  const scheduleHandleRecompute = useCallback(() => {
+    if (handleFrameRef.current != null) return;
+    handleFrameRef.current = requestAnimationFrame(() => {
+      handleFrameRef.current = null;
+      recomputeHandlePositions();
+    });
+  }, [recomputeHandlePositions]);
+
+  const registerHandle = useCallback(
+    (handleId: string, nodeElement: HTMLElement, handleElement: HTMLElement) => {
+      handleElements.current.set(handleId, { nodeElement, handleElement });
+      scheduleHandleRecompute();
+    },
+    [scheduleHandleRecompute]
+  );
+
+  const handleStartConnection = useCallback(
+    (nodeId: string, spec: HandleSpec, client: { x: number; y: number }) => {
+      if (spec.type !== "output") return;
+      const containerRect = containerRef.current?.getBoundingClientRect();
+      const anchor = {
+        x: client.x - (containerRect?.left ?? 0),
+        y: client.y - (containerRect?.top ?? 0),
+      };
+      const assignments = handleAssignmentsByNode.get(nodeId) ?? {};
+      setConnectionPrompt({
+        sourceId: nodeId,
+        handleId: spec.id,
+        spec,
+        anchor,
+        currentTargetId: assignments[spec.id] ?? null,
+      });
+    },
+    [handleAssignmentsByNode]
+  );
+
+  const handleConnectSelection = useCallback(
+    (targetId: string | null) => {
+      setConnectionPrompt((prev) => {
+        if (!prev) return prev;
+        const success = onConnectHandle(prev.sourceId, prev.handleId, targetId);
+        return success ? null : prev;
+      });
+    },
+    [onConnectHandle]
+  );
+
+  const handleCreateSelection = useCallback(
+    (kind: ConnectionCreationKind) => {
+      setConnectionPrompt((prev) => {
+        if (!prev) return prev;
+        const createdId = onCreateForHandle(prev.sourceId, prev.handleId, kind);
+        return createdId ? null : prev;
+      });
+    },
+    [onCreateForHandle]
+  );
+
+  const targetOptions = useMemo(() => {
+    if (!connectionPrompt) return [];
+    return Object.values(flow.nodes)
+      .filter((node) => node.id !== connectionPrompt.sourceId)
+      .map((node) => ({
+        id: node.id,
+        label: node.label,
+        descriptor:
+          node.type === "menu"
+            ? "Menú"
+            : node.action?.kind
+            ? `Acción · ${node.action.kind}`
+            : "Acción",
+      }));
+  }, [connectionPrompt, flow.nodes]);
+
+  const unregisterHandle = useCallback((handleId: string) => {
+    handleElements.current.delete(handleId);
+    setHandlePositions((prev) => {
+      if (!(handleId in prev)) return prev;
+      const next = { ...prev };
+      delete next[handleId];
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    scheduleHandleRecompute();
+  }, [scheduleHandleRecompute, scale, pan, nodes, edges]);
+
+  useEffect(() => {
+    const onResize = () => scheduleHandleRecompute();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [scheduleHandleRecompute]);
+
   const applyPointerUpdate = useCallback(() => {
     frameRef.current = null;
     const evt = latestEventRef.current;
@@ -1229,6 +1344,7 @@ function FlowCanvas(props: {
         const next = { ...prev, [state.nodeId]: { x: gx, y: gy } };
         return next;
       });
+      scheduleHandleRecompute();
     } else if (state.type === "pan") {
       const { startClient, startPan } = state;
       const currentScale = scaleRef.current || 1;
