@@ -24,8 +24,8 @@ import type {
   DateException,
   Weekday,
 } from "./flow/types";
-import { screenToCanvas } from "./utils/coords";
-import { computeHandlePosition, type HandleAnchor, type NodeGeometry } from "./utils/handles";
+import { screenToCanvas, canvasToScreen } from "./utils/coords";
+import { type NodeGeometry } from "./utils/handles";
 import { createHandleScheduler } from "./utils/scheduler";
 import { buildOrthogonalPath } from "./utils/edgePath";
 import { findNearestHandle, type HandlePointCandidate } from "./utils/hitTest";
@@ -516,6 +516,15 @@ type HandleSpec = {
   variant?: "default" | "more" | "invalid" | "answer";
 };
 
+const INPUT_HANDLE_SPEC: HandleSpec = {
+  id: "in",
+  label: "Entrada",
+  side: "left",
+  type: "input",
+  order: 0,
+  variant: "default",
+};
+
 const STRICTEST_LIMIT = CHANNEL_BUTTON_LIMITS.reduce((best, entry) => (entry.max < best.max ? entry : best), CHANNEL_BUTTON_LIMITS[0]);
 
 type NodePreviewProps = {
@@ -799,11 +808,7 @@ type NodeHandlePointProps = {
   spec: HandleSpec;
   positionPercent: number;
   isConnected: boolean;
-  registerHandle?: (key: string, nodeId: string, spec: HandleSpec, element: HTMLElement | null) => void;
-  onStartConnection?: (
-    event: React.PointerEvent<HTMLElement>,
-    clientPosition: { x: number; y: number }
-  ) => void;
+  onStartConnection?: (event: React.PointerEvent<HTMLElement>) => void;
 };
 
 const NodeHandlePoint: React.FC<NodeHandlePointProps> = ({
@@ -812,21 +817,8 @@ const NodeHandlePoint: React.FC<NodeHandlePointProps> = ({
   spec,
   positionPercent,
   isConnected,
-  registerHandle,
   onStartConnection,
 }) => {
-  const spanRef = useRef<HTMLSpanElement | null>(null);
-
-  useEffect(() => {
-    if (!registerHandle) return;
-    const element = spanRef.current;
-    if (!element) return;
-    registerHandle(handleKey, nodeId, spec, element);
-    return () => {
-      registerHandle(handleKey, nodeId, spec, null);
-    };
-  }, [handleKey, nodeId, registerHandle, spec]);
-
   const sideClass = spec.side === "left" ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2";
   const variantClass =
     spec.variant === "more"
@@ -840,7 +832,6 @@ const NodeHandlePoint: React.FC<NodeHandlePointProps> = ({
 
   return (
     <span
-      ref={spanRef}
       data-handle={spec.id}
       className={`absolute ${sideClass} -translate-y-1/2 w-4 h-4 rounded-full border ${variantClass} ${connectedClass}`}
       style={{ top: `${positionPercent * 100}%` }}
@@ -848,10 +839,7 @@ const NodeHandlePoint: React.FC<NodeHandlePointProps> = ({
       onPointerDown={(event) => {
         event.stopPropagation();
         if (spec.type === "output" && onStartConnection) {
-          const rect = spanRef.current?.getBoundingClientRect();
-          const clientX = rect ? rect.left + rect.width / 2 : event.clientX;
-          const clientY = rect ? rect.top + rect.height / 2 : event.clientY;
-          onStartConnection(event, { x: clientX, y: clientY });
+          onStartConnection(event);
         }
       }}
     />
@@ -871,12 +859,10 @@ type FlowCanvasNodeProps = {
   outputSpecs: HandleSpec[];
   handleAssignments: Record<string, string | null>;
   rootId: string;
-  registerHandle: (key: string, nodeId: string, spec: HandleSpec, element: HTMLElement | null) => void;
   onStartConnection: (
     nodeId: string,
     spec: HandleSpec,
-    event: React.PointerEvent<HTMLElement>,
-    clientPosition: { x: number; y: number }
+    event: React.PointerEvent<HTMLElement>
   ) => void;
   onSizeChange: (nodeId: string, size: { width: number; height: number }) => void;
   duplicatePending: boolean;
@@ -897,7 +883,6 @@ const FlowCanvasNode = React.memo((props: FlowCanvasNodeProps) => {
     outputSpecs,
     handleAssignments,
     rootId,
-    registerHandle,
     onStartConnection,
     onSizeChange,
     duplicatePending,
@@ -907,10 +892,7 @@ const FlowCanvasNode = React.memo((props: FlowCanvasNodeProps) => {
   const badge = node.type === "menu" ? "bg-emerald-50 border-emerald-300 text-emerald-600" : "bg-violet-50 border-violet-300 text-violet-600";
   const icon = node.type === "menu" ? "🟢" : "🔗";
   const outputCount = outputSpecs.length || 1;
-  const inputSpec = useMemo<HandleSpec>(
-    () => ({ id: "in", label: "Entrada", side: "left", type: "input", order: 0, variant: "default" }),
-    []
-  );
+  const inputSpec = INPUT_HANDLE_SPEC;
   const buttonData = node.action?.kind === "buttons" ? getButtonsData(node) : null;
   const overflowCount = buttonData && buttonData.items.length > buttonData.maxButtons
     ? buttonData.items.length - buttonData.maxButtons
@@ -967,21 +949,19 @@ const FlowCanvasNode = React.memo((props: FlowCanvasNodeProps) => {
         spec={inputSpec}
         positionPercent={0.5}
         isConnected={true}
-        registerHandle={registerHandle}
       />
       {outputSpecs.map((spec) => {
         const positionPercent = (spec.order + 1) / (outputCount + 1);
         return (
-          <NodeHandlePoint
-            key={spec.id}
-            nodeId={node.id}
-            handleKey={`${node.id}:${spec.id}`}
-            spec={spec}
-            positionPercent={positionPercent}
-            isConnected={Boolean(handleAssignments[spec.id])}
-            registerHandle={registerHandle}
-            onStartConnection={(event, client) => onStartConnection(node.id, spec, event, client)}
-          />
+            <NodeHandlePoint
+              key={spec.id}
+              nodeId={node.id}
+              handleKey={`${node.id}:${spec.id}`}
+              spec={spec}
+              positionPercent={positionPercent}
+              isConnected={Boolean(handleAssignments[spec.id])}
+              onStartConnection={(event) => onStartConnection(node.id, spec, event)}
+            />
         );
       })}
       <div className="px-3 pt-3 text-[15px] font-semibold flex items-center gap-2 text-slate-800">
@@ -1152,12 +1132,7 @@ function FlowCanvas(props: {
 
   type PointerState =
     | { type: "pan"; pointerId: number; startClient: { x: number; y: number }; startPan: { x: number; y: number } }
-    | {
-        type: "drag-node";
-        pointerId: number;
-        nodeId: string;
-        offsetInCanvas: { x: number; y: number };
-      }
+    | { type: "drag-node"; pointerId: number; nodeId: string; offset: { x: number; y: number } }
     | {
         type: "drag-connection";
         pointerId: number;
@@ -1169,12 +1144,6 @@ function FlowCanvas(props: {
       };
 
   type HandleRecomputeReason = "move" | "zoom" | "scroll" | "resize";
-  type RegisteredHandle = {
-    key: string;
-    nodeId: string;
-    spec: HandleSpec;
-    element: HTMLElement;
-  };
   type ConnectionDraft = {
     sourceId: string;
     handleId: string;
@@ -1187,23 +1156,13 @@ function FlowCanvas(props: {
   const pointerState = useRef<PointerState | null>(null);
   const latestEventRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const pointerSchedulerRef = useRef(createHandleScheduler(() => {}));
-  const handleMeasureSchedulerRef = useRef(createHandleScheduler(() => {}));
-  const pendingHandleReasonsRef = useRef<Set<HandleRecomputeReason>>(new Set());
-  const handleElementsRef = useRef<Map<string, RegisteredHandle>>(new Map());
-  const [handlePositions, setHandlePositions] = useState<Record<string, { x: number; y: number }>>({});
-  const handlePositionsRef = useRef(handlePositions);
   const [connectionDraft, setConnectionDraft] = useState<ConnectionDraft | null>(null);
   const connectionDraftRef = useRef(connectionDraft);
   const [pendingDuplicateId, setPendingDuplicateId] = useState<string | null>(null);
 
-  function scheduleHandleRecompute(reason: HandleRecomputeReason = "move"): void {
-    pendingHandleReasonsRef.current.add(reason);
-    handleMeasureSchedulerRef.current.schedule();
+  function scheduleHandleRecompute(_reason: HandleRecomputeReason = "move"): void {
+    /* handle anchors derive directly from node geometry */
   }
-
-  useEffect(() => {
-    scheduleHandleRecompute("resize");
-  }, [nodes, scheduleHandleRecompute]);
 
   useEffect(() => {
     scaleRef.current = scale;
@@ -1211,9 +1170,6 @@ function FlowCanvas(props: {
   useEffect(() => {
     panRef.current = pan;
   }, [pan]);
-  useEffect(() => {
-    handlePositionsRef.current = handlePositions;
-  }, [handlePositions]);
   useEffect(() => {
     connectionDraftRef.current = connectionDraft;
   }, [connectionDraft]);
@@ -1351,12 +1307,69 @@ function FlowCanvas(props: {
     [nodePositions, autoLayout]
   );
 
+  const getHandlePercent = useCallback(
+    (nodeId: string, spec: HandleSpec): number => {
+      if (spec.type === "input") {
+        return 0.5;
+      }
+      const specs = outputSpecsByNode.get(nodeId) ?? [];
+      if (specs.length === 0) {
+        return 0.5;
+      }
+      const match = specs.find((candidate) => candidate.id === spec.id);
+      const order = match ? match.order : spec.order;
+      const divisor = specs.length + 1;
+      return divisor > 0 ? (order + 1) / divisor : 0.5;
+    },
+    [outputSpecsByNode]
+  );
+
+  const getNodeGeometry = useCallback(
+    (id: string): NodeGeometry => {
+      const position = getPos(id);
+      const size = nodeSizes[id] ?? { width: NODE_W, height: NODE_H };
+      return { position, size };
+    },
+    [getPos, nodeSizes]
+  );
+
+  const getHandlePoint = useCallback(
+    (nodeId: string, spec: HandleSpec): { x: number; y: number } => {
+      const geometry = getNodeGeometry(nodeId);
+      const percent = getHandlePercent(nodeId, spec);
+      const baseX = geometry.position.x;
+      const baseY = geometry.position.y;
+      const width = geometry.size.width;
+      const height = geometry.size.height;
+      const x = spec.side === "left" ? baseX : baseX + width;
+      const y = baseY + height * percent;
+      return { x, y };
+    },
+    [getHandlePercent, getNodeGeometry]
+  );
+
+  const buildInputCandidates = useCallback((): HandlePointCandidate[] => {
+    return nodes.map((node) => {
+      const point = getHandlePoint(node.id, INPUT_HANDLE_SPEC);
+      return {
+        id: `${node.id}:${INPUT_HANDLE_SPEC.id}`,
+        nodeId: node.id,
+        type: "input",
+        x: point.x,
+        y: point.y,
+      };
+    });
+  }, [nodes, getHandlePoint]);
+
   const handleStartConnection = useCallback(
-    (nodeId: string, spec: HandleSpec, event: React.PointerEvent<HTMLElement>, client: { x: number; y: number }) => {
+    (nodeId: string, spec: HandleSpec, event: React.PointerEvent<HTMLElement>) => {
       if (spec.type !== "output") return;
       const viewportEl = containerRef.current;
       if (!viewportEl) return;
       setConnectionPrompt(null);
+      const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
+      const origin = getHandlePoint(nodeId, spec);
+      const anchorClient = canvasToScreen(origin.x, origin.y, viewportEl, viewportState);
       pointerState.current = {
         type: "drag-connection",
         pointerId: event.pointerId,
@@ -1364,14 +1377,10 @@ function FlowCanvas(props: {
         handleId: spec.id,
         handleKey: `${nodeId}:${spec.id}`,
         spec,
-        anchorClient: { x: client.x, y: client.y },
+        anchorClient: { x: anchorClient.clientX, y: anchorClient.clientY },
       };
-      latestEventRef.current = { clientX: client.x, clientY: client.y };
+      latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
       viewportEl.setPointerCapture?.(event.pointerId);
-      const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
-      const origin =
-        handlePositionsRef.current[`${nodeId}:${spec.id}`] ??
-        screenToCanvas(client.x, client.y, viewportEl, viewportState);
       setConnectionDraft({
         sourceId: nodeId,
         handleId: spec.id,
@@ -1383,7 +1392,7 @@ function FlowCanvas(props: {
       pointerSchedulerRef.current.schedule();
       scheduleHandleRecompute("move");
     },
-    [scheduleHandleRecompute]
+    [getHandlePoint, scheduleHandleRecompute]
   );
 
   const handleDuplicate = useCallback(
@@ -1452,59 +1461,6 @@ function FlowCanvas(props: {
     scheduleHandleRecompute("resize");
   }, []);
 
-  const registerHandle = useCallback(
-    (key: string, nodeId: string, spec: HandleSpec, element: HTMLElement | null) => {
-      if (!element) {
-        handleElementsRef.current.delete(key);
-      } else {
-        handleElementsRef.current.set(key, { key, nodeId, spec, element });
-      }
-      scheduleHandleRecompute("resize");
-    },
-    []
-  );
-
-  const recomputeHandles = useCallback(() => {
-    const viewportEl = containerRef.current;
-    if (!viewportEl) {
-      pendingHandleReasonsRef.current.clear();
-      return;
-    }
-    const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
-    const devicePixelRatio = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1;
-    const nextPositions: Record<string, { x: number; y: number }> = {};
-    handleElementsRef.current.forEach((entry, key) => {
-      const rect = entry.element.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      const canvasPoint = screenToCanvas(centerX, centerY, viewportEl, viewportState);
-      nextPositions[key] = {
-        x: Math.round(canvasPoint.x * devicePixelRatio) / devicePixelRatio,
-        y: Math.round(canvasPoint.y * devicePixelRatio) / devicePixelRatio,
-      };
-    });
-    setHandlePositions((prev) => {
-      const prevKeys = Object.keys(prev);
-      const nextKeys = Object.keys(nextPositions);
-      if (prevKeys.length === nextKeys.length) {
-        let same = true;
-        for (const key of nextKeys) {
-          const prevPoint = prev[key];
-          const nextPoint = nextPositions[key];
-          if (!prevPoint || Math.abs(prevPoint.x - nextPoint.x) > 0.5 || Math.abs(prevPoint.y - nextPoint.y) > 0.5) {
-            same = false;
-            break;
-          }
-        }
-        if (same) {
-          return prev;
-        }
-      }
-      return nextPositions;
-    });
-    pendingHandleReasonsRef.current.clear();
-  }, []);
-
   useEffect(() => {
     scheduleHandleRecompute();
   }, [scheduleHandleRecompute, scale, pan, nodes, edges]);
@@ -1528,28 +1484,8 @@ function FlowCanvas(props: {
       }
       const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
       const pointerWorld = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
-      const origin =
-        handlePositionsRef.current[state.handleKey] ?? (() => {
-          const entry = handleElementsRef.current.get(state.handleKey);
-          if (!entry) {
-            return pointerWorld;
-          }
-          const rect = entry.element.getBoundingClientRect();
-          return screenToCanvas(rect.left + rect.width / 2, rect.top + rect.height / 2, viewportEl, viewportState);
-        })();
-
-      const candidates: HandlePointCandidate[] = [];
-      handleElementsRef.current.forEach((entry, key) => {
-        const point = handlePositionsRef.current[key];
-        if (!point) return;
-        candidates.push({
-          id: key,
-          nodeId: entry.nodeId,
-          type: entry.spec.type,
-          x: point.x,
-          y: point.y,
-        });
-      });
+      const origin = getHandlePoint(state.nodeId, state.spec);
+      const candidates = buildInputCandidates();
       const hit = findNearestHandle(
         pointerWorld,
         candidates,
@@ -1570,45 +1506,21 @@ function FlowCanvas(props: {
     if (state.type === "drag-node") {
       const viewportEl = containerRef.current;
       if (!viewportEl) return;
-
-      // Capture pan state before autopan
-      const panBefore = { x: panRef.current.x, y: panRef.current.y };
-
-      // Apply autopan if needed
-      const didAutoPan = maybeAutoPan(evt.clientX, evt.clientY);
-
-      // If autopan changed the viewport, adjust the offset to compensate
-      let adjustedOffset = state.offsetInCanvas;
-      if (didAutoPan) {
-        const panAfter = panRef.current;
-        const panDelta = {
-          x: panAfter.x - panBefore.x,
-          y: panAfter.y - panBefore.y,
-        };
-        // When viewport pans, offset needs to shift in opposite direction
-        adjustedOffset = {
-          x: state.offsetInCanvas.x - panDelta.x,
-          y: state.offsetInCanvas.y - panDelta.y,
-        };
-        // Update the offset in the state for next frame
-        pointerState.current = {
-          ...state,
-          offsetInCanvas: adjustedOffset,
-        };
+      const autoPanned = maybeAutoPan(evt.clientX, evt.clientY);
+      if (autoPanned) {
+        pointerSchedulerRef.current.schedule();
       }
-
-      // Calculate node position: mouse position in canvas - offset
       const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
-      const mouseInCanvas = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
-      const nx = mouseInCanvas.x - adjustedOffset.x;
-      const ny = mouseInCanvas.y - adjustedOffset.y;
-
+      const pointerWorld = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
+      const nx = pointerWorld.x - state.offset.x;
+      const ny = pointerWorld.y - state.offset.y;
       updateNodePos((prev) => {
         const current = prev[state.nodeId];
         if (current && Math.abs(current.x - nx) < 0.1 && Math.abs(current.y - ny) < 0.1) {
           return prev;
         }
-        return { ...prev, [state.nodeId]: { x: nx, y: ny } };
+        const next = { ...prev, [state.nodeId]: { x: nx, y: ny } };
+        return next;
       });
       // Don't recompute handles during active drag - it causes visual glitches
       // Handles will be recomputed when drag ends
@@ -1644,7 +1556,6 @@ function FlowCanvas(props: {
   const stopPointer = useCallback((pointerId: number) => {
     const current = pointerState.current;
     if (current?.pointerId !== pointerId) return;
-    const wasDraggingNode = current.type === "drag-node";
     pointerState.current = null;
     if (current.type === "drag-connection") {
       setConnectionDraft(null);
@@ -1653,11 +1564,7 @@ function FlowCanvas(props: {
     pointerSchedulerRef.current.cancel();
     const container = containerRef.current;
     container?.releasePointerCapture?.(pointerId);
-    // Recompute handles after drag ends to sync positions
-    if (wasDraggingNode) {
-      scheduleHandleRecompute("move");
-    }
-  }, [scheduleHandleRecompute]);
+  }, []);
 
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -1665,9 +1572,9 @@ function FlowCanvas(props: {
       latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
       clearSelection();
       pointerSchedulerRef.current.schedule();
-      // Don't schedule handle recompute on every move - causes glitches during drag
+      scheduleHandleRecompute("move");
     },
-    [clearSelection]
+    [clearSelection, scheduleHandleRecompute]
   );
 
   const handlePointerUp = useCallback(
@@ -1685,10 +1592,16 @@ function FlowCanvas(props: {
           }
         } else {
           onInvalidConnection("Conecta el enlace a un puerto válido");
-          const containerRect = containerRef.current?.getBoundingClientRect();
+          const viewportEl = containerRef.current;
+          const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
+          const handlePoint = getHandlePoint(state.nodeId, state.spec);
+          const anchorScreen = viewportEl
+            ? canvasToScreen(handlePoint.x, handlePoint.y, viewportEl, viewportState)
+            : { clientX: state.anchorClient.x, clientY: state.anchorClient.y };
+          const containerRect = viewportEl?.getBoundingClientRect();
           const anchor = {
-            x: state.anchorClient.x - (containerRect?.left ?? 0),
-            y: state.anchorClient.y - (containerRect?.top ?? 0),
+            x: anchorScreen.clientX - (containerRect?.left ?? 0),
+            y: anchorScreen.clientY - (containerRect?.top ?? 0),
           };
           const assignments = handleAssignmentsByNode.get(state.nodeId) ?? {};
           setConnectionPrompt({
@@ -1708,6 +1621,7 @@ function FlowCanvas(props: {
       onConnectHandle,
       onInvalidConnection,
       handleAssignmentsByNode,
+      getHandlePoint,
       scheduleHandleRecompute,
     ]
   );
@@ -1744,25 +1658,21 @@ function FlowCanvas(props: {
       const viewportEl = containerRef.current;
       if (!viewportEl) return;
       const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
-      const mouseInCanvas = screenToCanvas(event.clientX, event.clientY, viewportEl, viewportState);
-      const nodePosition = getPos(id);
-      // Calculate offset: how far is the mouse from the node's top-left corner (in canvas coords)
-      const offsetInCanvas = {
-        x: mouseInCanvas.x - nodePosition.x,
-        y: mouseInCanvas.y - nodePosition.y,
-      };
+      const pointerWorld = screenToCanvas(event.clientX, event.clientY, viewportEl, viewportState);
+      const position = getPos(id);
       pointerState.current = {
         type: "drag-node",
         pointerId: event.pointerId,
         nodeId: id,
-        offsetInCanvas,
+        offset: { x: pointerWorld.x - position.x, y: pointerWorld.y - position.y },
       };
       latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
       containerRef.current?.setPointerCapture?.(event.pointerId);
       clearSelection();
       pointerSchedulerRef.current.schedule();
+      scheduleHandleRecompute("move");
     },
-    [clearSelection, getPos]
+    [clearSelection, getPos, scheduleHandleRecompute]
   );
 
   const stopCanvasButtonPointerDown = useCallback((event: React.PointerEvent<HTMLElement>) => {
@@ -1780,15 +1690,6 @@ function FlowCanvas(props: {
       backgroundPosition: `${offsetX}px ${offsetY}px`,
     };
   }, [pan.x, pan.y, scale]);
-
-  const getNodeGeometry = useCallback(
-    (id: string): NodeGeometry => {
-      const position = getPos(id);
-      const size = nodeSizes[id] ?? { width: NODE_W, height: NODE_H };
-      return { position, size };
-    },
-    [getPos, nodeSizes]
-  );
 
   return (
     <div className="relative w-full rounded-xl border overflow-hidden bg-white" style={{ minHeight: "74vh", height: "74vh" }}>
@@ -1857,17 +1758,8 @@ function FlowCanvas(props: {
             {(edges.length > 0 || connectionDraft) && (
               <svg className="absolute z-0" width={SURFACE_W} height={SURFACE_H}>
                 {edges.map((edge) => {
-                  const sourceNode = getNodeGeometry(edge.from);
-                  const targetNode = getNodeGeometry(edge.to);
-                  const sourcePercent = (edge.sourceSpec.order + 1) / (edge.sourceCount + 1);
-                  const sourceAnchor: HandleAnchor = edge.sourceSpec.side === "left"
-                    ? { dx: 0, dy: sourceNode.size.height * sourcePercent }
-                    : { dx: sourceNode.size.width, dy: sourceNode.size.height * sourcePercent };
-                  const targetAnchor: HandleAnchor = { dx: 0, dy: targetNode.size.height * 0.5 };
-                  const measuredSource = handlePositions[edge.sourceHandleId];
-                  const measuredTarget = handlePositions[edge.targetHandleId];
-                  const source = measuredSource ?? computeHandlePosition(sourceNode, sourceAnchor);
-                  const target = measuredTarget ?? computeHandlePosition(targetNode, targetAnchor);
+                  const source = getHandlePoint(edge.from, edge.sourceSpec);
+                  const target = getHandlePoint(edge.to, INPUT_HANDLE_SPEC);
                   const label = { x: (source.x + target.x) / 2, y: (source.y + target.y) / 2 };
                   const overlayRect = {
                     left: label.x - 60,
@@ -1956,7 +1848,6 @@ function FlowCanvas(props: {
                   outputSpecs={outputSpecs}
                   handleAssignments={assignments}
                   rootId={flow.rootId}
-                  registerHandle={registerHandle}
                   onStartConnection={handleStartConnection}
                   onSizeChange={handleNodeSizeChange}
                   duplicatePending={pendingDuplicateId === node.id}
