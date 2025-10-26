@@ -1051,6 +1051,220 @@ const CanvasNode = React.memo((props: CanvasNodeProps) => {
   );
 });
 
+type EdgeSpec = {
+  key: string;
+  from: string;
+  to: string;
+  sourceHandleId: string;
+  targetHandleId: string;
+  sourceSpec: HandleSpec;
+  sourceCount: number;
+};
+
+type ConnectionCreationKind = "menu" | "message" | "buttons" | "ask";
+
+type ConnectionPromptState = {
+  sourceId: string;
+  handleId: string;
+  spec: HandleSpec;
+  anchor: { x: number; y: number };
+  currentTargetId: string | null;
+};
+
+type HandlePointProps = {
+  spec: HandleSpec;
+  positionPercent: number;
+  isConnected: boolean;
+  onStartConnection?: (clientPosition: { x: number; y: number }) => void;
+};
+
+const HandlePoint: React.FC<HandlePointProps> = ({ spec, positionPercent, isConnected, onStartConnection }) => {
+  const spanRef = useRef<HTMLSpanElement | null>(null);
+
+  const sideClass = spec.side === "left" ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2";
+  const variantClass =
+    spec.variant === "more"
+      ? "bg-violet-50 border-violet-300"
+      : spec.variant === "invalid"
+      ? "bg-amber-50 border-amber-300"
+      : spec.variant === "answer"
+      ? "bg-emerald-50 border-emerald-300"
+      : "bg-white border-slate-300";
+  const connectedClass = isConnected ? "shadow-[0_0_0_3px_rgba(16,185,129,0.25)] border-emerald-400" : "shadow-sm";
+
+  return (
+    <span
+      ref={spanRef}
+      data-handle={spec.id}
+      className={`absolute ${sideClass} -translate-y-1/2 w-4 h-4 rounded-full border ${variantClass} ${connectedClass}`}
+      style={{ top: `${positionPercent * 100}%` }}
+      title={spec.label}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        if (spec.type === "output" && onStartConnection) {
+          const rect = spanRef.current?.getBoundingClientRect();
+          const clientX = rect ? rect.left + rect.width / 2 : event.clientX;
+          const clientY = rect ? rect.top + rect.height / 2 : event.clientY;
+          onStartConnection({ x: clientX, y: clientY });
+        }
+      }}
+    />
+  );
+};
+
+type CanvasNodeProps = {
+  node: FlowNode;
+  position: { x: number; y: number };
+  selected: boolean;
+  onSelect: (id: string) => void;
+  onNodePointerDown: (id: string) => (event: React.PointerEvent<HTMLDivElement>) => void;
+  onAddChild: (parentId: string, type: NodeType) => void;
+  onDuplicateNode: (id: string) => void;
+  onDeleteNode: (id: string) => void;
+  stopNodeButtonPointerDown: (event: React.PointerEvent<HTMLElement>) => void;
+  outputSpecs: HandleSpec[];
+  handleAssignments: Record<string, string | null>;
+  rootId: string;
+  onStartConnection: (nodeId: string, spec: HandleSpec, clientPosition: { x: number; y: number }) => void;
+  onSizeChange: (nodeId: string, size: { width: number; height: number }) => void;
+};
+
+const CanvasNode = React.memo((props: CanvasNodeProps) => {
+  const {
+    node,
+    position,
+    selected,
+    onSelect,
+    onNodePointerDown,
+    onAddChild,
+    onDuplicateNode,
+    onDeleteNode,
+    stopNodeButtonPointerDown,
+    outputSpecs,
+    handleAssignments,
+    rootId,
+    onStartConnection,
+    onSizeChange,
+  } = props;
+  const nodeRef = useRef<HTMLDivElement | null>(null);
+  const badge = node.type === "menu" ? "bg-emerald-50 border-emerald-300 text-emerald-600" : "bg-violet-50 border-violet-300 text-violet-600";
+  const icon = node.type === "menu" ? "🟢" : "🔗";
+  const outputCount = outputSpecs.length || 1;
+
+  useEffect(() => {
+    const element = nodeRef.current;
+    if (!element) return;
+
+    const report = () => {
+      const width = element.offsetWidth;
+      const height = element.offsetHeight;
+      const next = { width, height };
+      onSizeChange(node.id, next);
+    };
+
+    report();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(() => {
+        report();
+      });
+      observer.observe(element);
+      return () => observer.disconnect();
+    }
+
+    return () => {
+      /* noop */
+    };
+  }, [node.id, onSizeChange]);
+
+  return (
+    <div
+      ref={nodeRef}
+      key={node.id}
+      data-node="true"
+      className={`absolute w-[300px] rounded-2xl border-2 bg-white shadow-lg transition border-slate-300 ${selected ? "ring-2 ring-emerald-500 shadow-emerald-200" : "hover:ring-1 hover:ring-emerald-200"} relative`}
+      style={{ left: position.x, top: position.y, cursor: "move" }}
+      onPointerDown={onNodePointerDown(node.id)}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect(node.id);
+      }}
+    >
+      <HandlePoint
+        spec={{ id: "in", label: "Entrada", side: "left", type: "input", order: 0, variant: "default" }}
+        positionPercent={0.5}
+        isConnected={true}
+      />
+      {outputSpecs.map((spec) => {
+        const positionPercent = (spec.order + 1) / (outputCount + 1);
+        return (
+          <HandlePoint
+            key={spec.id}
+            spec={spec}
+            positionPercent={positionPercent}
+            isConnected={Boolean(handleAssignments[spec.id])}
+            onStartConnection={(client) => onStartConnection(node.id, spec, client)}
+          />
+        );
+      })}
+      <div className="px-3 pt-3 text-[15px] font-semibold flex items-center gap-2 text-slate-800">
+        <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-emerald-100 text-emerald-700">{icon}</span>
+        <span className="whitespace-normal leading-tight" title={node.label}>{node.label}</span>
+        <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full border ${badge}`}>{node.type}</span>
+      </div>
+      <div className="px-3 py-2">
+        <div className="flex gap-2 flex-wrap">
+          <button
+            className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+            onPointerDown={stopNodeButtonPointerDown}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddChild(node.id, "menu");
+            }}
+          >
+            + menú
+          </button>
+          <button
+            className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+            onPointerDown={stopNodeButtonPointerDown}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddChild(node.id, "action");
+            }}
+          >
+            + acción
+          </button>
+          <button
+            className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+            onPointerDown={stopNodeButtonPointerDown}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDuplicateNode(node.id);
+            }}
+          >
+            duplicar
+          </button>
+          {node.id !== rootId && (
+            <button
+              className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
+              onPointerDown={stopNodeButtonPointerDown}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDeleteNode(node.id);
+              }}
+            >
+              borrar
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="px-3 pb-3 text-xs text-slate-500">
+        {node.type === "menu" ? `${(node.menuOptions ?? []).length} opción(es)` : node.action?.kind ?? "acción"}
+      </div>
+    </div>
+  );
+});
+
 function FlowCanvas(props: {
   flow: Flow;
   selectedId: string;
@@ -1459,6 +1673,16 @@ function FlowCanvas(props: {
     pendingHandleReasonsRef.current.clear();
   }, []);
 
+  useEffect(() => {
+    scheduleHandleRecompute();
+  }, [scheduleHandleRecompute, scale, pan, nodes, edges]);
+
+  useEffect(() => {
+    const onResize = () => scheduleHandleRecompute();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [scheduleHandleRecompute]);
+
   const applyPointerUpdate = useCallback(() => {
     const evt = latestEventRef.current;
     const state = pointerState.current;
@@ -1522,6 +1746,7 @@ function FlowCanvas(props: {
         const next = { ...prev, [state.nodeId]: { x: nx, y: ny } };
         return next;
       });
+      scheduleHandleRecompute();
     } else if (state.type === "pan") {
       const { startClient, startPan } = state;
       const currentScale = scaleRef.current || 1;
