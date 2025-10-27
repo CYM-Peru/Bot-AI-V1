@@ -11,6 +11,8 @@ import { DEFAULT_BUTTON_LIMIT } from "./flow/channelLimits";
 import { ReactFlowCanvas } from "./ReactFlowCanvas";
 import { testWebhookOut, generateWebhookInUrl, type WebhookResponse } from "./flow/webhooks";
 import { WhatsAppConfigPanel } from "./components/WhatsAppConfig";
+import { MetricsPanel } from "./components/MetricsPanel";
+import { Bitrix24Panel } from "./components/Bitrix24Panel";
 import {
   ConnectionCreationKind,
   STRICTEST_LIMIT,
@@ -238,6 +240,7 @@ export default function App(): JSX.Element {
   const [webhookTestResult, setWebhookTestResult] = useState<WebhookResponse | null>(null);
   const [webhookTesting, setWebhookTesting] = useState(false);
   const [showWhatsAppConfig, setShowWhatsAppConfig] = useState(false);
+  const [mainTab, setMainTab] = useState<'canvas' | 'metrics' | 'bitrix'>('canvas');
 
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
     setToast({ id: Date.now(), message, type });
@@ -1473,6 +1476,40 @@ export default function App(): JSX.Element {
         <div className="flex items-center gap-3">
           <span className="text-xs px-3 py-1 rounded-full border bg-slate-50">Builder · Beta</span>
           <h1 className="text-lg md:text-2xl font-semibold truncate">{flow.name}</h1>
+
+          {/* Tab Navigation */}
+          <div className="flex gap-1 ml-4">
+            <button
+              className={`px-4 py-1.5 text-sm font-medium rounded-lg transition ${
+                mainTab === 'canvas'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+              onClick={() => setMainTab('canvas')}
+            >
+              📐 Canvas
+            </button>
+            <button
+              className={`px-4 py-1.5 text-sm font-medium rounded-lg transition ${
+                mainTab === 'metrics'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+              onClick={() => setMainTab('metrics')}
+            >
+              📊 Métricas
+            </button>
+            <button
+              className={`px-4 py-1.5 text-sm font-medium rounded-lg transition ${
+                mainTab === 'bitrix'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+              onClick={() => setMainTab('bitrix')}
+            >
+              🔗 Bitrix24
+            </button>
+          </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button
@@ -1516,6 +1553,8 @@ export default function App(): JSX.Element {
 
       <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
 
+      {/* Conditional rendering based on main tab */}
+      {mainTab === 'canvas' && (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:items-start">
         <div className="order-2 lg:order-1 lg:col-span-9 lg:col-start-1 flex flex-col" style={{ height: "calc(100vh - 120px)" }}>
           <div className="bg-white flex-1 flex flex-col overflow-hidden">
@@ -1547,48 +1586,50 @@ export default function App(): JSX.Element {
               </div>
             </div>
 
-            {/* Toolbar de acciones debajo del canvas */}
-            <div className="border-t bg-white shadow-lg flex-shrink-0 overflow-x-auto">
-              <div className="px-4 py-3 flex gap-6">
+            {/* Toolbar de acciones debajo del canvas - VERTICAL */}
+            <div className="border-t bg-white shadow-lg flex-shrink-0 overflow-y-auto max-h-48">
+              <div className="px-4 py-3 space-y-4">
                 {/* Estructura */}
-                <div className="flex flex-col gap-2">
+                <div className="space-y-2">
                   <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Estructura</h4>
-                  <button
-                    className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
-                    onClick={()=>addChildTo(selectedId,"menu")}
-                    disabled={!selectedId}
-                  >
-                    <span>📋</span> Submenú
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2"
+                      onClick={()=>addChildTo(selectedId,"menu")}
+                      disabled={!selectedId}
+                    >
+                      <span>📋</span> Submenú
+                    </button>
+                  </div>
                 </div>
 
                 {/* Mensajes */}
-                <div className="flex flex-col gap-2">
+                <div className="space-y-2">
                   <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Mensajes</h4>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2"
                       onClick={()=>addChildTo(selectedId,"action")}
                       disabled={!selectedId}
                     >
                       <span>💬</span> Mensaje
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2"
                       onClick={()=>addActionOfKind(selectedId,"buttons")}
                       disabled={!selectedId}
                     >
                       <span>🔘</span> Botones
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2"
                       onClick={()=>addActionOfKind(selectedId,"ask")}
                       disabled={!selectedId}
                     >
                       <span>❓</span> Pregunta
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2"
                       onClick={()=>addActionOfKind(selectedId,"attachment")}
                       disabled={!selectedId}
                     >
@@ -1598,32 +1639,32 @@ export default function App(): JSX.Element {
                 </div>
 
                 {/* Integraciones */}
-                <div className="flex flex-col gap-2">
+                <div className="space-y-2">
                   <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Integraciones</h4>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 whitespace-nowrap"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2"
                       onClick={()=>addActionOfKind(selectedId,"webhook_out")}
                       disabled={!selectedId}
                     >
                       <span>🔗</span> Webhook OUT
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 whitespace-nowrap"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2"
                       onClick={()=>addActionOfKind(selectedId,"webhook_in")}
                       disabled={!selectedId}
                     >
                       <span>📥</span> Webhook IN
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 whitespace-nowrap"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2"
                       onClick={()=>addActionOfKind(selectedId,"transfer")}
                       disabled={!selectedId}
                     >
                       <span>👤</span> Transferir
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 whitespace-nowrap"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2"
                       onClick={()=>addActionOfKind(selectedId,"scheduler")}
                       disabled={!selectedId}
                     >
@@ -1633,18 +1674,18 @@ export default function App(): JSX.Element {
                 </div>
 
                 {/* Control */}
-                <div className="flex flex-col gap-2">
+                <div className="space-y-2">
                   <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Control</h4>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-slate-500 text-white hover:bg-slate-600 transition flex items-center gap-2 whitespace-nowrap"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-slate-500 text-white hover:bg-slate-600 transition flex items-center gap-2"
                       onClick={()=>addActionOfKind(selectedId,"end")}
                       disabled={!selectedId}
                     >
                       <span>🛑</span> Finalizar
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition flex items-center gap-2 whitespace-nowrap"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition flex items-center gap-2"
                       onClick={seedDemo}
                     >
                       <span>⚡</span> Demo rápido
@@ -2401,6 +2442,21 @@ export default function App(): JSX.Element {
           </div>
         </div>
       </div>
+      )}
+
+      {/* Metrics Tab */}
+      {mainTab === 'metrics' && (
+        <div style={{ height: "calc(100vh - 120px)" }}>
+          <MetricsPanel />
+        </div>
+      )}
+
+      {/* Bitrix24 Tab */}
+      {mainTab === 'bitrix' && (
+        <div style={{ height: "calc(100vh - 120px)" }}>
+          <Bitrix24Panel />
+        </div>
+      )}
 
       {/* Panel de configuración WhatsApp */}
       {showWhatsAppConfig && (
