@@ -325,14 +325,27 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
         if (!current) return null;
         const createdId = onCreateForHandle(current.sourceId, current.handleId, kind);
         if (createdId) {
-          onPositionsChange((prev) => ({ ...prev, [createdId]: current.position }));
+          // Calcular posición inteligente cerca del nodo padre
+          const parentPosition = nodePositions[current.sourceId];
+          let newPosition = current.position;
+
+          if (parentPosition) {
+            // Colocar el nuevo nodo a la derecha del padre
+            // Offset: 400px derecha, 50px abajo
+            newPosition = {
+              x: parentPosition.x + 400,
+              y: parentPosition.y + 50,
+            };
+          }
+
+          onPositionsChange((prev) => ({ ...prev, [createdId]: newPosition }));
           onSelect(createdId);
         }
         pendingSourceRef.current = null;
         return null;
       });
     },
-    [onCreateForHandle, onPositionsChange, onSelect],
+    [onCreateForHandle, onPositionsChange, onSelect, nodePositions],
   );
 
   const handleSelectionChange = useCallback(

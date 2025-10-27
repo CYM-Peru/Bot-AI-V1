@@ -60,11 +60,27 @@ export function ActionNode(props: NodeProps<RuntimeNode>) {
       );
     }
     if (kind === 'attachment') {
-      const fileName = data.flowNode.action?.data?.name ?? data.flowNode.action?.data?.fileName;
+      const fileName = data.flowNode.action?.data?.fileName ?? data.flowNode.action?.data?.name;
+      const fileSize = data.flowNode.action?.data?.fileSize;
+      const mimeType = data.flowNode.action?.data?.mimeType;
+
+      // Extraer extensión del nombre de archivo
+      const extension = fileName ? fileName.split('.').pop()?.toUpperCase() : null;
+      const baseName = fileName || 'Archivo sin nombre';
+
       return (
         <div className="space-y-1 text-xs text-slate-600">
-          <div className="text-[11px] font-semibold text-slate-500">Adjunto</div>
-          <p>{fileName || 'Archivo sin nombre'}</p>
+          <div className="text-[11px] font-semibold text-slate-500">📎 Adjunto</div>
+          <p className="font-medium truncate">{baseName}</p>
+          {(extension || fileSize) && (
+            <div className="flex gap-2 text-[10px] text-slate-400">
+              {extension && <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-mono">{extension}</span>}
+              {fileSize && <span>{Math.round(fileSize / 1024)} KB</span>}
+            </div>
+          )}
+          {mimeType && !extension && (
+            <p className="text-[10px] text-slate-400">{mimeType}</p>
+          )}
         </div>
       );
     }

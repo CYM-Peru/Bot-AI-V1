@@ -10,6 +10,7 @@ import { debounce } from "./utils/debounce";
 import { CHANNEL_BUTTON_LIMITS, DEFAULT_BUTTON_LIMIT } from "./flow/channelLimits";
 import { ReactFlowCanvas } from "./ReactFlowCanvas";
 import { testWebhookOut, generateWebhookInUrl, type WebhookResponse } from "./flow/webhooks";
+import { WhatsAppConfigPanel } from "./components/WhatsAppConfig";
 import {
   ConnectionCreationKind,
   STRICTEST_LIMIT,
@@ -238,6 +239,7 @@ export default function App(): JSX.Element {
   const [toast, setToast] = useState<Toast | null>(null);
   const [webhookTestResult, setWebhookTestResult] = useState<WebhookResponse | null>(null);
   const [webhookTesting, setWebhookTesting] = useState(false);
+  const [showWhatsAppConfig, setShowWhatsAppConfig] = useState(false);
 
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
     setToast({ id: Date.now(), message, type });
@@ -1476,6 +1478,12 @@ export default function App(): JSX.Element {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button
+            className="px-3 py-1.5 text-sm border border-blue-500 rounded bg-white hover:bg-blue-50 text-blue-600 font-medium"
+            onClick={() => setShowWhatsAppConfig(true)}
+          >
+            📱 WhatsApp API
+          </button>
+          <button
             className={`px-3 py-1.5 text-sm border rounded ${
               hasBlockingErrors
                 ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
@@ -2395,6 +2403,11 @@ export default function App(): JSX.Element {
           </div>
         </div>
       </div>
+
+      {/* Panel de configuración WhatsApp */}
+      {showWhatsAppConfig && (
+        <WhatsAppConfigPanel onClose={() => setShowWhatsAppConfig(false)} />
+      )}
     </div>
   );
 }

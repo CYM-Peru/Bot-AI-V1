@@ -132,8 +132,8 @@ function computeLayout(flow: Flow, visibleSet: Set<string>): Record<string, XYPo
     }
   }
 
-  const columnWidth = 320;
-  const rowHeight = 180;
+  const columnWidth = 400; // Distancia horizontal entre niveles (padre → hijo)
+  const rowHeight = 120;   // Distancia vertical entre hermanos
   Object.entries(levels).forEach(([depth, ids]) => {
     ids.forEach((id, index) => {
       pos[id] = { x: Number(depth) * columnWidth, y: index * rowHeight };
