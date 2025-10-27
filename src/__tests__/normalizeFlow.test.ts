@@ -6,7 +6,7 @@ import {
   getOutputHandleSpecs,
   getHandleAssignments,
   getAskData,
-} from "../App";
+} from "../flow/utils/flow";
 import type { Flow } from "../flow/types";
 import { DEFAULT_BUTTON_LIMIT } from "../flow/channelLimits";
 
