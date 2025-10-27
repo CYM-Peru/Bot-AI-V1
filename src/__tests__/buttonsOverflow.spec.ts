@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { convertButtonsOverflowToList, createButtonOption, normalizeFlow } from "../App";
+import {
+  convertButtonsOverflowToList,
+  createButtonOption,
+  normalizeFlow,
+} from "../flow/utils/flow";
 import type { Flow } from "../flow/types";
 
 describe("buttons overflow conversion", () => {
