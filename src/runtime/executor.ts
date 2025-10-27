@@ -1,7 +1,16 @@
-import { type AskActionData, type ButtonOption, type Flow, type FlowNode, type MenuOption } from "../flow/types";
-import { getAskData, getButtonsData, getMenuOptions, getSchedulerData } from "../flow/utils/flow";
+import {
+  type AskActionData,
+  type ButtonOption,
+  type ConditionActionData,
+  type ConditionRule,
+  type Flow,
+  type FlowNode,
+  type MenuOption,
+} from "../flow/types";
+import { getAskData, getButtonsData, getConditionData, getMenuOptions, getSchedulerData } from "../flow/utils/flow";
 import { isInWindow, nextOpening } from "../flow/scheduler";
 import type { ConversationSession } from "./session";
+import type { Bitrix24Client } from "../integrations/bitrix24";
 
 export type IncomingMessageType = "text" | "button" | "media" | "unknown";
 
@@ -53,13 +62,16 @@ export interface WebhookDispatcher {
 
 export interface ExecutorDependencies {
   webhookDispatcher?: WebhookDispatcher;
+  bitrix24Client?: Bitrix24Client;
 }
 
 export class NodeExecutor {
   private readonly webhookDispatcher?: WebhookDispatcher;
+  private readonly bitrix24Client?: Bitrix24Client;
 
   constructor(dependencies: ExecutorDependencies = {}) {
     this.webhookDispatcher = dependencies.webhookDispatcher;
+    this.bitrix24Client = dependencies.bitrix24Client;
   }
 
   async execute(
@@ -83,6 +95,8 @@ export class NodeExecutor {
         return this.executeAttachmentNode(node);
       case "ask":
         return this.executeAskNode(node, message);
+      case "condition":
+        return this.executeConditionNode(node, message, session);
       case "scheduler":
         return this.executeSchedulerNode(flow, node, options.now ?? new Date());
       case "webhook_out":
@@ -490,5 +504,199 @@ export class NodeExecutor {
     }
 
     return { valid: true, value: text };
+  }
+
+  private async executeConditionNode(
+    node: FlowNode,
+    message: IncomingMessage | null,
+    session: ConversationSession
+  ): Promise<ExecutionResult> {
+    const data = getConditionData(node);
+
+    if (!data || !data.rules || data.rules.length === 0) {
+      return {
+        responses: [
+          {
+            type: "system",
+            payload: { level: "error", message: "Condition node missing configuration", nodeId: node.id },
+          },
+        ],
+        nextNodeId: data?.defaultTargetId ?? this.nextChild(node),
+        awaitingUserInput: false,
+      };
+    }
+
+    // Evaluate all rules
+    const ruleResults = await Promise.all(
+      data.rules.map((rule) => this.evaluateConditionRule(rule, message, session))
+    );
+
+    // Determine if conditions are met based on matchMode
+    let conditionMet: number | null = null;
+
+    if (data.matchMode === "all") {
+      // All rules must be true
+      conditionMet = ruleResults.every((result) => result.matched) ? 0 : null;
+    } else {
+      // Any rule can be true (default)
+      conditionMet = ruleResults.findIndex((result) => result.matched);
+      if (conditionMet === -1) {
+        conditionMet = null;
+      }
+    }
+
+    if (conditionMet !== null && data.rules[conditionMet]?.targetId) {
+      return {
+        responses: [],
+        nextNodeId: data.rules[conditionMet].targetId ?? null,
+        awaitingUserInput: false,
+      };
+    }
+
+    // No condition met, go to default target
+    return {
+      responses: [],
+      nextNodeId: data.defaultTargetId ?? this.nextChild(node),
+      awaitingUserInput: false,
+    };
+  }
+
+  private async evaluateConditionRule(
+    rule: ConditionRule,
+    message: IncomingMessage | null,
+    session: ConversationSession
+  ): Promise<{ matched: boolean; value?: string }> {
+    let sourceValue: string | null = null;
+
+    // Get source value based on source type
+    switch (rule.source) {
+      case "user_message":
+        sourceValue = message?.text ?? message?.payload ?? "";
+        break;
+
+      case "variable":
+        if (rule.sourceValue) {
+          sourceValue = session.variables[rule.sourceValue] ?? "";
+        }
+        break;
+
+      case "bitrix_field":
+        if (this.bitrix24Client && rule.sourceValue) {
+          try {
+            // Extract entity type and field from sourceValue
+            // Format: "entityType.field" (e.g., "lead.STATUS_ID")
+            const [entityType, fieldName] = rule.sourceValue.split(".");
+
+            if (entityType && fieldName) {
+              // Get identifier from session (usually phone number)
+              const identifier = session.contactId;
+
+              const value = await this.bitrix24Client.getFieldValue(
+                entityType as "lead" | "deal" | "contact" | "company",
+                { field: "PHONE", value: identifier },
+                fieldName
+              );
+
+              sourceValue = value ?? "";
+            }
+          } catch (error) {
+            console.error("[Condition] Error getting Bitrix field:", error);
+            sourceValue = "";
+          }
+        }
+        break;
+
+      case "keyword":
+        sourceValue = message?.text ?? "";
+        break;
+
+      default:
+        sourceValue = "";
+    }
+
+    // Handle keyword matching
+    if (rule.source === "keyword" && rule.keywords && rule.keywords.length > 0) {
+      const text = (sourceValue ?? "").trim();
+      const normalizedText = rule.caseSensitive ? text : text.toLowerCase();
+
+      for (const keyword of rule.keywords) {
+        const normalizedKeyword = rule.caseSensitive ? keyword : keyword.toLowerCase();
+
+        if (normalizedText.includes(normalizedKeyword)) {
+          return { matched: true, value: sourceValue ?? "" };
+        }
+      }
+
+      return { matched: false };
+    }
+
+    // Evaluate operator
+    return this.evaluateOperator(rule.operator, sourceValue ?? "", rule.compareValue ?? "");
+  }
+
+  private evaluateOperator(
+    operator: string,
+    sourceValue: string,
+    compareValue: string
+  ): { matched: boolean; value?: string } {
+    const source = sourceValue.trim();
+    const compare = compareValue.trim();
+
+    switch (operator) {
+      case "equals":
+        return { matched: source === compare, value: source };
+
+      case "not_equals":
+        return { matched: source !== compare, value: source };
+
+      case "contains":
+        return { matched: source.toLowerCase().includes(compare.toLowerCase()), value: source };
+
+      case "not_contains":
+        return { matched: !source.toLowerCase().includes(compare.toLowerCase()), value: source };
+
+      case "starts_with":
+        return { matched: source.toLowerCase().startsWith(compare.toLowerCase()), value: source };
+
+      case "ends_with":
+        return { matched: source.toLowerCase().endsWith(compare.toLowerCase()), value: source };
+
+      case "matches_regex":
+        try {
+          const regex = new RegExp(compare);
+          return { matched: regex.test(source), value: source };
+        } catch (error) {
+          console.error("[Condition] Invalid regex:", compare);
+          return { matched: false };
+        }
+
+      case "greater_than": {
+        const sourceNum = parseFloat(source);
+        const compareNum = parseFloat(compare);
+        return {
+          matched: !isNaN(sourceNum) && !isNaN(compareNum) && sourceNum > compareNum,
+          value: source,
+        };
+      }
+
+      case "less_than": {
+        const sourceNum = parseFloat(source);
+        const compareNum = parseFloat(compare);
+        return {
+          matched: !isNaN(sourceNum) && !isNaN(compareNum) && sourceNum < compareNum,
+          value: source,
+        };
+      }
+
+      case "is_empty":
+        return { matched: source.length === 0, value: source };
+
+      case "is_not_empty":
+        return { matched: source.length > 0, value: source };
+
+      default:
+        console.warn(`[Condition] Unknown operator: ${operator}`);
+        return { matched: false };
+    }
   }
 }

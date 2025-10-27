@@ -11,6 +11,7 @@ export type ActionKind =
   | "ia_rag"
   | "tool"
   | "ask"
+  | "condition"
   | "scheduler"
   | "end";
 
@@ -78,6 +79,48 @@ export interface SchedulerNodeData {
   custom?: CustomSchedule;
   inWindowTargetId: string | null;
   outOfWindowTargetId: string | null;
+}
+
+// Condition Types
+export type ConditionOperator =
+  | "equals"           // Igual a
+  | "not_equals"       // Diferente de
+  | "contains"         // Contiene
+  | "not_contains"     // No contiene
+  | "starts_with"      // Empieza con
+  | "ends_with"        // Termina con
+  | "matches_regex"    // Coincide con regex
+  | "greater_than"     // Mayor que (números)
+  | "less_than"        // Menor que (números)
+  | "is_empty"         // Está vacío
+  | "is_not_empty";    // No está vacío
+
+export type ConditionSource =
+  | "user_message"     // El mensaje del usuario
+  | "variable"         // Una variable guardada
+  | "bitrix_field"     // Campo de Bitrix24
+  | "keyword";         // Palabra clave
+
+export interface ConditionRule {
+  id: string;
+  source: ConditionSource;
+  sourceValue?: string;        // Nombre de la variable o campo de Bitrix
+  operator: ConditionOperator;
+  compareValue?: string;       // Valor a comparar
+  keywords?: string[];         // Lista de palabras clave
+  caseSensitive?: boolean;     // Si importa mayúsculas/minúsculas
+  targetId?: string | null;    // A dónde ir si se cumple
+}
+
+export interface ConditionActionData {
+  rules: ConditionRule[];
+  matchMode: "any" | "all";    // Si debe cumplir cualquiera o todas las reglas
+  defaultTargetId: string | null;  // A dónde ir si no se cumple ninguna regla
+  bitrixConfig?: {
+    entityType: "lead" | "deal" | "contact" | "company";
+    identifierField: string;     // Campo para identificar la entidad (ej: "PHONE")
+    fieldsToCheck: string[];     // Campos a verificar
+  };
 }
 
 export type FlowAction = {
