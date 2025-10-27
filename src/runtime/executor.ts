@@ -78,7 +78,7 @@ export class NodeExecutor {
       case "message":
         return this.executeMessageNode(node);
       case "buttons":
-        return this.executeButtonsNode(node);
+        return this.executeButtonsNode(node, message);
       case "attachment":
         return this.executeAttachmentNode(node);
       case "ask":
@@ -116,7 +116,7 @@ export class NodeExecutor {
     };
   }
 
-  private executeButtonsNode(node: FlowNode): ExecutionResult {
+  private executeButtonsNode(node: FlowNode, message: IncomingMessage | null): ExecutionResult {
     const data = getButtonsData(node);
     const prompt =
       typeof node.action?.data?.text === "string"
@@ -129,10 +129,33 @@ export class NodeExecutor {
         awaitingUserInput: false,
       };
     }
+    if (!message) {
+      return {
+        responses: [{ type: "buttons", text: prompt, buttons: data.items, moreTargetId: data.moreTargetId }],
+        nextNodeId: this.nextChild(node),
+        awaitingUserInput: true,
+      };
+    }
+
+    const selected = this.findMatchingOption(message, data.items);
+    if (!selected) {
+      return {
+        responses: [
+          {
+            type: "text",
+            text: "No pude reconocer tu respuesta. Por favor selecciona un botón de la lista.",
+          },
+          { type: "buttons", text: prompt, buttons: data.items, moreTargetId: data.moreTargetId },
+        ],
+        nextNodeId: node.id,
+        awaitingUserInput: true,
+      };
+    }
+
     return {
-      responses: [{ type: "buttons", text: prompt, buttons: data.items, moreTargetId: data.moreTargetId }],
-      nextNodeId: this.nextChild(node),
-      awaitingUserInput: true,
+      responses: [],
+      nextNodeId: selected.targetId ?? this.nextChild(node),
+      awaitingUserInput: false,
     };
   }
 
@@ -396,10 +419,18 @@ export class NodeExecutor {
     for (let index = 0; index < options.length; index += 1) {
       const option = options[index];
       const label = option.label?.toLowerCase();
-      if (payload && option.value && payload === option.value) {
-        return option;
+      if (payload) {
+        if (option.value && payload === option.value) {
+          return option;
+        }
+        if (option.id && payload === option.id) {
+          return option;
+        }
       }
       if (normalizedText && option.value && normalizedText === option.value.toLowerCase()) {
+        return option;
+      }
+      if (normalizedText && option.id && normalizedText === option.id.toLowerCase()) {
         return option;
       }
       if (normalizedText && label && normalizedText === label) {
