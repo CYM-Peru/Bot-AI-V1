@@ -81,6 +81,7 @@ export interface ReactFlowCanvasProps {
   onDeleteEdge: (parentId: string, childId: string) => void;
   onConnectHandle: (sourceId: string, handleId: string, targetId: string | null) => boolean;
   onCreateForHandle: (sourceId: string, handleId: string, kind: ConnectionCreationKind) => string | null;
+  onAttachToMessage: (nodeId: string, files: FileList) => void;
   onInvalidConnection: (message: string) => void;
   invalidMessageIds: Set<string>;
   soloRoot: boolean;
@@ -112,6 +113,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
     onDeleteEdge,
     onConnectHandle,
     onCreateForHandle,
+    onAttachToMessage,
     onInvalidConnection,
     invalidMessageIds,
     soloRoot,
@@ -138,12 +140,13 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
     });
   }, [flow, soloRoot, invalidMessageIds, nodePositions]);
 
-  const handleAttach = useCallback((nodeId: string, files: FileList) => {
-    const fileArray = Array.from(files);
-    if (fileArray.length === 0) return;
-    // TODO: integrar con la capa de negocio que persiste adjuntos.
-    console.info('Adjuntos listos para procesar', nodeId, fileArray.map((file) => file.name));
-  }, []);
+  const handleAttach = useCallback(
+    (nodeId: string, files: FileList) => {
+      if (files.length === 0) return;
+      onAttachToMessage(nodeId, files);
+    },
+    [onAttachToMessage],
+  );
 
   const decoratedNodes = useMemo(() => {
     return graph.nodes.map((node) => ({

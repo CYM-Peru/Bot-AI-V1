@@ -109,6 +109,28 @@ function computeLayout(flow: Flow) {
   return pos;
 }
 
+function inferAttachmentType(mimeType: string | undefined | null): 'image' | 'audio' | 'video' | 'file' {
+  if (!mimeType) return 'file';
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  if (mimeType.startsWith('video/')) return 'video';
+  return 'file';
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => {
+      reader.abort();
+      reject(new Error('No se pudo leer el archivo'));
+    };
+    reader.onload = () => {
+      resolve(typeof reader.result === 'string' ? reader.result : '');
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 type NodePreviewProps = {
   node: FlowNode;
   flow: Flow;
@@ -487,6 +509,115 @@ export default function App(): JSX.Element {
       return next;
     });
   }, [selectedId, setFlow]);
+
+  const handleMessageAttachments = useCallback(
+    (nodeId: string, files: FileList) => {
+      const fileArray = Array.from(files);
+      if (fileArray.length === 0) return;
+
+      const target = flowRef.current.nodes[nodeId];
+      if (!target || target.action?.kind !== "message") {
+        showToast("Solo puedes adjuntar archivos a bloques de mensaje", "error");
+        return;
+      }
+
+      const baseChildCount = Array.isArray(target.children) ? target.children.length : 0;
+
+      void (async () => {
+        const processed = await Promise.all(
+          fileArray.map(async (file) => {
+            try {
+              const dataUrl = await readFileAsDataUrl(file);
+              return { file, dataUrl };
+            } catch (error) {
+              console.error("Error leyendo adjunto", error);
+              return null;
+            }
+          }),
+        );
+
+        const successful = processed.filter((entry): entry is { file: File; dataUrl: string } => Boolean(entry));
+        if (successful.length === 0) {
+          showToast("No se pudieron procesar los archivos seleccionados", "error");
+          return;
+        }
+
+        const created: Array<{ id: string; file: File }> = [];
+
+        setFlow((prev) => {
+          const next: Flow = JSON.parse(JSON.stringify(prev));
+          const parent = next.nodes[nodeId];
+          if (!parent || parent.action?.kind !== "message") {
+            return prev;
+          }
+
+          const children = Array.isArray(parent.children) ? [...parent.children] : [];
+
+          for (const { file, dataUrl } of successful) {
+            const newId = nextChildId(next, nodeId);
+            created.push({ id: newId, file });
+            children.push(newId);
+            const displayName = file.name || "archivo";
+            next.nodes[newId] = {
+              id: newId,
+              label: `Adjunto · ${displayName}`,
+              type: "action",
+              children: [],
+              action: {
+                kind: "attachment",
+                data: {
+                  attType: inferAttachmentType(file.type),
+                  url: "",
+                  name: displayName,
+                  fileName: displayName,
+                  mimeType: file.type || "application/octet-stream",
+                  fileSize: file.size,
+                  fileData: dataUrl,
+                },
+              },
+            } satisfies FlowNode;
+          }
+
+          parent.children = children;
+
+          return next;
+        });
+
+        if (created.length === 0) {
+          showToast("No se pudo crear el adjunto", "error");
+          return;
+        }
+
+        const parentPosition =
+          positionsRef.current[nodeId] ?? computeLayout(flowRef.current)[nodeId] ?? { x: 0, y: 0 };
+        setPositions((prev) => {
+          const nextPositions = { ...prev };
+          created.forEach(({ id }, index) => {
+            const offsetIndex = baseChildCount + index;
+            nextPositions[id] = {
+              x: parentPosition.x + NODE_W + 40,
+              y: parentPosition.y + offsetIndex * (NODE_H + 40),
+            };
+          });
+          return nextPositions;
+        });
+
+        setSelectedId(created[created.length - 1]?.id ?? nodeId);
+
+        if (successful.length < fileArray.length) {
+          showToast("Algunos archivos no se pudieron adjuntar", "error");
+        }
+
+        showToast(
+          created.length > 1
+            ? `${created.length} adjuntos agregados al mensaje`
+            : "Adjunto agregado al mensaje",
+          "success",
+        );
+      })();
+    },
+    [setFlow, setPositions, setSelectedId, showToast],
+  );
 
   const handleAskUpdate = useCallback(
     (patch: Partial<Record<string, any>>) => {
@@ -1576,6 +1707,7 @@ export default function App(): JSX.Element {
                 onDeleteEdge={deleteEdge}
                 onConnectHandle={handleConnectHandle}
                 onCreateForHandle={handleCreateForHandle}
+                onAttachToMessage={handleMessageAttachments}
                 onInvalidConnection={(message) => showToast(message, "error")}
                 invalidMessageIds={emptyMessageNodes}
                 soloRoot={soloRoot}
