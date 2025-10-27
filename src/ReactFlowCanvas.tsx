@@ -208,6 +208,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
       if (Object.keys(updates).length > 0) {
         onPositionsChange((prev) => ({ ...prev, ...updates }));
       }
+      pendingSourceRef.current = { sourceId: params.nodeId, handleId: params.handleId };
     },
     [onPositionsChange],
   );
