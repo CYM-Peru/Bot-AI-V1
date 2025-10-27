@@ -8,7 +8,6 @@ import {
   type FlowNode,
   type FlowAction,
   type MenuOption,
-  type NodeType,
   type SchedulerMode,
   type SchedulerNodeData,
   type TimeWindow,

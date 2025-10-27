@@ -23,12 +23,7 @@ import {
   type XYPosition,
   useReactFlow,
 } from '@xyflow/react';
-import type {
-  FinalConnectionState,
-  OnConnectEnd,
-  OnConnectStart,
-  OnConnectStartParams,
-} from '@xyflow/system';
+import type { FinalConnectionState } from '@xyflow/system';
 import '@xyflow/react/dist/style.css';
 import type { Flow, NodeType } from './flow/types';
 import { type ConnectionCreationKind } from './flow/utils/flow';
@@ -38,7 +33,7 @@ import {
   type CanvasNodeData,
 } from './flow/adapters/reactFlow';
 import { useRightMousePan } from './flow/hooks/useRightMousePan';
-import type { RuntimeNode, RuntimeNodeData } from './flow/components/nodes/types';
+import type { RuntimeNode } from './flow/components/nodes/types';
 import { MenuNode } from './flow/components/nodes/MenuNode';
 import { MessageNode } from './flow/components/nodes/MessageNode';
 import { ActionNode } from './flow/components/nodes/ActionNode';
@@ -127,38 +122,11 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [nodes, setNodes] = useState<RuntimeNode[]>([]);
   const [edges, setEdges] = useState<RuntimeEdge[]>([]);
-  const [canvasHeight, setCanvasHeight] = useState<number>(600);
   const pendingSourceRef = useRef<{ sourceId: string; handleId: string } | null>(null);
   const [quickCreateState, setQuickCreateState] = useState<QuickCreateState | null>(null);
   const [visibleNodeIds, setVisibleNodeIds] = useState<string[]>([]);
   const initialFitViewDone = useRef(false); // Track si ya hicimos el fitView inicial
   const rightMousePan = useRightMousePan();
-
-  useEffect(() => {
-    const wrapper = wrapperRef.current;
-    if (!wrapper) {
-      return;
-    }
-
-    const updateSize = () => {
-      const nextHeight = wrapper.clientHeight;
-      if (nextHeight > 0) {
-        setCanvasHeight(nextHeight);
-      }
-    };
-
-    updateSize();
-
-    if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(updateSize);
-      observer.observe(wrapper);
-      return () => observer.disconnect();
-    }
-
-    const onWindowResize = () => updateSize();
-    window.addEventListener('resize', onWindowResize);
-    return () => window.removeEventListener('resize', onWindowResize);
-  }, []);
 
   const graph = useMemo(() => {
     return buildReactFlowGraph({
