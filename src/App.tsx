@@ -7,7 +7,7 @@ import React, {
 } from "react";
 import { loadFlow, saveFlow } from "./data/persistence";
 import { debounce } from "./utils/debounce";
-import { CHANNEL_BUTTON_LIMITS, DEFAULT_BUTTON_LIMIT } from "./flow/channelLimits";
+import { DEFAULT_BUTTON_LIMIT } from "./flow/channelLimits";
 import { ReactFlowCanvas } from "./ReactFlowCanvas";
 import { testWebhookOut, generateWebhookInUrl, type WebhookResponse } from "./flow/webhooks";
 import { WhatsAppConfigPanel } from "./components/WhatsAppConfig";
@@ -21,7 +21,6 @@ import {
   getAskData,
   getButtonsData,
   getMenuOptions,
-  getOutputHandleSpecs,
   getSchedulerData,
   nextChildId,
   normalizeButtonsData,
@@ -40,12 +39,11 @@ import type {
   AskActionData,
   SchedulerMode,
   SchedulerNodeData,
-  CustomSchedule,
   TimeWindow,
   DateException,
   Weekday,
 } from "./flow/types";
-import { formatNextOpening, isInWindow, nextOpening, validateCustomSchedule } from "./flow/scheduler";
+import { validateCustomSchedule } from "./flow/scheduler";
 
 const NODE_W = 300;
 const NODE_H = 128;

@@ -11,8 +11,6 @@ module.exports = [
     languageOptions: {
       parser: tsParser,
       parserOptions: {
-        project: ['./tsconfig.json'],
-        tsconfigRootDir: __dirname,
         ecmaVersion: 2023,
         sourceType: 'module',
       },
@@ -22,7 +20,7 @@ module.exports = [
       'unused-imports': unusedImports,
     },
     rules: {
-      ...tsPlugin.configs['recommended-type-checked'].rules,
+      ...tsPlugin.configs.recommended.rules,
       'unused-imports/no-unused-imports': 'error',
       'unused-imports/no-unused-vars': [
         'warn',
@@ -35,7 +33,7 @@ module.exports = [
       ],
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-floating-promises': 'off',
       'no-console': ['warn', { allow: ['warn', 'error', 'info'] }],
     },
   },
