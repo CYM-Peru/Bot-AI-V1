@@ -1711,6 +1711,45 @@ export default function App(): JSX.Element {
                   <option value="action">Acción</option>
                 </select>
 
+                {/* Delay/Timer configuration */}
+                <div className="border-t pt-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(selected.delay && selected.delay > 0)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            updateSelected({ delay: 5 }); // Default 5 seconds
+                          } else {
+                            updateSelected({ delay: 0 });
+                          }
+                        }}
+                        className="rounded"
+                      />
+                      <span className="font-medium">⏱️ Retraso antes del siguiente paso</span>
+                    </label>
+                  </div>
+                  {selected.delay && selected.delay > 0 && (
+                    <div className="space-y-2 pl-6">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max="300"
+                          value={selected.delay || 5}
+                          onChange={(e) => updateSelected({ delay: Math.max(1, parseInt(e.target.value) || 5) })}
+                          className="w-20 border rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                        />
+                        <span className="text-xs text-slate-600">segundos</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">
+                        El bot esperará {selected.delay} segundo{selected.delay !== 1 ? 's' : ''} antes de ejecutar el siguiente nodo.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
                 {selected.type === "menu" && (
                   <div className="mt-2 space-y-2">
                     <div className="flex items-center justify-between text-xs font-medium">

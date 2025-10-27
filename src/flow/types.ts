@@ -136,6 +136,7 @@ export type FlowNode = {
   action?: FlowAction;
   menuOptions?: MenuOption[];
   children: string[];
+  delay?: number; // Delay in seconds before executing next node
 };
 
 export type Flow = {
