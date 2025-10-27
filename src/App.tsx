@@ -8,6 +8,25 @@ import React, {
 import { loadFlow, saveFlow } from "./data/persistence";
 import { debounce } from "./utils/debounce";
 import { CHANNEL_BUTTON_LIMITS, DEFAULT_BUTTON_LIMIT } from "./flow/channelLimits";
+import { ReactFlowCanvas } from "./ReactFlowCanvas";
+import {
+  ConnectionCreationKind,
+  STRICTEST_LIMIT,
+  applyHandleAssignment,
+  convertButtonsOverflowToList,
+  createButtonOption,
+  createMenuOption,
+  getAskData,
+  getButtonsData,
+  getMenuOptions,
+  getOutputHandleSpecs,
+  getSchedulerData,
+  nextChildId,
+  normalizeButtonsData,
+  normalizeFlow,
+  normalizeSchedulerData,
+  sanitizeTimeWindow,
+} from "./flow/utils/flow";
 import type {
   ActionKind,
   ButtonOption,
@@ -25,19 +44,10 @@ import type {
   Weekday,
 } from "./flow/types";
 import { formatNextOpening, isInWindow, nextOpening, validateCustomSchedule } from "./flow/scheduler";
-import { ReactFlowCanvas, type ConnectionCreationKind } from "./ReactFlowCanvas";
 
 const NODE_W = 300;
 const NODE_H = 128;
 const AUTO_SAVE_INTERVAL_MS = 5 * 60 * 1000;
-
-const DEFAULT_TIMEZONE = "America/Lima";
-const DEFAULT_SCHEDULE_WINDOW: TimeWindow = {
-  weekdays: [1, 2, 3, 4, 5],
-  start: "09:00",
-  end: "18:00",
-  overnight: false,
-};
 
 const WEEKDAY_CHOICES: { value: Weekday; label: string; title: string }[] = [
   { value: 1, label: "L", title: "Lunes" },
@@ -49,570 +59,33 @@ const WEEKDAY_CHOICES: { value: Weekday; label: string; title: string }[] = [
   { value: 7, label: "D", title: "Domingo" },
 ];
 
-function sanitizeWeekdays(weekdays: Weekday[] | undefined): Weekday[] {
-  if (!Array.isArray(weekdays)) {
-    return [...DEFAULT_SCHEDULE_WINDOW.weekdays];
+const demoFlow: Flow = normalizeFlow({
+  version: 1,
+  id: "flow-demo",
+  name: "Azaleia · Menú principal",
+  rootId: "root",
+  nodes: { root: { id: "root", label: "Menú principal", type: "menu", children: [], menuOptions: [] } },
+});
+
+function computeLayout(flow: Flow) {
+  const pos: Record<string, { x: number; y: number }> = {};
+  const levels: Record<number, string[]> = {};
+  const seen = new Set<string>();
+  function dfs(id: string, d: number) {
+    if (seen.has(id)) return;
+    seen.add(id);
+    (levels[d] ||= []).push(id);
+    const n = flow.nodes[id];
+    if (!n) return;
+    for (const cid of n.children) dfs(cid, d + 1);
   }
-  const filtered = weekdays.filter((day): day is Weekday => typeof day === "number" && day >= 1 && day <= 7);
-  return Array.from(new Set(filtered));
+  dfs(flow.rootId, 0);
+  const colW = 340, rowH = 170;
+  Object.entries(levels).forEach(([depth, ids]) => {
+    (ids as string[]).forEach((id, i) => { pos[id] = { x: Number(depth) * colW, y: i * rowH }; });
+  });
+  return pos;
 }
-
-function sanitizeTimeWindow(window: Partial<TimeWindow> | undefined): TimeWindow {
-  if (!window) {
-    return { ...DEFAULT_SCHEDULE_WINDOW };
-  }
-  const weekdayList = window.weekdays === undefined ? DEFAULT_SCHEDULE_WINDOW.weekdays : sanitizeWeekdays(window.weekdays);
-  return {
-    weekdays: weekdayList,
-    start: typeof window.start === "string" && window.start.trim() ? window.start : DEFAULT_SCHEDULE_WINDOW.start,
-    end: typeof window.end === "string" && window.end.trim() ? window.end : DEFAULT_SCHEDULE_WINDOW.end,
-    overnight: Boolean(window.overnight),
-  };
-}
-
-function sanitizeExceptions(exceptions: DateException[] | undefined): DateException[] {
-  if (!exceptions) return [];
-  return exceptions
-    .filter((item) => typeof item?.date === "string" && item.date.trim().length > 0)
-    .map((item) => ({
-      date: item.date,
-      closed: Boolean(item.closed),
-      start: item.start,
-      end: item.end,
-    }));
-}
-
-export function normalizeSchedulerData(data?: Partial<SchedulerNodeData> | null): SchedulerNodeData {
-  const mode: SchedulerMode = data?.mode === "bitrix" ? "bitrix" : "custom";
-  const baseCustom: CustomSchedule = {
-    timezone: typeof data?.custom?.timezone === "string" ? data.custom.timezone : DEFAULT_TIMEZONE,
-    windows:
-      data?.custom?.windows && data.custom.windows.length > 0
-        ? data.custom.windows.map((window) => sanitizeTimeWindow(window))
-        : [sanitizeTimeWindow(undefined)],
-    exceptions: sanitizeExceptions(data?.custom?.exceptions),
-  };
-  return {
-    mode,
-    custom: mode === "custom" ? baseCustom : data?.custom ?? baseCustom,
-    inWindowTargetId: typeof data?.inWindowTargetId === "string" ? data.inWindowTargetId : null,
-    outOfWindowTargetId: typeof data?.outOfWindowTargetId === "string" ? data.outOfWindowTargetId : null,
-  };
-}
-
-function createId(prefix: string): string {
-  return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-export function createMenuOption(index: number, overrides: Partial<MenuOption> = {}): MenuOption {
-  return {
-    id: overrides.id ?? createId(`menu-${index + 1}`),
-    label: overrides.label ?? `Opción ${index + 1}`,
-    value: overrides.value,
-    targetId: overrides.targetId ?? null,
-  };
-}
-
-export function createButtonOption(index: number, overrides: Partial<ButtonOption> = {}): ButtonOption {
-  const baseValue = `BTN_${index + 1}`;
-  return {
-    id: overrides.id ?? createId(`btn-${index + 1}`),
-    label: overrides.label ?? `Botón ${index + 1}`,
-    value: overrides.value ?? baseValue,
-    targetId: overrides.targetId ?? null,
-  };
-}
-
-export function normalizeButtonsData(data?: Partial<ButtonsActionData> | null): ButtonsActionData {
-  const items = (data?.items ?? []).map((item, idx) => ({
-    ...createButtonOption(idx, item),
-  }));
-  const ensuredItems = items.length > 0 ? items : [createButtonOption(0)];
-  const maxButtons = data?.maxButtons ?? DEFAULT_BUTTON_LIMIT;
-  const moreTargetId = data?.moreTargetId ?? null;
-  return { items: ensuredItems, maxButtons, moreTargetId };
-}
-
-export function convertButtonsOverflowToList(flow: Flow, nodeId: string): { nextFlow: Flow; listNodeId: string | null } {
-  const source = flow.nodes[nodeId];
-  if (!source || source.action?.kind !== "buttons") {
-    return { nextFlow: flow, listNodeId: null };
-  }
-  const normalized = normalizeButtonsData(source.action.data as Partial<ButtonsActionData> | undefined);
-  if (normalized.items.length <= normalized.maxButtons) {
-    return { nextFlow: flow, listNodeId: null };
-  }
-  const overflowItems = normalized.items.slice(normalized.maxButtons);
-  if (overflowItems.length === 0) {
-    return { nextFlow: flow, listNodeId: null };
-  }
-  const next: Flow = JSON.parse(JSON.stringify(flow));
-  const target = next.nodes[nodeId];
-  if (!target || target.action?.kind !== "buttons") {
-    return { nextFlow: flow, listNodeId: null };
-  }
-  const listNodeId = nextChildId(next, nodeId);
-  const listOptions = overflowItems.map((item, idx) =>
-    createMenuOption(idx, { label: item.label, value: item.value, targetId: item.targetId ?? null })
-  );
-  const listNode: FlowNode = {
-    id: listNodeId,
-    label: `${target.label} · Lista`,
-    type: "menu",
-    children: listOptions.map((option) => option.targetId).filter((id): id is string => Boolean(id)),
-    menuOptions: listOptions,
-  } as FlowNode;
-  next.nodes[listNodeId] = listNode;
-  const trimmedItems = normalized.items.slice(0, normalized.maxButtons);
-  target.action = {
-    ...target.action,
-    data: { ...normalized, items: trimmedItems, moreTargetId: listNodeId },
-  };
-  target.children = Array.from(
-    new Set([...(target.children ?? []), listNodeId, ...listNode.children])
-  );
-  return { nextFlow: normalizeFlow(next), listNodeId };
-}
-
-export function normalizeNode(node: FlowNode): FlowNode {
-  let changed = false;
-  let next: FlowNode = node;
-
-  if (node.type === "menu") {
-    const rawOptions = node.menuOptions ?? [];
-    const options = rawOptions.length > 0 ? rawOptions : [createMenuOption(0)];
-    const normalizedOptions = options.map((option, idx) => ({
-      ...createMenuOption(idx, option),
-    }));
-    const optionsChanged =
-      normalizedOptions.length !== rawOptions.length ||
-      normalizedOptions.some((opt, idx) => {
-        const prev = rawOptions[idx];
-        if (!prev) return true;
-        return (
-          opt.id !== prev.id ||
-          opt.label !== prev.label ||
-          opt.value !== prev.value ||
-          (opt.targetId ?? null) !== (prev.targetId ?? null)
-        );
-      });
-    const targets = normalizedOptions
-      .map((opt) => opt.targetId)
-      .filter((id): id is string => Boolean(id));
-    const uniqueChildren = Array.from(new Set([...(node.children ?? []), ...targets]));
-    const childrenChanged =
-      uniqueChildren.length !== node.children.length ||
-      uniqueChildren.some((id, idx) => node.children[idx] !== id);
-    if (optionsChanged || childrenChanged) {
-      next = { ...next, menuOptions: normalizedOptions, children: uniqueChildren };
-      changed = true;
-    }
-  }
-
-  if (node.action?.kind === "buttons") {
-    const prevData = (node.action.data as Partial<ButtonsActionData> | undefined) ?? { items: [] };
-    const normalized = normalizeButtonsData(prevData);
-    const dataChanged =
-      normalized.maxButtons !== (prevData.maxButtons ?? DEFAULT_BUTTON_LIMIT) ||
-      normalized.items.length !== (prevData.items?.length ?? 0) ||
-      normalized.items.some((item, idx) => {
-        const prev = prevData.items?.[idx];
-        if (!prev) return true;
-        return (
-          item.id !== prev.id ||
-          item.label !== prev.label ||
-          item.value !== prev.value ||
-          (item.targetId ?? null) !== (prev.targetId ?? null)
-        );
-      }) ||
-      (normalized.moreTargetId ?? null) !== (prevData.moreTargetId ?? null);
-    const targets = normalized.items
-      .map((item) => item.targetId)
-      .filter((id): id is string => Boolean(id));
-    const childSet = new Set([...(node.children ?? []), ...targets]);
-    if (normalized.moreTargetId) childSet.add(normalized.moreTargetId);
-    const childList = Array.from(childSet);
-    const childrenChanged =
-      childList.length !== node.children.length ||
-      childList.some((id, idx) => node.children[idx] !== id);
-    if (dataChanged || childrenChanged) {
-      next = {
-        ...next,
-        action: { ...node.action, data: normalized },
-        children: childList,
-      };
-      changed = true;
-    }
-  }
-
-  if (node.action?.kind === "ask") {
-    const data = node.action.data as Partial<AskActionData> | undefined;
-    const questionText = typeof data?.questionText === "string" ? data.questionText : "¿Cuál es tu respuesta?";
-    const varName = typeof data?.varName === "string" && data.varName.trim() ? data.varName : "respuesta";
-    const varType = data?.varType === "number" || data?.varType === "option" ? data.varType : "text";
-    const validation: AskActionData["validation"] = data?.validation ?? { type: "none" };
-    const retryMessage =
-      typeof data?.retryMessage === "string" && data.retryMessage.trim()
-        ? data.retryMessage
-        : "Lo siento, ¿puedes intentarlo de nuevo?";
-    const answerTargetId = typeof data?.answerTargetId === "string" ? data.answerTargetId : null;
-    const invalidTargetId = typeof data?.invalidTargetId === "string" ? data.invalidTargetId : null;
-    const childSet = new Set([...(node.children ?? [])]);
-    if (answerTargetId) childSet.add(answerTargetId);
-    if (invalidTargetId) childSet.add(invalidTargetId);
-    const childList = Array.from(childSet);
-    const normalizedAsk: AskActionData = {
-      questionText,
-      varName,
-      varType,
-      validation,
-      retryMessage,
-      answerTargetId,
-      invalidTargetId,
-    };
-    const prevData = data ?? {};
-    const dataChanged =
-      prevData.questionText !== normalizedAsk.questionText ||
-      prevData.varName !== normalizedAsk.varName ||
-      prevData.varType !== normalizedAsk.varType ||
-      JSON.stringify(prevData.validation ?? { type: "none" }) !== JSON.stringify(normalizedAsk.validation) ||
-      prevData.retryMessage !== normalizedAsk.retryMessage ||
-      (prevData.answerTargetId ?? null) !== (normalizedAsk.answerTargetId ?? null) ||
-      (prevData.invalidTargetId ?? null) !== (normalizedAsk.invalidTargetId ?? null);
-    const childrenChanged =
-      childList.length !== node.children.length ||
-      childList.some((id, idx) => node.children[idx] !== id);
-    if (dataChanged || childrenChanged) {
-      next = {
-        ...next,
-        action: { ...node.action, data: normalizedAsk },
-        children: childList,
-      };
-      changed = true;
-    }
-  }
-
-  if (node.action?.kind === "scheduler") {
-    const data = node.action.data as Partial<SchedulerNodeData> | undefined;
-    const normalized = normalizeSchedulerData(data ?? undefined);
-    const childSet = new Set(node.children ?? []);
-    if (normalized.inWindowTargetId) childSet.add(normalized.inWindowTargetId);
-    if (normalized.outOfWindowTargetId) childSet.add(normalized.outOfWindowTargetId);
-    const childList = Array.from(childSet);
-    const dataChanged =
-      (data?.mode === "bitrix" ? "bitrix" : "custom") !== normalized.mode ||
-      (normalized.custom?.timezone ?? DEFAULT_TIMEZONE) !==
-        (typeof data?.custom?.timezone === "string" ? data.custom.timezone : DEFAULT_TIMEZONE) ||
-      JSON.stringify((data?.custom?.windows ?? []).map((window) => sanitizeTimeWindow(window))) !==
-        JSON.stringify(normalized.custom?.windows ?? []) ||
-      JSON.stringify(sanitizeExceptions(data?.custom?.exceptions)) !==
-        JSON.stringify(normalized.custom?.exceptions ?? []) ||
-      (typeof data?.inWindowTargetId === "string" ? data.inWindowTargetId : null) !== normalized.inWindowTargetId ||
-      (typeof data?.outOfWindowTargetId === "string" ? data.outOfWindowTargetId : null) !== normalized.outOfWindowTargetId;
-    const childrenChanged =
-      childList.length !== node.children.length ||
-      childList.some((id, idx) => node.children[idx] !== id);
-    if (dataChanged || childrenChanged) {
-      next = {
-        ...next,
-        action: { ...node.action, data: normalized },
-        children: childList,
-      };
-      changed = true;
-    }
-  }
-
-  return changed ? next : node;
-}
-
-export function normalizeFlow(flow: Flow): Flow {
-  let mutated = false;
-  const nodes: Record<string, FlowNode> = {};
-  for (const [id, node] of Object.entries(flow.nodes)) {
-    const normalized = normalizeNode(node);
-    nodes[id] = normalized;
-    if (normalized !== node) mutated = true;
-  }
-  const version = typeof flow.version === "number" ? flow.version : 1;
-  if (!mutated && version === flow.version) return flow;
-  return { ...flow, version, nodes };
-}
-
-export function getMenuOptions(node: FlowNode): MenuOption[] {
-  if (node.type !== "menu") return [];
-  const options = node.menuOptions && node.menuOptions.length > 0 ? node.menuOptions : [createMenuOption(0)];
-  return options.map((option, idx) => ({
-    ...createMenuOption(idx, option),
-  }));
-}
-
-export function getButtonsData(node: FlowNode): ButtonsActionData | null {
-  if (node.action?.kind !== "buttons") return null;
-  return normalizeButtonsData(node.action.data as Partial<ButtonsActionData> | undefined);
-}
-
-export function getAskData(node: FlowNode): AskActionData | null {
-  if (node.action?.kind !== "ask") return null;
-  const data = node.action.data ?? {};
-  const questionText = typeof data.questionText === "string" ? data.questionText : "¿Cuál es tu respuesta?";
-  const varName = typeof data.varName === "string" && data.varName.trim() ? data.varName : "respuesta";
-  const varType = data.varType === "number" || data.varType === "option" ? data.varType : "text";
-  const validation: AskActionData["validation"] = data.validation ?? { type: "none" };
-  const retryMessage =
-    typeof data.retryMessage === "string" && data.retryMessage.trim()
-      ? data.retryMessage
-      : "Lo siento, ¿puedes intentarlo de nuevo?";
-  const answerTargetId = typeof data.answerTargetId === "string" ? data.answerTargetId : null;
-  const invalidTargetId = typeof data.invalidTargetId === "string" ? data.invalidTargetId : null;
-  return {
-    questionText,
-    varName,
-    varType,
-    validation,
-    retryMessage,
-    answerTargetId,
-    invalidTargetId,
-  };
-}
-
-export function getSchedulerData(node: FlowNode): SchedulerNodeData | null {
-  if (node.action?.kind !== "scheduler") return null;
-  const data = node.action.data as Partial<SchedulerNodeData> | undefined;
-  return normalizeSchedulerData(data ?? undefined);
-}
-
-function applyHandleAssignment(flow: Flow, sourceId: string, handleId: string, targetId: string | null): boolean {
-  const node = flow.nodes[sourceId];
-  if (!node) return false;
-
-  if (node.type === "menu" && handleId.startsWith("out:menu:")) {
-    const options = getMenuOptions(node);
-    const index = options.findIndex((option) => `out:menu:${option.id}` === handleId);
-    if (index === -1) return false;
-    const current = options[index].targetId ?? null;
-    if (current === targetId) return false;
-    options[index] = { ...options[index], targetId };
-    node.menuOptions = options;
-    const children = new Set<string>();
-    for (const option of options) {
-      if (option.targetId) {
-        children.add(option.targetId);
-      }
-    }
-    node.children = Array.from(children);
-    return true;
-  }
-
-  if (node.action?.kind === "buttons" && handleId.startsWith("out:button:")) {
-    const data = normalizeButtonsData(node.action.data as Partial<ButtonsActionData> | undefined);
-    const token = handleId.split(":")[2];
-    if (!token) return false;
-    if (token === "more") {
-      const current = data.moreTargetId ?? null;
-      if (current === targetId) return false;
-      data.moreTargetId = targetId;
-    } else {
-      const index = data.items.findIndex((item) => item.id === token);
-      if (index === -1) return false;
-      const current = data.items[index].targetId ?? null;
-      if (current === targetId) return false;
-      data.items[index] = { ...data.items[index], targetId };
-    }
-    node.action = { ...node.action, data };
-    const children = new Set<string>();
-    for (const item of data.items) {
-      if (item.targetId) {
-        children.add(item.targetId);
-      }
-    }
-    if (data.moreTargetId) {
-      children.add(data.moreTargetId);
-    }
-    node.children = Array.from(children);
-    return true;
-  }
-
-  if (node.action?.kind === "ask") {
-    const ask = getAskData(node);
-    if (!ask) return false;
-    const updated: AskActionData = { ...ask };
-    if (handleId === "out:answer") {
-      if (updated.answerTargetId === targetId) return false;
-      updated.answerTargetId = targetId;
-    } else if (handleId === "out:invalid") {
-      if (updated.invalidTargetId === targetId) return false;
-      updated.invalidTargetId = targetId;
-    } else {
-      return false;
-    }
-    node.action = { ...node.action, data: updated };
-    const children = new Set<string>();
-    if (updated.answerTargetId) children.add(updated.answerTargetId);
-    if (updated.invalidTargetId) children.add(updated.invalidTargetId);
-    node.children = Array.from(children);
-    return true;
-  }
-
-  if (node.action?.kind === "scheduler") {
-    const scheduler = getSchedulerData(node);
-    if (!scheduler) return false;
-    const updated = { ...scheduler };
-    const previousIn = scheduler.inWindowTargetId;
-    const previousOut = scheduler.outOfWindowTargetId;
-    if (handleId === "out:schedule:in") {
-      if (updated.inWindowTargetId === targetId) return false;
-      updated.inWindowTargetId = targetId;
-    } else if (handleId === "out:schedule:out") {
-      if (updated.outOfWindowTargetId === targetId) return false;
-      updated.outOfWindowTargetId = targetId;
-    } else {
-      return false;
-    }
-    node.action = { ...node.action, data: updated };
-    const childSet = new Set(node.children ?? []);
-    if (previousIn && previousIn !== updated.inWindowTargetId) childSet.delete(previousIn);
-    if (previousOut && previousOut !== updated.outOfWindowTargetId) childSet.delete(previousOut);
-    if (updated.inWindowTargetId) childSet.add(updated.inWindowTargetId);
-    if (updated.outOfWindowTargetId) childSet.add(updated.outOfWindowTargetId);
-    node.children = Array.from(childSet);
-    return true;
-  }
-
-  if (handleId === "out:default") {
-    const current = node.children?.[0] ?? null;
-    if (current === targetId) return false;
-    node.children = targetId ? [targetId] : [];
-    return true;
-  }
-
-  if (!targetId) {
-    return false;
-  }
-
-  const existing = new Set(node.children ?? []);
-  if (existing.has(targetId)) return false;
-  existing.add(targetId);
-  node.children = Array.from(existing);
-  return true;
-}
-
-export type HandleSpec = {
-  id: string;
-  label: string;
-  side: "left" | "right";
-  type: "input" | "output";
-  order: number;
-  variant?: "default" | "more" | "invalid" | "answer";
-};
-
-export const INPUT_HANDLE_SPEC: HandleSpec = {
-  id: "in",
-  label: "Entrada",
-  side: "left",
-  type: "input",
-  order: 0,
-  variant: "default",
-};
-
-export function getOutputHandleSpecs(node: FlowNode): HandleSpec[] {
-  if (node.type === "menu") {
-    return getMenuOptions(node).map((option, idx) => ({
-      id: `out:menu:${option.id}`,
-      label: option.label,
-      side: "right",
-      type: "output",
-      order: idx,
-      variant: "default",
-    }));
-  }
-
-  const buttons = getButtonsData(node);
-  if (buttons) {
-    const visible = buttons.items.slice(0, buttons.maxButtons);
-    const handles: HandleSpec[] = visible.map((item, idx) => ({
-      id: `out:button:${item.id}`,
-      label: item.label,
-      side: "right",
-      type: "output",
-      order: idx,
-      variant: "default",
-    }));
-    if (buttons.items.length > visible.length) {
-      handles.push({
-        id: "out:button:more",
-        label: "Lista",
-        side: "right",
-        type: "output",
-        order: handles.length,
-        variant: "more",
-      });
-    }
-    return handles;
-  }
-
-  const ask = getAskData(node);
-  if (ask) {
-    return [
-      { id: "out:answer", label: "Respuesta", side: "right", type: "output", order: 0, variant: "answer" },
-      { id: "out:invalid", label: "On invalid", side: "right", type: "output", order: 1, variant: "invalid" },
-    ];
-  }
-
-  const scheduler = getSchedulerData(node);
-  if (scheduler) {
-    return [
-      { id: "out:schedule:in", label: "Dentro de horario", side: "right", type: "output", order: 0, variant: "default" },
-      { id: "out:schedule:out", label: "Fuera de horario", side: "right", type: "output", order: 1, variant: "default" },
-    ];
-  }
-
-  return [
-    { id: "out:default", label: "Siguiente", side: "right", type: "output", order: 0, variant: "default" },
-  ];
-}
-
-export function getHandleAssignments(node: FlowNode): Record<string, string | null> {
-  if (node.type === "menu") {
-    const assignments: Record<string, string | null> = {};
-    getMenuOptions(node).forEach((option) => {
-      assignments[`out:menu:${option.id}`] = option.targetId ?? null;
-    });
-    return assignments;
-  }
-
-  const buttons = getButtonsData(node);
-  if (buttons) {
-    const assignments: Record<string, string | null> = {};
-    const visible = buttons.items.slice(0, buttons.maxButtons);
-    visible.forEach((item) => {
-      assignments[`out:button:${item.id}`] = item.targetId ?? null;
-    });
-    if (buttons.items.length > visible.length) {
-      assignments["out:button:more"] = buttons.moreTargetId ?? null;
-    }
-    return assignments;
-  }
-
-  const ask = getAskData(node);
-  if (ask) {
-    return {
-      "out:answer": ask.answerTargetId ?? null,
-      "out:invalid": ask.invalidTargetId ?? null,
-    };
-  }
-
-  const scheduler = getSchedulerData(node);
-  if (scheduler) {
-    return {
-      "out:schedule:in": scheduler.inWindowTargetId ?? null,
-      "out:schedule:out": scheduler.outOfWindowTargetId ?? null,
-    };
-  }
-
-  return { "out:default": node.children[0] ?? null };
-}
-
-const STRICTEST_LIMIT = CHANNEL_BUTTON_LIMITS.reduce((best, entry) => (entry.max < best.max ? entry : best), CHANNEL_BUTTON_LIMITS[0]);
 
 type NodePreviewProps = {
   node: FlowNode;
@@ -671,42 +144,18 @@ function NodePreview({ node, flow, channel }: NodePreviewProps) {
       <div className="space-y-1 text-[11px]">
         <div className="text-xs font-semibold text-slate-700">Pregunta al cliente</div>
         <div className="text-slate-600">{ask.questionText}</div>
-        <div className="flex gap-2 text-slate-500">
-          <span>Variable: <strong>{ask.varName}</strong></span>
-          <span>Tipo: {ask.varType}</span>
-        </div>
-        <div className="text-slate-400">
-          Validación: {ask.validation?.type === "regex" ? `regex (${ask.validation.pattern})` : ask.validation?.type === "options" ? `opciones (${ask.validation.options.join(", ")})` : "ninguna"}
+        <div className="text-[10px] text-slate-400">
+          Variable: {ask.varName} · Tipo: {ask.varType}
         </div>
       </div>
     ) : null;
   }
 
   if (node.action?.kind === "scheduler") {
-    const scheduler = getSchedulerData(node);
-    if (!scheduler) return null;
-    const schedule = scheduler.mode === "custom" ? scheduler.custom : undefined;
-    const errors = scheduler.mode === "custom" ? validateCustomSchedule(schedule) : [];
-    const now = new Date();
-    const openNow = schedule ? isInWindow(now, schedule) : false;
-    const nextSlot = schedule ? formatNextOpening(nextOpening(now, schedule)) : null;
     return (
       <div className="space-y-1 text-[11px]">
-        <div className="text-xs font-semibold text-slate-700">Scheduler</div>
-        <div className="text-slate-600">Zona horaria: {schedule?.timezone ?? ""}</div>
-        <div className={`font-medium ${openNow ? "text-emerald-600" : "text-amber-600"}`}>
-          {openNow ? "Abierto ahora" : "Fuera de horario"}
-        </div>
-        {nextSlot && (
-          <div className="text-slate-500">Próxima ventana: {nextSlot}</div>
-        )}
-        {errors.length > 0 && (
-          <ul className="text-rose-500 list-disc list-inside space-y-0.5">
-            {errors.slice(0, 2).map((error) => (
-              <li key={error}>{error}</li>
-            ))}
-          </ul>
-        )}
+        <div className="text-xs font-semibold text-slate-700">Horario inteligente</div>
+        <div className="text-slate-600">Configura destinos dentro/fuera de horario.</div>
       </div>
     );
   }
@@ -725,6 +174,16 @@ function NodePreview({ node, flow, channel }: NodePreviewProps) {
     );
   }
 
+  if (node.action?.kind === "end") {
+    const note = typeof node.action?.data?.note === "string" ? node.action.data.note : "";
+    return (
+      <div className="space-y-1 text-[11px]">
+        <div className="text-xs font-semibold text-emerald-700">Fin del flujo</div>
+        <div className="text-slate-600">{note || "Finaliza la conversación sin pasos adicionales."}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="text-[11px] text-slate-500">
       Vista previa no disponible para {node.action?.kind ?? node.type}.
@@ -732,50 +191,6 @@ function NodePreview({ node, flow, channel }: NodePreviewProps) {
   );
 }
 
-const demoFlow: Flow = normalizeFlow({
-  version: 1,
-  id: "flow-demo",
-  name: "Azaleia · Menú principal",
-  rootId: "root",
-  nodes: { root: { id: "root", label: "Menú principal", type: "menu", children: [], menuOptions: [] } },
-});
-
-function computeLayout(flow: Flow) {
-  const pos: Record<string, { x: number; y: number }> = {};
-  const levels: Record<number, string[]> = {};
-  const seen = new Set<string>();
-  function dfs(id: string, d: number) {
-    if (seen.has(id)) return;
-    seen.add(id);
-    (levels[d] ||= []).push(id);
-    const n = flow.nodes[id];
-    if (!n) return;
-    for (const cid of n.children) dfs(cid, d + 1);
-  }
-  dfs(flow.rootId, 0);
-  const colW = 340, rowH = 170;
-  Object.entries(levels).forEach(([depth, ids]) => {
-    (ids as string[]).forEach((id, i) => { pos[id] = { x: Number(depth) * colW, y: i * rowH }; });
-  });
-  return pos;
-}
-
-function nextChildId(flow: Flow, parentId: string): string {
-  const siblings = flow.nodes[parentId].children;
-  let maxIdx = 0;
-  for (const sid of siblings) {
-    const tail = sid.split(".").pop();
-    const n = Number(tail);
-    if (!Number.isNaN(n)) maxIdx = Math.max(maxIdx, n);
-  }
-  const next = maxIdx + 1;
-  return parentId === flow.rootId ? String(next) : `${parentId}.${next}`;
-}
-function deleteSubtree(flow: Flow, id: string){
-  const node = flow.nodes[id]; if (!node) return;
-  for (const cid of node.children) deleteSubtree(flow, cid);
-  delete flow.nodes[id];
-}
 type PersistedState = {
   flow: Flow;
   positions: Record<string, { x: number; y: number }>;
@@ -988,6 +403,54 @@ export default function App(): JSX.Element {
       showToast("No hay botones adicionales para convertir", "error");
     }
   }, [selectedId, setFlow, setSelectedId, showToast]);
+
+  const handleAttachmentUpload = useCallback(
+    (file: File | null) => {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const payload = typeof reader.result === "string" ? reader.result : "";
+        setFlow((prev) => {
+          const next: Flow = JSON.parse(JSON.stringify(prev));
+          const node = next.nodes[selectedId];
+          if (!node || node.action?.kind !== "attachment") return prev;
+          node.action = {
+            ...node.action,
+            data: {
+              ...(node.action.data || {}),
+              fileName: file.name,
+              mimeType: file.type,
+              fileSize: file.size,
+              fileData: payload,
+              url: "",
+            },
+          };
+          return next;
+        });
+      };
+      reader.readAsDataURL(file);
+    },
+    [selectedId, setFlow]
+  );
+
+  const handleAttachmentClear = useCallback(() => {
+    setFlow((prev) => {
+      const next: Flow = JSON.parse(JSON.stringify(prev));
+      const node = next.nodes[selectedId];
+      if (!node || node.action?.kind !== "attachment") return next;
+      node.action = {
+        ...node.action,
+        data: {
+          ...(node.action.data || {}),
+          fileName: "",
+          mimeType: "",
+          fileSize: 0,
+          fileData: "",
+        },
+      };
+      return next;
+    });
+  }, [selectedId, setFlow]);
 
   const handleAskUpdate = useCallback(
     (patch: Partial<Record<string, any>>) => {
@@ -1387,6 +850,7 @@ export default function App(): JSX.Element {
       | "tool"
       | "ask"
       | "scheduler"
+      | "end"
   ) {
     const nid = nextChildId(flow, parentId);
     const defaults: Record<string, any> = {
@@ -1398,7 +862,7 @@ export default function App(): JSX.Element {
         ],
         maxButtons: DEFAULT_BUTTON_LIMIT,
       }),
-      attachment: { attType:"image", url:"", name:"archivo" },
+      attachment: { attType:"image", url:"", name:"archivo", fileName:"", mimeType:"", fileSize:0, fileData:"" },
       webhook_out: {
         method:"POST",
         url:"https://api.ejemplo.com/webhook",
@@ -1420,10 +884,12 @@ export default function App(): JSX.Element {
         invalidTargetId: null,
       },
       scheduler: normalizeSchedulerData(undefined),
+      end: { note: "Fin del flujo" },
     };
+    const baseLabel = kind === "end" ? "Fin del flujo" : `Acción · ${kind}`;
     const newNode: FlowNode = {
       id: nid,
-      label: `Acción · ${kind}`,
+      label: baseLabel,
       type: "action",
       children: [],
       action: { kind: kind as ActionKind, data: defaults[kind] },
@@ -1441,11 +907,81 @@ export default function App(): JSX.Element {
 
   function deleteNode(id:string){
     if (id===flow.rootId) return;
-    const parentId = Object.values(flow.nodes).find(n=>n.children.includes(id))?.id;
+    const parentEntry = Object.values(flow.nodes).find(n=>n.children.includes(id));
+    const parentId = parentEntry?.id;
     const next: Flow = JSON.parse(JSON.stringify(flow));
-    deleteSubtree(next, id);
+    const removed = next.nodes[id];
+    if (!removed) return;
+    const preservedChildren = removed.children.filter((childId) => Boolean(next.nodes[childId]));
+    delete next.nodes[id];
+
+    if (parentId) {
+      const parentNode = next.nodes[parentId];
+      if (parentNode) {
+        const fallbackTarget = preservedChildren[0] ?? null;
+        const originalChildren = parentNode.children.filter((childId) => childId !== id);
+        const insertionIndex = parentNode.children.indexOf(id);
+        const sanitized = preservedChildren.filter((childId) => Boolean(next.nodes[childId]));
+        if (sanitized.length > 0) {
+          if (insertionIndex >= 0 && insertionIndex <= originalChildren.length) {
+            originalChildren.splice(insertionIndex, 0, ...sanitized);
+          } else {
+            originalChildren.push(...sanitized);
+          }
+        }
+        parentNode.children = Array.from(new Set(originalChildren));
+
+        if (parentNode.type === "menu" && parentNode.menuOptions) {
+          parentNode.menuOptions = parentNode.menuOptions.map((option, idx) =>
+            createMenuOption(idx, {
+              ...option,
+              targetId: option.targetId === id ? fallbackTarget : option.targetId,
+            })
+          );
+        } else if (parentNode.action?.kind === "buttons") {
+          const data = normalizeButtonsData(parentNode.action.data as Partial<ButtonsActionData> | undefined);
+          data.items = data.items.map((item, idx) =>
+            createButtonOption(idx, {
+              ...item,
+              targetId: item.targetId === id ? fallbackTarget : item.targetId,
+            })
+          );
+          if (data.moreTargetId === id) {
+            data.moreTargetId = fallbackTarget;
+          }
+          parentNode.action = { ...parentNode.action, data };
+        } else if (parentNode.action?.kind === "ask") {
+          const ask = getAskData(parentNode);
+          if (ask) {
+            const updated: AskActionData = { ...ask };
+            if (updated.answerTargetId === id) {
+              updated.answerTargetId = fallbackTarget;
+            }
+            if (updated.invalidTargetId === id) {
+              updated.invalidTargetId = fallbackTarget;
+            }
+            parentNode.action = { ...parentNode.action, data: updated };
+          }
+        } else if (parentNode.action?.kind === "scheduler") {
+          const scheduler = getSchedulerData(parentNode);
+          if (scheduler) {
+            const updated: SchedulerNodeData = { ...scheduler };
+            if (updated.inWindowTargetId === id) {
+              updated.inWindowTargetId = fallbackTarget;
+            }
+            if (updated.outOfWindowTargetId === id) {
+              updated.outOfWindowTargetId = fallbackTarget;
+            }
+            parentNode.action = { ...parentNode.action, data: updated };
+          }
+        }
+      }
+    }
+
     for (const node of Object.values(next.nodes)){
-      node.children = node.children.filter(childId=>Boolean(next.nodes[childId]));
+      node.children = node.children
+        .filter((childId)=>childId !== id)
+        .filter((childId)=>Boolean(next.nodes[childId]));
       if (node.type === "menu" && node.menuOptions) {
         node.menuOptions = node.menuOptions.map((option, idx) =>
           createMenuOption(idx, {
@@ -1680,6 +1216,14 @@ export default function App(): JSX.Element {
               }),
             },
           } as FlowNode;
+        } else if (kind === "end") {
+          newNode = {
+            id: nid,
+            label: "Fin del flujo",
+            type: "action",
+            children: [],
+            action: { kind: "end", data: { note: "Fin del flujo" } },
+          } as FlowNode;
         } else {
           newNode = {
             id: nid,
@@ -1893,12 +1437,12 @@ export default function App(): JSX.Element {
                 <button className="px-3 py-1.5 text-sm rounded border border-emerald-200 bg-white hover:bg-emerald-50 transition" onClick={()=>setSoloRoot(s=>!s)}>{soloRoot?"Mostrar todo":"Solo raíz"}</button>
               </div>
             </div>
-              <div className="p-2" style={{ minHeight: "76vh" }}>
-                <ReactFlowCanvas
-                  flow={flow}
-                  selectedId={selectedId}
-                  onSelect={setSelectedId}
-                  onAddChild={addChildTo}
+            <div className="p-2" style={{ minHeight: "76vh" }}>
+              <ReactFlowCanvas
+                flow={flow}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                onAddChild={addChildTo}
                 onDeleteNode={deleteNode}
                 onDuplicateNode={duplicateNode}
                 onInsertBetween={insertBetween}
@@ -1908,7 +1452,7 @@ export default function App(): JSX.Element {
                 onInvalidConnection={(message) => showToast(message, "error")}
                 invalidMessageIds={emptyMessageNodes}
                 soloRoot={soloRoot}
-                toggleScope={()=>setSoloRoot(s=>!s)}
+                toggleScope={() => setSoloRoot((s) => !s)}
                 nodePositions={positionsState}
                   onPositionsChange={setPositions}
                 />
@@ -2008,13 +1552,14 @@ export default function App(): JSX.Element {
                       <option value="ia_rag">IA · RAG</option>
                       <option value="tool">Tool/Acción externa</option>
                       <option value="ask">Pregunta al cliente</option>
+                      <option value="end">Finalizar flujo</option>
                     </select>
 
                     {(selected.action?.kind ?? "message")==="message" && (
                       <div className="space-y-1">
                         <label className="block text-xs mb-1">Mensaje</label>
-                        <input
-                          className={`w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 ${
+                        <textarea
+                          className={`w-full border rounded px-3 py-2 text-sm leading-relaxed resize-y min-h-[140px] focus:outline-none focus:ring-2 ${
                             selectedHasMessageError
                               ? "border-rose-300 focus:ring-rose-300"
                               : "focus:ring-emerald-300"
@@ -2022,10 +1567,31 @@ export default function App(): JSX.Element {
                           aria-invalid={selectedHasMessageError}
                           value={selected.action?.data?.text ?? ""}
                           onChange={(e)=>updateSelected({ action:{ kind:"message", data:{ text:e.target.value } } })}
+                          placeholder="Escribe el mensaje que recibirá el cliente..."
                         />
                         {selectedHasMessageError && (
                           <p className="text-[11px] text-rose-600">Este mensaje no puede estar vacío.</p>
                         )}
+                      </div>
+                    )}
+
+                    {selected.action?.kind === "end" && (
+                      <div className="space-y-2 text-xs border border-emerald-200 rounded-lg p-3 bg-emerald-50/60">
+                        <div className="text-sm font-semibold text-emerald-700 flex items-center gap-2">
+                          <span>🏁 Este bloque termina el flujo</span>
+                        </div>
+                        <p className="text-[11px] text-emerald-700/80">
+                          Cuando un cliente llegue a este punto, la conversación se marcará como finalizada y no se buscará un siguiente paso.
+                        </p>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] text-slate-500">Nota interna (opcional)</label>
+                          <textarea
+                            className="w-full border rounded px-2 py-1 text-xs resize-y min-h-[80px] focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                            value={selected.action?.data?.note ?? ""}
+                            onChange={(e)=>updateSelected({ action:{ kind:"end", data:{ ...(selected.action?.data||{}), note:e.target.value } } })}
+                            placeholder="Anota detalles para tu equipo sobre el cierre del flujo..."
+                          />
+                        </div>
                       </div>
                     )}
 
@@ -2252,17 +1818,75 @@ export default function App(): JSX.Element {
                     )}
 
                     {selected.action?.kind==="attachment" && (
-                      <div className="space-y-2">
-                        <div className="flex gap-2 text-xs">
-                          <select className="border rounded px-2 py-1" value={selected.action?.data?.attType ?? "image"} onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), attType:e.target.value } } })}>
+                      <div className="space-y-3 text-xs">
+                        <div className="flex gap-2">
+                          <select
+                            className="border rounded px-2 py-1"
+                            value={selected.action?.data?.attType ?? "image"}
+                            onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), attType:e.target.value } } })}
+                          >
                             <option value="image">Imagen</option>
                             <option value="file">Archivo</option>
                             <option value="audio">Audio</option>
                             <option value="video">Video</option>
                           </select>
-                          <input className="flex-1 border rounded px-2 py-1" placeholder="URL" value={selected.action?.data?.url ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), url:e.target.value } } })} />
+                          <input
+                            className="flex-1 border rounded px-2 py-1"
+                            placeholder="URL pública (opcional)"
+                            value={selected.action?.data?.url ?? ""}
+                            onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), url:e.target.value } } })}
+                          />
                         </div>
-                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Nombre visible" value={selected.action?.data?.name ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), name:e.target.value } } })} />
+                        <div className="space-y-1">
+                          <label className="block text-[11px] text-slate-500">Nombre visible</label>
+                          <input
+                            className="w-full border rounded px-2 py-1"
+                            placeholder="Documento promocional"
+                            value={selected.action?.data?.name ?? ""}
+                            onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), name:e.target.value } } })}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] text-slate-500">Subir archivo desde tu PC</label>
+                          <input
+                            type="file"
+                            className="block w-full text-[11px] text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-emerald-100 file:px-3 file:py-1 file:text-emerald-700 hover:file:bg-emerald-200"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0] ?? null;
+                              handleAttachmentUpload(file);
+                              event.target.value = "";
+                            }}
+                          />
+                          <p className="text-[10px] text-slate-400">El archivo se guardará en el flujo como base64 para pruebas locales.</p>
+                        </div>
+                        {selected.action?.data?.fileData && (
+                          <div className="border rounded-lg p-2 bg-emerald-50 text-emerald-700 space-y-1">
+                            <div className="font-semibold flex items-center gap-2">
+                              <span>📎 {selected.action?.data?.fileName || "Archivo sin nombre"}</span>
+                            </div>
+                            <div className="text-[10px] text-emerald-700/80">
+                              {selected.action?.data?.mimeType || "tipo desconocido"} ·
+                              {` ${Math.max(1, Math.round(((selected.action?.data?.fileSize ?? 0) / 1024) || 0))} KB`}
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                className="px-2 py-0.5 border border-emerald-300 rounded bg-white text-emerald-700 hover:bg-emerald-100"
+                                onClick={handleAttachmentClear}
+                              >
+                                Quitar archivo
+                              </button>
+                              {typeof selected.action?.data?.fileData === "string" && selected.action?.data?.fileData && (
+                                <a
+                                  className="px-2 py-0.5 border border-emerald-300 rounded bg-white text-emerald-700 hover:bg-emerald-100"
+                                  href={selected.action.data.fileData}
+                                  download={selected.action?.data?.fileName || "archivo"}
+                                >
+                                  Descargar
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -2535,6 +2159,7 @@ export default function App(): JSX.Element {
                 <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"webhook_in")}>Acción · Webhook IN</button>
                 <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"transfer")}>Acción · Transferir</button>
                 <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"scheduler")}>Acción · Scheduler</button>
+                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-slate-400 to-slate-500 text-white shadow-sm transition hover:from-slate-500 hover:to-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-300" onClick={()=>addActionOfKind(selectedId,"end")}>Bloque · Finalizar flujo</button>
                 <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={seedDemo}>Demo rápido</button>
               </div>
             </div>

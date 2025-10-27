@@ -11,7 +11,8 @@ export type ActionKind =
   | "ia_rag"
   | "tool"
   | "ask"
-  | "scheduler";
+  | "scheduler"
+  | "end";
 
 export type MenuOption = {
   id: string;
