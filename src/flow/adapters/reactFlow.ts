@@ -6,6 +6,20 @@ import {
   type HandleSpec,
 } from '../utils/flow';
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function sanitizePosition(
+  stored: XYPosition | undefined,
+  fallback: XYPosition,
+): XYPosition {
+  if (stored && isFiniteNumber(stored.x) && isFiniteNumber(stored.y)) {
+    return { x: stored.x, y: stored.y };
+  }
+  return fallback;
+}
+
 export interface CanvasNodeData extends Record<string, unknown> {
   flowNode: FlowNode;
   handleSpecs: HandleSpec[];
@@ -52,7 +66,8 @@ export function buildReactFlowGraph({
     const handleSpecs = getOutputHandleSpecs(flowNode);
     const assignments = getHandleAssignments(flowNode);
     const invalid = invalidMessageIds.has(id);
-    const position = nodePositions[id] ?? autoLayout[id] ?? { x: 0, y: 0 };
+    const fallbackPosition = autoLayout[id] ?? { x: 0, y: 0 };
+    const position = sanitizePosition(nodePositions[id], fallbackPosition);
     nodes.push({
       id,
       type: resolveNodeType(flowNode),

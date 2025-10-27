@@ -67,6 +67,26 @@ const demoFlow: Flow = normalizeFlow({
   nodes: { root: { id: "root", label: "Menú principal", type: "menu", children: [], menuOptions: [] } },
 });
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function sanitizePositionMap(
+  positions: Record<string, { x: unknown; y: unknown }> | null | undefined,
+): Record<string, { x: number; y: number }> {
+  if (!positions) {
+    return {};
+  }
+
+  const sanitized: Record<string, { x: number; y: number }> = {};
+  for (const [id, pos] of Object.entries(positions)) {
+    if (pos && isFiniteNumber(pos.x) && isFiniteNumber(pos.y)) {
+      sanitized[id] = { x: pos.x, y: pos.y };
+    }
+  }
+  return sanitized;
+}
+
 function computeLayout(flow: Flow) {
   const pos: Record<string, { x: number; y: number }> = {};
   const levels: Record<number, string[]> = {};
@@ -249,15 +269,25 @@ export default function App(): JSX.Element {
         | ((prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)
     ) => {
       setPositionsState((prev) => {
-        const next =
+        const nextRaw =
           typeof updater === "function"
             ? (updater as (prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)(prev)
             : updater;
-        if (next === prev) return prev;
+        const sanitized = sanitizePositionMap(nextRaw);
+        const sameSize = Object.keys(prev).length === Object.keys(sanitized).length;
+        const identical =
+          sameSize &&
+          Object.entries(sanitized).every(([id, position]) => {
+            const existing = prev[id];
+            return existing?.x === position.x && existing?.y === position.y;
+          });
+        if (identical) {
+          return prev;
+        }
         if (!suppressDirtyRef.current) {
           setDirty(true);
         }
-        return next;
+        return sanitized;
       });
     },
     []
@@ -266,7 +296,7 @@ export default function App(): JSX.Element {
   const replaceFlow = useCallback((nextFlow: Flow, nextPositions: Record<string, { x: number; y: number }> = {}) => {
     suppressDirtyRef.current = true;
     setFlowState(normalizeFlow(nextFlow));
-    setPositionsState(nextPositions);
+    setPositionsState(sanitizePositionMap(nextPositions));
     suppressDirtyRef.current = false;
     setSelectedId(nextFlow.rootId);
     setWorkspaceId(nextFlow.id);

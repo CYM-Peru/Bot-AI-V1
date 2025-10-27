@@ -20,10 +20,15 @@ import {
   type EdgeChange,
   type NodeChange,
   type NodeProps,
-  type OnConnectEnd,
-  type OnConnectStart,
+  type XYPosition,
   useReactFlow,
 } from '@xyflow/react';
+import type {
+  FinalConnectionState,
+  OnConnectEnd,
+  OnConnectStart,
+  OnConnectStartParams,
+} from '@xyflow/system';
 import '@xyflow/react/dist/style.css';
 import type { Flow, NodeType } from './flow/types';
 import { type ConnectionCreationKind } from './flow/utils/flow';
@@ -58,6 +63,12 @@ type QuickCreateState = {
   position: { x: number; y: number };
   screen: { x: number; y: number };
 };
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+const isValidPosition = (position?: XYPosition | null): position is XYPosition =>
+  Boolean(position && isFiniteNumber(position.x) && isFiniteNumber(position.y));
 
 export interface ReactFlowCanvasProps {
   flow: Flow;
@@ -201,8 +212,8 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
       setNodes((nds) => applyNodeChanges<RuntimeNode>(changes, nds));
       const updates: PositionMap = {};
       changes.forEach((change) => {
-        if (change.type === 'position' && change.position) {
-          updates[change.id] = change.position;
+        if (change.type === 'position' && isValidPosition(change.position)) {
+          updates[change.id] = { x: change.position.x, y: change.position.y };
         }
       });
       if (Object.keys(updates).length > 0) {
@@ -248,19 +259,19 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
     event.preventDefault();
   }, []);
 
-  const handleConnectStart = useCallback<OnConnectStart>(
-    (_event, params) => {
-      if (!params.nodeId || !params.handleId) {
+  const handleConnectStart = useCallback(
+    (_event: MouseEvent | TouchEvent, params?: OnConnectStartParams) => {
+      if (!params?.nodeId || !params.handleId) {
         pendingSourceRef.current = null;
         return;
       }
       pendingSourceRef.current = { sourceId: params.nodeId, handleId: params.handleId };
     },
     [],
-  );
+  ) as OnConnectStart;
 
-  const handleConnectEnd = useCallback<OnConnectEnd>(
-    (event, connectionState) => {
+  const handleConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
       const pending = pendingSourceRef.current;
       if (!pending) {
         setQuickCreateState(null);
@@ -291,7 +302,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
       });
     },
     [screenToFlowPosition],
-  );
+  ) as OnConnectEnd;
 
   const quickCreateOptions = useMemo<ConnectionCreationKind[]>(
     () => ['menu', 'message', 'buttons', 'ask', 'scheduler', 'end'],
