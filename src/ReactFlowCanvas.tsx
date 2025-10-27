@@ -1,4 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+} from 'react';
 import {
   Background,
   BackgroundVariant,
@@ -104,10 +111,37 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [nodes, setNodes] = useState<RuntimeNode[]>([]);
   const [edges, setEdges] = useState<RuntimeEdge[]>([]);
+  const [canvasHeight, setCanvasHeight] = useState<number>(600);
   const pendingSourceRef = useRef<{ sourceId: string; handleId: string } | null>(null);
   const [quickCreateState, setQuickCreateState] = useState<QuickCreateState | null>(null);
   const [visibleNodeIds, setVisibleNodeIds] = useState<string[]>([]);
   const rightMousePan = useRightMousePan();
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) {
+      return;
+    }
+
+    const updateSize = () => {
+      const nextHeight = wrapper.clientHeight;
+      if (nextHeight > 0) {
+        setCanvasHeight(nextHeight);
+      }
+    };
+
+    updateSize();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(updateSize);
+      observer.observe(wrapper);
+      return () => observer.disconnect();
+    }
+
+    const onWindowResize = () => updateSize();
+    window.addEventListener('resize', onWindowResize);
+    return () => window.removeEventListener('resize', onWindowResize);
+  }, []);
 
   const graph = useMemo(() => {
     return buildReactFlowGraph({
@@ -174,6 +208,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
       if (Object.keys(updates).length > 0) {
         onPositionsChange((prev) => ({ ...prev, ...updates }));
       }
+      pendingSourceRef.current = { sourceId: params.nodeId, handleId: params.handleId };
     },
     [onPositionsChange],
   );
@@ -317,7 +352,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
         nodeTypes={NODE_TYPES}
         defaultEdgeOptions={{ type: 'step', animated: false, className: 'flow-edge' }}
         className="h-full rounded-lg shadow-inner"
-        style={{ width: '100%', height: '100%', background: '#f8fafc' }}
+        style={{ width: '100%', height: canvasHeight, minHeight: 400, background: '#f8fafc' }}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
