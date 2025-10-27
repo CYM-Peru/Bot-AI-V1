@@ -23,7 +23,7 @@ export function ConditionNode(props: NodeProps<RuntimeNode>) {
       title={data.flowNode.label}
       subtitle={data.flowNode.description}
       badgeLabel="Condición"
-      badgeTone="condition"
+      badgeTone="question"
       icon="❓"
       body={body}
     />

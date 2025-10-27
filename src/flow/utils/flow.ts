@@ -519,6 +519,18 @@ export const INPUT_HANDLE_SPEC: HandleSpec = {
 };
 
 export function getOutputHandleSpecs(node: FlowNode): HandleSpec[] {
+  if (node.type === 'start' || node.action?.kind === 'start') {
+    return [
+      {
+        id: 'out:default',
+        label: 'Iniciar',
+        side: 'right',
+        type: 'output',
+        order: 0,
+        variant: 'default',
+      },
+    ];
+  }
   if (node.type === 'menu') {
     return getMenuOptions(node).map((option, idx) => ({
       id: `out:menu:${option.id}`,

@@ -33,7 +33,7 @@ export function MessageNode(props: NodeProps<RuntimeNode>) {
         title={data.flowNode.label}
         subtitle={data.flowNode.description}
         badgeLabel="Mensaje"
-        badgeTone="action"
+        badgeTone="message"
         icon="💬"
         body={body}
         footer={footer}

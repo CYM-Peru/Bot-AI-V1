@@ -66,7 +66,15 @@ const demoFlow: Flow = normalizeFlow({
   id: "flow-demo",
   name: "Azaleia · Menú principal",
   rootId: "root",
-  nodes: { root: { id: "root", label: "Menú principal", type: "menu", children: [], menuOptions: [] } },
+  nodes: {
+    root: {
+      id: "root",
+      label: "Inicio del flujo",
+      type: "start",
+      action: { kind: "start" },
+      children: [],
+    },
+  },
 });
 
 function isFiniteNumber(value: unknown): value is number {
@@ -107,6 +115,27 @@ function computeLayout(flow: Flow) {
     (ids as string[]).forEach((id, i) => { pos[id] = { x: Number(depth) * colW, y: i * rowH }; });
   });
   return pos;
+}
+
+function ensureStartNode(flow: Flow): Flow {
+  const root = flow.nodes[flow.rootId];
+  if (!root) {
+    return flow;
+  }
+  const requiresUpdate = root.type !== 'start' || root.action?.kind !== 'start';
+  if (!requiresUpdate) {
+    return flow;
+  }
+  const updatedRoot: FlowNode = {
+    ...root,
+    type: 'start',
+    action: root.action?.kind === 'start' ? root.action : { kind: 'start' },
+  };
+  const nextNodes: Flow['nodes'] = {
+    ...flow.nodes,
+    [flow.rootId]: { ...updatedRoot, menuOptions: undefined },
+  };
+  return { ...flow, nodes: nextNodes };
 }
 
 function inferAttachmentType(mimeType: string | undefined | null): 'image' | 'audio' | 'video' | 'file' {
@@ -282,7 +311,7 @@ export default function App(): JSX.Element {
   const setFlow = useCallback((updater: Flow | ((prev: Flow) => Flow)) => {
     setFlowState((prev) => {
       const candidate = typeof updater === "function" ? (updater as (prev: Flow) => Flow)(prev) : updater;
-      const next = normalizeFlow(candidate);
+      const next = ensureStartNode(normalizeFlow(candidate));
       if (!suppressDirtyRef.current && next !== prev) {
         setDirty(true);
       }
@@ -323,11 +352,12 @@ export default function App(): JSX.Element {
 
   const replaceFlow = useCallback((nextFlow: Flow, nextPositions: Record<string, { x: number; y: number }> = {}) => {
     suppressDirtyRef.current = true;
-    setFlowState(normalizeFlow(nextFlow));
+    const normalized = ensureStartNode(normalizeFlow(nextFlow));
+    setFlowState(normalized);
     setPositionsState(sanitizePositionMap(nextPositions));
     suppressDirtyRef.current = false;
-    setSelectedId(nextFlow.rootId);
-    setWorkspaceId(nextFlow.id);
+    setSelectedId(normalized.rootId);
+    setWorkspaceId(normalized.id);
     setDirty(false);
   }, []);
 
@@ -1311,6 +1341,10 @@ export default function App(): JSX.Element {
 
   const handleConnectHandle = useCallback(
     (sourceId: string, handleId: string, targetId: string | null) => {
+      if (targetId && targetId === flowRef.current.rootId) {
+        showToast('El nodo inicial no acepta conexiones entrantes', 'error');
+        return false;
+      }
       let updated = false;
       setFlow((prev) => {
         const next: Flow = JSON.parse(JSON.stringify(prev));
@@ -1325,7 +1359,7 @@ export default function App(): JSX.Element {
       });
       return updated;
     },
-    [setFlow]
+    [setFlow, showToast]
   );
 
   const handleCreateForHandle = useCallback(
@@ -1838,10 +1872,20 @@ export default function App(): JSX.Element {
                 <input className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300" value={selected.label} onChange={(e)=>updateSelected({ label:e.target.value })} />
 
                 <label className="block text-xs mb-1">Tipo</label>
-                <select className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300" value={selected.type} onChange={(e)=>updateSelected({ type: e.target.value as any })}>
-                  <option value="menu">Menú</option>
-                  <option value="action">Acción</option>
-                </select>
+                {selected.id === flow.rootId ? (
+                  <div className="w-full rounded px-3 py-2 text-xs font-semibold text-slate-600 bg-slate-100 border border-slate-200">
+                    Inicio de flujo
+                  </div>
+                ) : (
+                  <select
+                    className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                    value={selected.type}
+                    onChange={(e) => updateSelected({ type: e.target.value as any })}
+                  >
+                    <option value="menu">Menú</option>
+                    <option value="action">Acción</option>
+                  </select>
+                )}
 
                 {/* Delay/Timer configuration */}
                 <div className="border-t pt-3 space-y-2">
