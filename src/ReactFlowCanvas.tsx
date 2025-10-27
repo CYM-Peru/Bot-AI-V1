@@ -291,7 +291,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
   return (
     <div
       ref={wrapperRef}
-      className="relative h-full w-full min-h-[600px]"
+      className="relative h-full w-full min-h-[600px] rounded-xl bg-slate-100/60"
       onMouseDown={(event) => {
         const target = event.target as HTMLElement | null;
         if (event.button === 2 && target?.closest('.react-flow__pane')) {
@@ -316,8 +316,8 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
         edges={edges}
         nodeTypes={NODE_TYPES}
         defaultEdgeOptions={{ type: 'step', animated: false, className: 'flow-edge' }}
-        className="h-full"
-        style={{ width: '100%', height: '100%' }}
+        className="h-full rounded-lg shadow-inner"
+        style={{ width: '100%', height: '100%', background: '#f8fafc' }}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
@@ -332,7 +332,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
         elevateEdgesOnSelect
         fitView
       >
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
+        <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} color="#cbd5f5" />
         <Controls position="bottom-left" />
         <MiniMap pannable zoomable />
         {quickCreateState && (

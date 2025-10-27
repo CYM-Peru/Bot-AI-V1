@@ -16,3 +16,7 @@
   stroke: #10b981;
   stroke-width: 3px;
 }
+
+.react-flow__node {
+  z-index: 5 !important;
+}

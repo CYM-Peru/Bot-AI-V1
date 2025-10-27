@@ -64,16 +64,16 @@ export function NodeCard(props: NodeCardProps) {
   }, [data, id]);
 
   const borderClass = data.invalid
-    ? 'border-rose-300 ring-2 ring-rose-400 shadow-rose-100'
+    ? 'border-rose-300 ring-2 ring-rose-300 shadow-rose-200/40'
     : selected
-    ? 'border-emerald-400 ring-2 ring-emerald-300 shadow-emerald-100'
-    : 'border-slate-200 hover:border-emerald-300';
+    ? 'border-emerald-400 ring-2 ring-emerald-200 shadow-emerald-200/40'
+    : 'border-slate-300 hover:border-emerald-300 shadow-slate-300/40';
 
   const handleCount = data.handleSpecs.length || 1;
 
   return (
     <div
-      className={`group relative w-[320px] rounded-2xl border bg-white shadow-lg transition ${borderClass}`}
+      className={`group relative w-[320px] rounded-2xl border bg-white/95 backdrop-blur transition-shadow ${borderClass}`}
       onClick={(event) => {
         event.stopPropagation();
         data.onSelect(id);
