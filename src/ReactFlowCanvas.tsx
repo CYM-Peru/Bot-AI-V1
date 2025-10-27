@@ -62,11 +62,6 @@ type ConnectStartParams = {
   handleId?: string | null;
 };
 
-type FinalConnectionState = {
-  to?: XYPosition | null;
-  toNode?: { id: string } | null;
-};
-
 type QuickCreateState = {
   sourceId: string;
   handleId: string;
@@ -229,7 +224,6 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
       if (Object.keys(updates).length > 0) {
         onPositionsChange((prev) => ({ ...prev, ...updates }));
       }
-      pendingSourceRef.current = { sourceId: params.nodeId, handleId: params.handleId };
     },
     [onPositionsChange],
   );
