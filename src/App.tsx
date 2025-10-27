@@ -778,61 +778,10 @@ function nextChildId(flow: Flow, parentId: string): string {
   const next = maxIdx + 1;
   return parentId === flow.rootId ? String(next) : `${parentId}.${next}`;
 }
-export function removeNodeKeepingDescendants(flow: Flow, id: string): Flow {
-  if (id === flow.rootId) return flow;
-  if (!flow.nodes[id]) return flow;
-  const next: Flow = JSON.parse(JSON.stringify(flow));
-  delete next.nodes[id];
-  for (const node of Object.values(next.nodes)) {
-    node.children = node.children.filter((childId) => childId !== id && Boolean(next.nodes[childId]));
-    if (node.type === "menu" && node.menuOptions) {
-      node.menuOptions = node.menuOptions.map((option, idx) =>
-        createMenuOption(idx, {
-          ...option,
-          targetId: option.targetId && next.nodes[option.targetId] ? option.targetId : null,
-        })
-      );
-    }
-    if (node.action?.kind === "buttons") {
-      const data = normalizeButtonsData(node.action.data as Partial<ButtonsActionData> | undefined);
-      const items = data.items.map((item, idx) =>
-        createButtonOption(idx, {
-          ...item,
-          targetId: item.targetId && next.nodes[item.targetId] ? item.targetId : null,
-        })
-      );
-      const moreTargetId =
-        data.moreTargetId && next.nodes[data.moreTargetId] ? data.moreTargetId : null;
-      node.action = { ...node.action, data: { ...data, items, moreTargetId } };
-    }
-    if (node.action?.kind === "ask") {
-      const ask = getAskData(node);
-      if (ask) {
-        const updated: AskActionData = { ...ask };
-        if (updated.answerTargetId && !next.nodes[updated.answerTargetId]) {
-          updated.answerTargetId = null;
-        }
-        if (updated.invalidTargetId && !next.nodes[updated.invalidTargetId]) {
-          updated.invalidTargetId = null;
-        }
-        node.action = { ...node.action, data: updated };
-      }
-    }
-    if (node.action?.kind === "scheduler") {
-      const scheduler = getSchedulerData(node);
-      if (scheduler) {
-        const updated: SchedulerNodeData = { ...scheduler };
-        if (updated.inWindowTargetId && !next.nodes[updated.inWindowTargetId]) {
-          updated.inWindowTargetId = null;
-        }
-        if (updated.outOfWindowTargetId && !next.nodes[updated.outOfWindowTargetId]) {
-          updated.outOfWindowTargetId = null;
-        }
-        node.action = { ...node.action, data: updated };
-      }
-    }
-  }
-  return normalizeFlow(next);
+function deleteSubtree(flow: Flow, id: string){
+  const node = flow.nodes[id]; if (!node) return;
+  for (const cid of node.children) deleteSubtree(flow, cid);
+  delete flow.nodes[id];
 }
 type EdgeSpec = {
   key: string;
@@ -2734,10 +2683,59 @@ export default function App(): JSX.Element {
 
   function deleteNode(id:string){
     if (id===flow.rootId) return;
-    if (!flow.nodes[id]) return;
     const parentId = Object.values(flow.nodes).find(n=>n.children.includes(id))?.id;
-    const next = removeNodeKeepingDescendants(flow, id);
-    if (next === flow) return;
+    const next: Flow = JSON.parse(JSON.stringify(flow));
+    deleteSubtree(next, id);
+    for (const node of Object.values(next.nodes)){
+      node.children = node.children.filter(childId=>Boolean(next.nodes[childId]));
+      if (node.type === "menu" && node.menuOptions) {
+        node.menuOptions = node.menuOptions.map((option, idx) =>
+          createMenuOption(idx, {
+            ...option,
+            targetId: option.targetId && next.nodes[option.targetId] ? option.targetId : null,
+          })
+        );
+      }
+      if (node.action?.kind === "buttons") {
+        const data = normalizeButtonsData(node.action.data as Partial<ButtonsActionData> | undefined);
+        data.items = data.items.map((item, idx) =>
+          createButtonOption(idx, {
+            ...item,
+            targetId: item.targetId && next.nodes[item.targetId] ? item.targetId : null,
+          })
+        );
+        if (data.moreTargetId && !next.nodes[data.moreTargetId]) {
+          data.moreTargetId = null;
+        }
+        node.action = { ...node.action, data };
+      }
+      if (node.action?.kind === "ask") {
+        const ask = getAskData(node);
+        if (ask) {
+          const updated: AskActionData = { ...ask };
+          if (updated.answerTargetId && !next.nodes[updated.answerTargetId]) {
+            updated.answerTargetId = null;
+          }
+          if (updated.invalidTargetId && !next.nodes[updated.invalidTargetId]) {
+            updated.invalidTargetId = null;
+          }
+          node.action = { ...node.action, data: updated };
+        }
+      }
+      if (node.action?.kind === "scheduler") {
+        const scheduler = getSchedulerData(node);
+        if (scheduler) {
+          const updated: SchedulerNodeData = { ...scheduler };
+          if (updated.inWindowTargetId && !next.nodes[updated.inWindowTargetId]) {
+            updated.inWindowTargetId = null;
+          }
+          if (updated.outOfWindowTargetId && !next.nodes[updated.outOfWindowTargetId]) {
+            updated.outOfWindowTargetId = null;
+          }
+          node.action = { ...node.action, data: updated };
+        }
+      }
+    }
     setFlow(next);
     setSelectedId(parentId && next.nodes[parentId] ? parentId : next.rootId);
     setPositions((prev) => {
@@ -2751,7 +2749,6 @@ export default function App(): JSX.Element {
       }
       return changed ? updated : prev;
     });
-    showToast("Nodo eliminado. Edges desconectados.");
   }
 
   function duplicateNode(id:string){
