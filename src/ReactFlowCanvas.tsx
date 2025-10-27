@@ -23,6 +23,12 @@ import {
   type XYPosition,
   useReactFlow,
 } from '@xyflow/react';
+import type {
+  FinalConnectionState,
+  OnConnectEnd,
+  OnConnectStart,
+  OnConnectStartParams,
+} from '@xyflow/system';
 import '@xyflow/react/dist/style.css';
 import type { Flow, NodeType } from './flow/types';
 import { type ConnectionCreationKind } from './flow/utils/flow';
@@ -223,6 +229,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
       if (Object.keys(updates).length > 0) {
         onPositionsChange((prev) => ({ ...prev, ...updates }));
       }
+      pendingSourceRef.current = { sourceId: params.nodeId, handleId: params.handleId };
     },
     [onPositionsChange],
   );

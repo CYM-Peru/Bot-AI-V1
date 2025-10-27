@@ -1484,11 +1484,11 @@ export default function App(): JSX.Element {
                 soloRoot={soloRoot}
                 toggleScope={() => setSoloRoot((s) => !s)}
                 nodePositions={positionsState}
-                onPositionsChange={setPositions}
-              />
+                  onPositionsChange={setPositions}
+                />
+              </div>
             </div>
           </div>
-        </div>
 
         <div className="order-1 lg:order-2 lg:col-span-3 lg:col-start-10 lg:self-start">
           <div className="flex flex-col gap-4 min-w-0">
