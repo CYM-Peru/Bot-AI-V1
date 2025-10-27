@@ -206,7 +206,7 @@ export class WhatsAppWebhookHandler {
 }
 
 function convertMessageToRuntime(message: WhatsAppMessage): IncomingMessage {
-  const raw = message as Record<string, unknown>;
+  const raw = message as unknown as Record<string, unknown>;
   switch (message.type) {
     case "text":
       return { type: "text", text: message.text?.body ?? "", raw };
