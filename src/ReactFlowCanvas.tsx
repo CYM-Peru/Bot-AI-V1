@@ -100,7 +100,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
     nodePositions,
     onPositionsChange,
   } = props;
-  const { screenToFlowPosition } = useReactFlow<RuntimeNode, RuntimeEdge>();
+  const { screenToFlowPosition, fitView } = useReactFlow<RuntimeNode, RuntimeEdge>();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [nodes, setNodes] = useState<RuntimeNode[]>([]);
   const [edges, setEdges] = useState<RuntimeEdge[]>([]);
@@ -143,6 +143,12 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
   useEffect(() => {
     setNodes(decoratedNodes);
   }, [decoratedNodes]);
+
+  useEffect(() => {
+    if (decoratedNodes.length > 0) {
+      fitView({ padding: 0.2, duration: 300 });
+    }
+  }, [decoratedNodes, fitView]);
 
   useEffect(() => {
     setEdges(
@@ -285,7 +291,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
   return (
     <div
       ref={wrapperRef}
-      className="relative h-full w-full"
+      className="relative h-full w-full min-h-[600px]"
       onMouseDown={(event) => {
         const target = event.target as HTMLElement | null;
         if (event.button === 2 && target?.closest('.react-flow__pane')) {
@@ -310,6 +316,8 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
         edges={edges}
         nodeTypes={NODE_TYPES}
         defaultEdgeOptions={{ type: 'step', animated: false, className: 'flow-edge' }}
+        className="h-full"
+        style={{ width: '100%', height: '100%' }}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
