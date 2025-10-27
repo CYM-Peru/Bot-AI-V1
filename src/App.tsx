@@ -8,6 +8,25 @@ import React, {
 import { loadFlow, saveFlow } from "./data/persistence";
 import { debounce } from "./utils/debounce";
 import { CHANNEL_BUTTON_LIMITS, DEFAULT_BUTTON_LIMIT } from "./flow/channelLimits";
+import { ReactFlowCanvas } from "./ReactFlowCanvas";
+import {
+  ConnectionCreationKind,
+  STRICTEST_LIMIT,
+  applyHandleAssignment,
+  convertButtonsOverflowToList,
+  createButtonOption,
+  createMenuOption,
+  getAskData,
+  getButtonsData,
+  getMenuOptions,
+  getOutputHandleSpecs,
+  getSchedulerData,
+  nextChildId,
+  normalizeButtonsData,
+  normalizeFlow,
+  normalizeSchedulerData,
+  sanitizeTimeWindow,
+} from "./flow/utils/flow";
 import type {
   ActionKind,
   ButtonOption,
@@ -24,32 +43,11 @@ import type {
   DateException,
   Weekday,
 } from "./flow/types";
-import { screenToCanvas, canvasToScreen } from "./utils/coords";
-import { type NodeGeometry } from "./utils/handles";
-import { createHandleScheduler } from "./utils/scheduler";
-import { buildOrthogonalPath } from "./utils/edgePath";
-import { findNearestHandle, type HandlePointCandidate } from "./utils/hitTest";
 import { formatNextOpening, isInWindow, nextOpening, validateCustomSchedule } from "./flow/scheduler";
-import { computeAutoPanDelta } from "./utils/autoPan";
-import { ReactFlowCanvas } from "./ReactFlowCanvas";
 
 const NODE_W = 300;
 const NODE_H = 128;
-const SURFACE_W = 4000;
-const SURFACE_H = 3000;
-const GRID_SIZE = 24;
-const HANDLE_SNAP_TOLERANCE = 12;
 const AUTO_SAVE_INTERVAL_MS = 5 * 60 * 1000;
-const AUTOPAN_MARGIN = 96;
-const AUTOPAN_MAX_SPEED = 24;
-
-const DEFAULT_TIMEZONE = "America/Lima";
-const DEFAULT_SCHEDULE_WINDOW: TimeWindow = {
-  weekdays: [1, 2, 3, 4, 5],
-  start: "09:00",
-  end: "18:00",
-  overnight: false,
-};
 
 const WEEKDAY_CHOICES: { value: Weekday; label: string; title: string }[] = [
   { value: 1, label: "L", title: "Lunes" },
@@ -61,472 +59,53 @@ const WEEKDAY_CHOICES: { value: Weekday; label: string; title: string }[] = [
   { value: 7, label: "D", title: "Domingo" },
 ];
 
-function sanitizeWeekdays(weekdays: Weekday[] | undefined): Weekday[] {
-  if (!Array.isArray(weekdays)) {
-    return [...DEFAULT_SCHEDULE_WINDOW.weekdays];
+const demoFlow: Flow = normalizeFlow({
+  version: 1,
+  id: "flow-demo",
+  name: "Azaleia · Menú principal",
+  rootId: "root",
+  nodes: { root: { id: "root", label: "Menú principal", type: "menu", children: [], menuOptions: [] } },
+});
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function sanitizePositionMap(
+  positions: Record<string, { x: unknown; y: unknown }> | null | undefined,
+): Record<string, { x: number; y: number }> {
+  if (!positions) {
+    return {};
   }
-  const filtered = weekdays.filter((day): day is Weekday => typeof day === "number" && day >= 1 && day <= 7);
-  return Array.from(new Set(filtered));
-}
 
-function sanitizeTimeWindow(window: Partial<TimeWindow> | undefined): TimeWindow {
-  if (!window) {
-    return { ...DEFAULT_SCHEDULE_WINDOW };
-  }
-  const weekdayList = window.weekdays === undefined ? DEFAULT_SCHEDULE_WINDOW.weekdays : sanitizeWeekdays(window.weekdays);
-  return {
-    weekdays: weekdayList,
-    start: typeof window.start === "string" && window.start.trim() ? window.start : DEFAULT_SCHEDULE_WINDOW.start,
-    end: typeof window.end === "string" && window.end.trim() ? window.end : DEFAULT_SCHEDULE_WINDOW.end,
-    overnight: Boolean(window.overnight),
-  };
-}
-
-function sanitizeExceptions(exceptions: DateException[] | undefined): DateException[] {
-  if (!exceptions) return [];
-  return exceptions
-    .filter((item) => typeof item?.date === "string" && item.date.trim().length > 0)
-    .map((item) => ({
-      date: item.date,
-      closed: Boolean(item.closed),
-      start: item.start,
-      end: item.end,
-    }));
-}
-
-export function normalizeSchedulerData(data?: Partial<SchedulerNodeData> | null): SchedulerNodeData {
-  const mode: SchedulerMode = data?.mode === "bitrix" ? "bitrix" : "custom";
-  const baseCustom: CustomSchedule = {
-    timezone: typeof data?.custom?.timezone === "string" ? data.custom.timezone : DEFAULT_TIMEZONE,
-    windows:
-      data?.custom?.windows && data.custom.windows.length > 0
-        ? data.custom.windows.map((window) => sanitizeTimeWindow(window))
-        : [sanitizeTimeWindow(undefined)],
-    exceptions: sanitizeExceptions(data?.custom?.exceptions),
-  };
-  return {
-    mode,
-    custom: mode === "custom" ? baseCustom : data?.custom ?? baseCustom,
-    inWindowTargetId: typeof data?.inWindowTargetId === "string" ? data.inWindowTargetId : null,
-    outOfWindowTargetId: typeof data?.outOfWindowTargetId === "string" ? data.outOfWindowTargetId : null,
-  };
-}
-
-function createId(prefix: string): string {
-  return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-export function createMenuOption(index: number, overrides: Partial<MenuOption> = {}): MenuOption {
-  return {
-    id: overrides.id ?? createId(`menu-${index + 1}`),
-    label: overrides.label ?? `Opción ${index + 1}`,
-    value: overrides.value,
-    targetId: overrides.targetId ?? null,
-  };
-}
-
-export function createButtonOption(index: number, overrides: Partial<ButtonOption> = {}): ButtonOption {
-  const baseValue = `BTN_${index + 1}`;
-  return {
-    id: overrides.id ?? createId(`btn-${index + 1}`),
-    label: overrides.label ?? `Botón ${index + 1}`,
-    value: overrides.value ?? baseValue,
-    targetId: overrides.targetId ?? null,
-  };
-}
-
-export function normalizeButtonsData(data?: Partial<ButtonsActionData> | null): ButtonsActionData {
-  const items = (data?.items ?? []).map((item, idx) => ({
-    ...createButtonOption(idx, item),
-  }));
-  const ensuredItems = items.length > 0 ? items : [createButtonOption(0)];
-  const maxButtons = data?.maxButtons ?? DEFAULT_BUTTON_LIMIT;
-  const moreTargetId = data?.moreTargetId ?? null;
-  return { items: ensuredItems, maxButtons, moreTargetId };
-}
-
-export function convertButtonsOverflowToList(flow: Flow, nodeId: string): { nextFlow: Flow; listNodeId: string | null } {
-  const source = flow.nodes[nodeId];
-  if (!source || source.action?.kind !== "buttons") {
-    return { nextFlow: flow, listNodeId: null };
-  }
-  const normalized = normalizeButtonsData(source.action.data as Partial<ButtonsActionData> | undefined);
-  if (normalized.items.length <= normalized.maxButtons) {
-    return { nextFlow: flow, listNodeId: null };
-  }
-  const overflowItems = normalized.items.slice(normalized.maxButtons);
-  if (overflowItems.length === 0) {
-    return { nextFlow: flow, listNodeId: null };
-  }
-  const next: Flow = JSON.parse(JSON.stringify(flow));
-  const target = next.nodes[nodeId];
-  if (!target || target.action?.kind !== "buttons") {
-    return { nextFlow: flow, listNodeId: null };
-  }
-  const listNodeId = nextChildId(next, nodeId);
-  const listOptions = overflowItems.map((item, idx) =>
-    createMenuOption(idx, { label: item.label, value: item.value, targetId: item.targetId ?? null })
-  );
-  const listNode: FlowNode = {
-    id: listNodeId,
-    label: `${target.label} · Lista`,
-    type: "menu",
-    children: listOptions.map((option) => option.targetId).filter((id): id is string => Boolean(id)),
-    menuOptions: listOptions,
-  } as FlowNode;
-  next.nodes[listNodeId] = listNode;
-  const trimmedItems = normalized.items.slice(0, normalized.maxButtons);
-  target.action = {
-    ...target.action,
-    data: { ...normalized, items: trimmedItems, moreTargetId: listNodeId },
-  };
-  target.children = Array.from(
-    new Set([...(target.children ?? []), listNodeId, ...listNode.children])
-  );
-  return { nextFlow: normalizeFlow(next), listNodeId };
-}
-
-export function normalizeNode(node: FlowNode): FlowNode {
-  let changed = false;
-  let next: FlowNode = node;
-
-  if (node.type === "menu") {
-    const rawOptions = node.menuOptions ?? [];
-    const options = rawOptions.length > 0 ? rawOptions : [createMenuOption(0)];
-    const normalizedOptions = options.map((option, idx) => ({
-      ...createMenuOption(idx, option),
-    }));
-    const optionsChanged =
-      normalizedOptions.length !== rawOptions.length ||
-      normalizedOptions.some((opt, idx) => {
-        const prev = rawOptions[idx];
-        if (!prev) return true;
-        return (
-          opt.id !== prev.id ||
-          opt.label !== prev.label ||
-          opt.value !== prev.value ||
-          (opt.targetId ?? null) !== (prev.targetId ?? null)
-        );
-      });
-    const targets = normalizedOptions
-      .map((opt) => opt.targetId)
-      .filter((id): id is string => Boolean(id));
-    const uniqueChildren = Array.from(new Set([...(node.children ?? []), ...targets]));
-    const childrenChanged =
-      uniqueChildren.length !== node.children.length ||
-      uniqueChildren.some((id, idx) => node.children[idx] !== id);
-    if (optionsChanged || childrenChanged) {
-      next = { ...next, menuOptions: normalizedOptions, children: uniqueChildren };
-      changed = true;
+  const sanitized: Record<string, { x: number; y: number }> = {};
+  for (const [id, pos] of Object.entries(positions)) {
+    if (pos && isFiniteNumber(pos.x) && isFiniteNumber(pos.y)) {
+      sanitized[id] = { x: pos.x, y: pos.y };
     }
   }
-
-  if (node.action?.kind === "buttons") {
-    const prevData = (node.action.data as Partial<ButtonsActionData> | undefined) ?? { items: [] };
-    const normalized = normalizeButtonsData(prevData);
-    const dataChanged =
-      normalized.maxButtons !== (prevData.maxButtons ?? DEFAULT_BUTTON_LIMIT) ||
-      normalized.items.length !== (prevData.items?.length ?? 0) ||
-      normalized.items.some((item, idx) => {
-        const prev = prevData.items?.[idx];
-        if (!prev) return true;
-        return (
-          item.id !== prev.id ||
-          item.label !== prev.label ||
-          item.value !== prev.value ||
-          (item.targetId ?? null) !== (prev.targetId ?? null)
-        );
-      }) ||
-      (normalized.moreTargetId ?? null) !== (prevData.moreTargetId ?? null);
-    const targets = normalized.items
-      .map((item) => item.targetId)
-      .filter((id): id is string => Boolean(id));
-    const childSet = new Set([...(node.children ?? []), ...targets]);
-    if (normalized.moreTargetId) childSet.add(normalized.moreTargetId);
-    const childList = Array.from(childSet);
-    const childrenChanged =
-      childList.length !== node.children.length ||
-      childList.some((id, idx) => node.children[idx] !== id);
-    if (dataChanged || childrenChanged) {
-      next = {
-        ...next,
-        action: { ...node.action, data: normalized },
-        children: childList,
-      };
-      changed = true;
-    }
-  }
-
-  if (node.action?.kind === "ask") {
-    const data = node.action.data as Partial<AskActionData> | undefined;
-    const questionText = typeof data?.questionText === "string" ? data.questionText : "¿Cuál es tu respuesta?";
-    const varName = typeof data?.varName === "string" && data.varName.trim() ? data.varName : "respuesta";
-    const varType = data?.varType === "number" || data?.varType === "option" ? data.varType : "text";
-    const validation: AskActionData["validation"] = data?.validation ?? { type: "none" };
-    const retryMessage =
-      typeof data?.retryMessage === "string" && data.retryMessage.trim()
-        ? data.retryMessage
-        : "Lo siento, ¿puedes intentarlo de nuevo?";
-    const answerTargetId = typeof data?.answerTargetId === "string" ? data.answerTargetId : null;
-    const invalidTargetId = typeof data?.invalidTargetId === "string" ? data.invalidTargetId : null;
-    const childSet = new Set([...(node.children ?? [])]);
-    if (answerTargetId) childSet.add(answerTargetId);
-    if (invalidTargetId) childSet.add(invalidTargetId);
-    const childList = Array.from(childSet);
-    const normalizedAsk: AskActionData = {
-      questionText,
-      varName,
-      varType,
-      validation,
-      retryMessage,
-      answerTargetId,
-      invalidTargetId,
-    };
-    const prevData = data ?? {};
-    const dataChanged =
-      prevData.questionText !== normalizedAsk.questionText ||
-      prevData.varName !== normalizedAsk.varName ||
-      prevData.varType !== normalizedAsk.varType ||
-      JSON.stringify(prevData.validation ?? { type: "none" }) !== JSON.stringify(normalizedAsk.validation) ||
-      prevData.retryMessage !== normalizedAsk.retryMessage ||
-      (prevData.answerTargetId ?? null) !== (normalizedAsk.answerTargetId ?? null) ||
-      (prevData.invalidTargetId ?? null) !== (normalizedAsk.invalidTargetId ?? null);
-    const childrenChanged =
-      childList.length !== node.children.length ||
-      childList.some((id, idx) => node.children[idx] !== id);
-    if (dataChanged || childrenChanged) {
-      next = {
-        ...next,
-        action: { ...node.action, data: normalizedAsk },
-        children: childList,
-      };
-      changed = true;
-    }
-  }
-
-  if (node.action?.kind === "scheduler") {
-    const data = node.action.data as Partial<SchedulerNodeData> | undefined;
-    const normalized = normalizeSchedulerData(data ?? undefined);
-    const childSet = new Set(node.children ?? []);
-    if (normalized.inWindowTargetId) childSet.add(normalized.inWindowTargetId);
-    if (normalized.outOfWindowTargetId) childSet.add(normalized.outOfWindowTargetId);
-    const childList = Array.from(childSet);
-    const dataChanged =
-      (data?.mode === "bitrix" ? "bitrix" : "custom") !== normalized.mode ||
-      (normalized.custom?.timezone ?? DEFAULT_TIMEZONE) !==
-        (typeof data?.custom?.timezone === "string" ? data.custom.timezone : DEFAULT_TIMEZONE) ||
-      JSON.stringify((data?.custom?.windows ?? []).map((window) => sanitizeTimeWindow(window))) !==
-        JSON.stringify(normalized.custom?.windows ?? []) ||
-      JSON.stringify(sanitizeExceptions(data?.custom?.exceptions)) !==
-        JSON.stringify(normalized.custom?.exceptions ?? []) ||
-      (typeof data?.inWindowTargetId === "string" ? data.inWindowTargetId : null) !== normalized.inWindowTargetId ||
-      (typeof data?.outOfWindowTargetId === "string" ? data.outOfWindowTargetId : null) !== normalized.outOfWindowTargetId;
-    const childrenChanged =
-      childList.length !== node.children.length ||
-      childList.some((id, idx) => node.children[idx] !== id);
-    if (dataChanged || childrenChanged) {
-      next = {
-        ...next,
-        action: { ...node.action, data: normalized },
-        children: childList,
-      };
-      changed = true;
-    }
-  }
-
-  return changed ? next : node;
+  return sanitized;
 }
 
-export function normalizeFlow(flow: Flow): Flow {
-  let mutated = false;
-  const nodes: Record<string, FlowNode> = {};
-  for (const [id, node] of Object.entries(flow.nodes)) {
-    const normalized = normalizeNode(node);
-    nodes[id] = normalized;
-    if (normalized !== node) mutated = true;
+function computeLayout(flow: Flow) {
+  const pos: Record<string, { x: number; y: number }> = {};
+  const levels: Record<number, string[]> = {};
+  const seen = new Set<string>();
+  function dfs(id: string, d: number) {
+    if (seen.has(id)) return;
+    seen.add(id);
+    (levels[d] ||= []).push(id);
+    const n = flow.nodes[id];
+    if (!n) return;
+    for (const cid of n.children) dfs(cid, d + 1);
   }
-  const version = typeof flow.version === "number" ? flow.version : 1;
-  if (!mutated && version === flow.version) return flow;
-  return { ...flow, version, nodes };
+  dfs(flow.rootId, 0);
+  const colW = 340, rowH = 170;
+  Object.entries(levels).forEach(([depth, ids]) => {
+    (ids as string[]).forEach((id, i) => { pos[id] = { x: Number(depth) * colW, y: i * rowH }; });
+  });
+  return pos;
 }
-
-export function getMenuOptions(node: FlowNode): MenuOption[] {
-  if (node.type !== "menu") return [];
-  const options = node.menuOptions && node.menuOptions.length > 0 ? node.menuOptions : [createMenuOption(0)];
-  return options.map((option, idx) => ({
-    ...createMenuOption(idx, option),
-  }));
-}
-
-export function getButtonsData(node: FlowNode): ButtonsActionData | null {
-  if (node.action?.kind !== "buttons") return null;
-  return normalizeButtonsData(node.action.data as Partial<ButtonsActionData> | undefined);
-}
-
-export function getAskData(node: FlowNode): AskActionData | null {
-  if (node.action?.kind !== "ask") return null;
-  const data = node.action.data ?? {};
-  const questionText = typeof data.questionText === "string" ? data.questionText : "¿Cuál es tu respuesta?";
-  const varName = typeof data.varName === "string" && data.varName.trim() ? data.varName : "respuesta";
-  const varType = data.varType === "number" || data.varType === "option" ? data.varType : "text";
-  const validation: AskActionData["validation"] = data.validation ?? { type: "none" };
-  const retryMessage =
-    typeof data.retryMessage === "string" && data.retryMessage.trim()
-      ? data.retryMessage
-      : "Lo siento, ¿puedes intentarlo de nuevo?";
-  const answerTargetId = typeof data.answerTargetId === "string" ? data.answerTargetId : null;
-  const invalidTargetId = typeof data.invalidTargetId === "string" ? data.invalidTargetId : null;
-  return {
-    questionText,
-    varName,
-    varType,
-    validation,
-    retryMessage,
-    answerTargetId,
-    invalidTargetId,
-  };
-}
-
-export function getSchedulerData(node: FlowNode): SchedulerNodeData | null {
-  if (node.action?.kind !== "scheduler") return null;
-  const data = node.action.data as Partial<SchedulerNodeData> | undefined;
-  return normalizeSchedulerData(data ?? undefined);
-}
-
-function applyHandleAssignment(flow: Flow, sourceId: string, handleId: string, targetId: string | null): boolean {
-  const node = flow.nodes[sourceId];
-  if (!node) return false;
-
-  if (node.type === "menu" && handleId.startsWith("out:menu:")) {
-    const options = getMenuOptions(node);
-    const index = options.findIndex((option) => `out:menu:${option.id}` === handleId);
-    if (index === -1) return false;
-    const current = options[index].targetId ?? null;
-    if (current === targetId) return false;
-    options[index] = { ...options[index], targetId };
-    node.menuOptions = options;
-    const children = new Set<string>();
-    for (const option of options) {
-      if (option.targetId) {
-        children.add(option.targetId);
-      }
-    }
-    node.children = Array.from(children);
-    return true;
-  }
-
-  if (node.action?.kind === "buttons" && handleId.startsWith("out:button:")) {
-    const data = normalizeButtonsData(node.action.data as Partial<ButtonsActionData> | undefined);
-    const token = handleId.split(":")[2];
-    if (!token) return false;
-    if (token === "more") {
-      const current = data.moreTargetId ?? null;
-      if (current === targetId) return false;
-      data.moreTargetId = targetId;
-    } else {
-      const index = data.items.findIndex((item) => item.id === token);
-      if (index === -1) return false;
-      const current = data.items[index].targetId ?? null;
-      if (current === targetId) return false;
-      data.items[index] = { ...data.items[index], targetId };
-    }
-    node.action = { ...node.action, data };
-    const children = new Set<string>();
-    for (const item of data.items) {
-      if (item.targetId) {
-        children.add(item.targetId);
-      }
-    }
-    if (data.moreTargetId) {
-      children.add(data.moreTargetId);
-    }
-    node.children = Array.from(children);
-    return true;
-  }
-
-  if (node.action?.kind === "ask") {
-    const ask = getAskData(node);
-    if (!ask) return false;
-    const updated: AskActionData = { ...ask };
-    if (handleId === "out:answer") {
-      if (updated.answerTargetId === targetId) return false;
-      updated.answerTargetId = targetId;
-    } else if (handleId === "out:invalid") {
-      if (updated.invalidTargetId === targetId) return false;
-      updated.invalidTargetId = targetId;
-    } else {
-      return false;
-    }
-    node.action = { ...node.action, data: updated };
-    const children = new Set<string>();
-    if (updated.answerTargetId) children.add(updated.answerTargetId);
-    if (updated.invalidTargetId) children.add(updated.invalidTargetId);
-    node.children = Array.from(children);
-    return true;
-  }
-
-  if (node.action?.kind === "scheduler") {
-    const scheduler = getSchedulerData(node);
-    if (!scheduler) return false;
-    const updated = { ...scheduler };
-    const previousIn = scheduler.inWindowTargetId;
-    const previousOut = scheduler.outOfWindowTargetId;
-    if (handleId === "out:schedule:in") {
-      if (updated.inWindowTargetId === targetId) return false;
-      updated.inWindowTargetId = targetId;
-    } else if (handleId === "out:schedule:out") {
-      if (updated.outOfWindowTargetId === targetId) return false;
-      updated.outOfWindowTargetId = targetId;
-    } else {
-      return false;
-    }
-    node.action = { ...node.action, data: updated };
-    const childSet = new Set(node.children ?? []);
-    if (previousIn && previousIn !== updated.inWindowTargetId) childSet.delete(previousIn);
-    if (previousOut && previousOut !== updated.outOfWindowTargetId) childSet.delete(previousOut);
-    if (updated.inWindowTargetId) childSet.add(updated.inWindowTargetId);
-    if (updated.outOfWindowTargetId) childSet.add(updated.outOfWindowTargetId);
-    node.children = Array.from(childSet);
-    return true;
-  }
-
-  if (handleId === "out:default") {
-    const current = node.children?.[0] ?? null;
-    if (current === targetId) return false;
-    node.children = targetId ? [targetId] : [];
-    return true;
-  }
-
-  if (!targetId) {
-    return false;
-  }
-
-  const existing = new Set(node.children ?? []);
-  if (existing.has(targetId)) return false;
-  existing.add(targetId);
-  node.children = Array.from(existing);
-  return true;
-}
-
-type HandleSpec = {
-  id: string;
-  label: string;
-  side: "left" | "right";
-  type: "input" | "output";
-  order: number;
-  variant?: "default" | "more" | "invalid" | "answer";
-};
-
-const INPUT_HANDLE_SPEC: HandleSpec = {
-  id: "in",
-  label: "Entrada",
-  side: "left",
-  type: "input",
-  order: 0,
-  variant: "default",
-};
-
-const STRICTEST_LIMIT = CHANNEL_BUTTON_LIMITS.reduce((best, entry) => (entry.max < best.max ? entry : best), CHANNEL_BUTTON_LIMITS[0]);
 
 type NodePreviewProps = {
   node: FlowNode;
@@ -585,42 +164,18 @@ function NodePreview({ node, flow, channel }: NodePreviewProps) {
       <div className="space-y-1 text-[11px]">
         <div className="text-xs font-semibold text-slate-700">Pregunta al cliente</div>
         <div className="text-slate-600">{ask.questionText}</div>
-        <div className="flex gap-2 text-slate-500">
-          <span>Variable: <strong>{ask.varName}</strong></span>
-          <span>Tipo: {ask.varType}</span>
-        </div>
-        <div className="text-slate-400">
-          Validación: {ask.validation?.type === "regex" ? `regex (${ask.validation.pattern})` : ask.validation?.type === "options" ? `opciones (${ask.validation.options.join(", ")})` : "ninguna"}
+        <div className="text-[10px] text-slate-400">
+          Variable: {ask.varName} · Tipo: {ask.varType}
         </div>
       </div>
     ) : null;
   }
 
   if (node.action?.kind === "scheduler") {
-    const scheduler = getSchedulerData(node);
-    if (!scheduler) return null;
-    const schedule = scheduler.mode === "custom" ? scheduler.custom : undefined;
-    const errors = scheduler.mode === "custom" ? validateCustomSchedule(schedule) : [];
-    const now = new Date();
-    const openNow = schedule ? isInWindow(now, schedule) : false;
-    const nextSlot = schedule ? formatNextOpening(nextOpening(now, schedule)) : null;
     return (
       <div className="space-y-1 text-[11px]">
-        <div className="text-xs font-semibold text-slate-700">Scheduler</div>
-        <div className="text-slate-600">Zona horaria: {schedule?.timezone ?? ""}</div>
-        <div className={`font-medium ${openNow ? "text-emerald-600" : "text-amber-600"}`}>
-          {openNow ? "Abierto ahora" : "Fuera de horario"}
-        </div>
-        {nextSlot && (
-          <div className="text-slate-500">Próxima ventana: {nextSlot}</div>
-        )}
-        {errors.length > 0 && (
-          <ul className="text-rose-500 list-disc list-inside space-y-0.5">
-            {errors.slice(0, 2).map((error) => (
-              <li key={error}>{error}</li>
-            ))}
-          </ul>
-        )}
+        <div className="text-xs font-semibold text-slate-700">Horario inteligente</div>
+        <div className="text-slate-600">Configura destinos dentro/fuera de horario.</div>
       </div>
     );
   }
@@ -639,6 +194,16 @@ function NodePreview({ node, flow, channel }: NodePreviewProps) {
     );
   }
 
+  if (node.action?.kind === "end") {
+    const note = typeof node.action?.data?.note === "string" ? node.action.data.note : "";
+    return (
+      <div className="space-y-1 text-[11px]">
+        <div className="text-xs font-semibold text-emerald-700">Fin del flujo</div>
+        <div className="text-slate-600">{note || "Finaliza la conversación sin pasos adicionales."}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="text-[11px] text-slate-500">
       Vista previa no disponible para {node.action?.kind ?? node.type}.
@@ -646,1378 +211,6 @@ function NodePreview({ node, flow, channel }: NodePreviewProps) {
   );
 }
 
-export function getOutputHandleSpecs(node: FlowNode): HandleSpec[] {
-  if (node.type === "menu") {
-    return getMenuOptions(node).map((option, idx) => ({
-      id: `out:menu:${option.id}`,
-      label: option.label,
-      side: "right",
-      type: "output",
-      order: idx,
-      variant: "default",
-    }));
-  }
-  const buttons = getButtonsData(node);
-  if (buttons) {
-    const visible = buttons.items.slice(0, buttons.maxButtons);
-    const handles: HandleSpec[] = visible.map((item, idx) => ({
-      id: `out:button:${item.id}`,
-      label: item.label,
-      side: "right",
-      type: "output",
-      order: idx,
-      variant: "default",
-    }));
-    if (buttons.items.length > visible.length) {
-      handles.push({
-        id: "out:button:more",
-        label: "Lista",
-        side: "right",
-        type: "output",
-        order: handles.length,
-        variant: "more",
-      });
-    }
-    return handles;
-  }
-  const ask = getAskData(node);
-  if (ask) {
-    return [
-      { id: "out:answer", label: "Respuesta", side: "right", type: "output", order: 0, variant: "answer" },
-      { id: "out:invalid", label: "On invalid", side: "right", type: "output", order: 1, variant: "invalid" },
-    ];
-  }
-  const scheduler = getSchedulerData(node);
-  if (scheduler) {
-    return [
-      { id: "out:schedule:in", label: "Dentro de horario", side: "right", type: "output", order: 0, variant: "default" },
-      { id: "out:schedule:out", label: "Fuera de horario", side: "right", type: "output", order: 1, variant: "default" },
-    ];
-  }
-  return [
-    { id: "out:default", label: "Siguiente", side: "right", type: "output", order: 0, variant: "default" },
-  ];
-}
-
-export function getHandleAssignments(node: FlowNode): Record<string, string | null> {
-  if (node.type === "menu") {
-    const assignments: Record<string, string | null> = {};
-    getMenuOptions(node).forEach((option) => {
-      assignments[`out:menu:${option.id}`] = option.targetId ?? null;
-    });
-    return assignments;
-  }
-  const buttons = getButtonsData(node);
-  if (buttons) {
-    const assignments: Record<string, string | null> = {};
-    const visible = buttons.items.slice(0, buttons.maxButtons);
-    visible.forEach((item) => {
-      assignments[`out:button:${item.id}`] = item.targetId ?? null;
-    });
-    if (buttons.items.length > visible.length) {
-      assignments["out:button:more"] = buttons.moreTargetId ?? null;
-    }
-    return assignments;
-  }
-  const ask = getAskData(node);
-  if (ask) {
-    return {
-      "out:answer": ask.answerTargetId ?? null,
-      "out:invalid": ask.invalidTargetId ?? null,
-    };
-  }
-  const scheduler = getSchedulerData(node);
-  if (scheduler) {
-    return {
-      "out:schedule:in": scheduler.inWindowTargetId ?? null,
-      "out:schedule:out": scheduler.outOfWindowTargetId ?? null,
-    };
-  }
-  return { "out:default": node.children[0] ?? null };
-}
-
-const demoFlow: Flow = normalizeFlow({
-  version: 1,
-  id: "flow-demo",
-  name: "Azaleia · Menú principal",
-  rootId: "root",
-  nodes: { root: { id: "root", label: "Menú principal", type: "menu", children: [], menuOptions: [] } },
-});
-
-function computeLayout(flow: Flow) {
-  const pos: Record<string, { x: number; y: number }> = {};
-  const levels: Record<number, string[]> = {};
-  const seen = new Set<string>();
-  function dfs(id: string, d: number) {
-    if (seen.has(id)) return;
-    seen.add(id);
-    (levels[d] ||= []).push(id);
-    const n = flow.nodes[id];
-    if (!n) return;
-    for (const cid of n.children) dfs(cid, d + 1);
-  }
-  dfs(flow.rootId, 0);
-  const colW = 340, rowH = 170;
-  Object.entries(levels).forEach(([depth, ids]) => {
-    (ids as string[]).forEach((id, i) => { pos[id] = { x: Number(depth) * colW, y: i * rowH }; });
-  });
-  return pos;
-}
-
-function clearSelection(){ try{ (window as any).getSelection?.()?.removeAllRanges?.(); }catch{} }
-function isFromNode(target: EventTarget | null){ const el = target as Element | null; return !!(el && (el as any).closest?.('[data-node="true"]')); }
-
-function nextChildId(flow: Flow, parentId: string): string {
-  const siblings = flow.nodes[parentId].children;
-  let maxIdx = 0;
-  for (const sid of siblings) {
-    const tail = sid.split(".").pop();
-    const n = Number(tail);
-    if (!Number.isNaN(n)) maxIdx = Math.max(maxIdx, n);
-  }
-  const next = maxIdx + 1;
-  return parentId === flow.rootId ? String(next) : `${parentId}.${next}`;
-}
-function deleteSubtree(flow: Flow, id: string){
-  const node = flow.nodes[id]; if (!node) return;
-  for (const cid of node.children) deleteSubtree(flow, cid);
-  delete flow.nodes[id];
-}
-type EdgeSpec = {
-  key: string;
-  from: string;
-  to: string;
-  sourceHandleId: string;
-  targetHandleId: string;
-  sourceSpec: HandleSpec;
-  sourceCount: number;
-};
-
-type ConnectionCreationKind = "menu" | "message" | "buttons" | "ask";
-
-type ConnectionPromptState = {
-  sourceId: string;
-  handleId: string;
-  spec: HandleSpec;
-  anchor: { x: number; y: number };
-  currentTargetId: string | null;
-};
-
-type NodeHandlePointProps = {
-  nodeId: string;
-  handleKey: string;
-  spec: HandleSpec;
-  positionPercent: number;
-  isConnected: boolean;
-  onStartConnection?: (event: React.PointerEvent<HTMLElement>) => void;
-};
-
-const NodeHandlePoint: React.FC<NodeHandlePointProps> = ({
-  nodeId,
-  handleKey,
-  spec,
-  positionPercent,
-  isConnected,
-  onStartConnection,
-}) => {
-  const sideClass = spec.side === "left" ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2";
-  const variantClass =
-    spec.variant === "more"
-      ? "bg-violet-50 border-violet-300"
-      : spec.variant === "invalid"
-      ? "bg-amber-50 border-amber-300"
-      : spec.variant === "answer"
-      ? "bg-emerald-50 border-emerald-300"
-      : "bg-white border-slate-300";
-  const connectedClass = isConnected ? "shadow-[0_0_0_3px_rgba(16,185,129,0.25)] border-emerald-400" : "shadow-sm";
-
-  return (
-    <span
-      data-handle={spec.id}
-      className={`absolute ${sideClass} -translate-y-1/2 w-4 h-4 rounded-full border ${variantClass} ${connectedClass}`}
-      style={{ top: `${positionPercent * 100}%` }}
-      title={spec.label}
-      onPointerDown={(event) => {
-        event.stopPropagation();
-        if (spec.type === "output" && onStartConnection) {
-          onStartConnection(event);
-        }
-      }}
-    />
-  );
-};
-
-type FlowCanvasNodeProps = {
-  node: FlowNode;
-  position: { x: number; y: number };
-  selected: boolean;
-  onSelect: (id: string) => void;
-  onNodePointerDown: (id: string) => (event: React.PointerEvent<HTMLDivElement>) => void;
-  onAddChild: (parentId: string, type: NodeType) => void;
-  onDuplicateNode: (id: string) => void;
-  onDeleteNode: (id: string) => void;
-  stopNodeButtonPointerDown: (event: React.PointerEvent<HTMLElement>) => void;
-  outputSpecs: HandleSpec[];
-  handleAssignments: Record<string, string | null>;
-  rootId: string;
-  onStartConnection: (
-    nodeId: string,
-    spec: HandleSpec,
-    event: React.PointerEvent<HTMLElement>
-  ) => void;
-  onSizeChange: (nodeId: string, size: { width: number; height: number }) => void;
-  duplicatePending: boolean;
-  hasValidationError: boolean;
-};
-
-const FlowCanvasNode = React.memo((props: FlowCanvasNodeProps) => {
-  const {
-    node,
-    position,
-    selected,
-    onSelect,
-    onNodePointerDown,
-    onAddChild,
-    onDuplicateNode,
-    onDeleteNode,
-    stopNodeButtonPointerDown,
-    outputSpecs,
-    handleAssignments,
-    rootId,
-    onStartConnection,
-    onSizeChange,
-    duplicatePending,
-    hasValidationError,
-  } = props;
-  const nodeRef = useRef<HTMLDivElement | null>(null);
-  const badge = node.type === "menu" ? "bg-emerald-50 border-emerald-300 text-emerald-600" : "bg-violet-50 border-violet-300 text-violet-600";
-  const icon = node.type === "menu" ? "🟢" : "🔗";
-  const outputCount = outputSpecs.length || 1;
-  const inputSpec = INPUT_HANDLE_SPEC;
-  const buttonData = node.action?.kind === "buttons" ? getButtonsData(node) : null;
-  const overflowCount = buttonData && buttonData.items.length > buttonData.maxButtons
-    ? buttonData.items.length - buttonData.maxButtons
-    : 0;
-  const borderClass = hasValidationError ? "border-rose-300" : "border-slate-300";
-  const ringClass = hasValidationError
-    ? "ring-2 ring-rose-400 shadow-rose-100"
-    : selected
-    ? "ring-2 ring-emerald-500 shadow-emerald-200"
-    : "hover:ring-1 hover:ring-emerald-200";
-
-  useEffect(() => {
-    const element = nodeRef.current;
-    if (!element) return;
-
-    const report = () => {
-      const width = element.offsetWidth;
-      const height = element.offsetHeight;
-      const next = { width, height };
-      onSizeChange(node.id, next);
-    };
-
-    report();
-
-    if (typeof ResizeObserver !== "undefined") {
-      const observer = new ResizeObserver(() => {
-        report();
-      });
-      observer.observe(element);
-      return () => observer.disconnect();
-    }
-
-    return () => {
-      /* noop */
-    };
-  }, [node.id, onSizeChange]);
-
-  return (
-    <div
-      ref={nodeRef}
-      key={node.id}
-      data-node="true"
-      className={`absolute w-[300px] rounded-2xl border-2 bg-white shadow-lg transition ${borderClass} ${ringClass} relative`}
-      style={{ left: position.x, top: position.y, cursor: "move" }}
-      onPointerDown={onNodePointerDown(node.id)}
-      onClick={(event) => {
-        event.stopPropagation();
-        onSelect(node.id);
-      }}
-    >
-      <NodeHandlePoint
-        nodeId={node.id}
-        handleKey={`${node.id}:${inputSpec.id}`}
-        spec={inputSpec}
-        positionPercent={0.5}
-        isConnected={true}
-      />
-      {outputSpecs.map((spec) => {
-        const positionPercent = (spec.order + 1) / (outputCount + 1);
-        return (
-            <NodeHandlePoint
-              key={spec.id}
-              nodeId={node.id}
-              handleKey={`${node.id}:${spec.id}`}
-              spec={spec}
-              positionPercent={positionPercent}
-              isConnected={Boolean(handleAssignments[spec.id])}
-              onStartConnection={(event) => onStartConnection(node.id, spec, event)}
-            />
-        );
-      })}
-      <div className="px-3 pt-3 text-[15px] font-semibold flex items-center gap-2 text-slate-800">
-        <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-emerald-100 text-emerald-700">{icon}</span>
-        <span className="whitespace-normal leading-tight" title={node.label}>{node.label}</span>
-        <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full border ${badge}`}>{node.type}</span>
-      </div>
-      <div className="px-3 py-2">
-        <div className="flex gap-2 flex-wrap">
-          <button
-            className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
-            onPointerDown={stopNodeButtonPointerDown}
-            onClick={(event) => {
-              event.stopPropagation();
-              onAddChild(node.id, "menu");
-            }}
-          >
-            + menú
-          </button>
-          <button
-            className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
-            onPointerDown={stopNodeButtonPointerDown}
-            onClick={(event) => {
-              event.stopPropagation();
-              onAddChild(node.id, "action");
-            }}
-          >
-            + acción
-          </button>
-          <button
-            className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
-            onPointerDown={stopNodeButtonPointerDown}
-            onClick={(event) => {
-              event.stopPropagation();
-              onDuplicateNode(node.id);
-            }}
-          >
-            <span className="inline-flex items-center gap-1">
-              {duplicatePending && (
-                <span
-                  className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"
-                  aria-hidden="true"
-                />
-              )}
-              <span>duplicar</span>
-            </span>
-          </button>
-          {node.id !== rootId && (
-            <button
-              className="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-emerald-50 border-emerald-200 transition"
-              onPointerDown={stopNodeButtonPointerDown}
-              onClick={(event) => {
-                event.stopPropagation();
-                onDeleteNode(node.id);
-              }}
-            >
-              borrar
-            </button>
-          )}
-        </div>
-      </div>
-      <div className={`px-3 pb-3 text-xs ${hasValidationError ? "text-rose-600" : "text-slate-500"}`}>
-        {node.type === "menu"
-          ? `${(node.menuOptions ?? []).length} opción(es)`
-          : buttonData
-          ? `${buttonData.items.length} botón(es)${overflowCount ? ` · ${overflowCount} en lista` : ""}`
-          : node.action?.kind ?? "acción"}
-      </div>
-    </div>
-  );
-});
-
-function FlowCanvas(props: {
-  flow: Flow;
-  selectedId: string;
-  onSelect: (id: string) => void;
-  onAddChild: (parentId: string, type: NodeType) => void;
-  onDeleteNode: (id: string) => void;
-  onDuplicateNode: (id: string) => void | Promise<void>;
-  onInsertBetween: (parentId: string, childId: string) => void;
-  onDeleteEdge: (parentId: string, childId: string) => void;
-  onConnectHandle: (sourceId: string, handleId: string, targetId: string | null) => boolean;
-  onCreateForHandle: (sourceId: string, handleId: string, kind: ConnectionCreationKind) => string | null;
-  onInvalidConnection: (message: string) => void;
-  invalidMessageIds: Set<string>;
-  soloRoot: boolean;
-  toggleScope: () => void;
-  nodePositions: Record<string, { x: number; y: number }>;
-  onPositionsChange: (
-    updater:
-      | Record<string, { x: number; y: number }>
-      | ((prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)
-  ) => void;
-}) {
-  const {
-    flow,
-    selectedId,
-    onSelect,
-    onAddChild,
-    onDeleteNode,
-    onDuplicateNode,
-    onInsertBetween,
-    onDeleteEdge,
-    onConnectHandle,
-    onCreateForHandle,
-    onInvalidConnection,
-    invalidMessageIds,
-    soloRoot,
-    toggleScope,
-    nodePositions,
-    onPositionsChange,
-  } = props;
-
-  const autoLayout = useMemo(() => computeLayout(flow), [flow]);
-  const visibleIds = useMemo(() => {
-    if (soloRoot) return [flow.rootId, ...(flow.nodes[flow.rootId]?.children ?? [])];
-    return Object.keys(flow.nodes);
-  }, [flow, soloRoot]);
-  const nodes = useMemo(
-    () => visibleIds.map((id) => flow.nodes[id]).filter(Boolean) as FlowNode[],
-    [visibleIds, flow.nodes]
-  );
-  const visibleSet = useMemo(() => new Set(visibleIds), [visibleIds]);
-  const outputSpecsByNode = useMemo(() => {
-    const map = new Map<string, HandleSpec[]>();
-    for (const node of nodes) {
-      map.set(node.id, getOutputHandleSpecs(node));
-    }
-    return map;
-  }, [nodes]);
-  const handleAssignmentsByNode = useMemo(() => {
-    const map = new Map<string, Record<string, string | null>>();
-    for (const node of nodes) {
-      map.set(node.id, getHandleAssignments(node));
-    }
-    return map;
-  }, [nodes]);
-  const edges = useMemo(() => {
-    const list: EdgeSpec[] = [];
-    for (const node of nodes) {
-      const specs = outputSpecsByNode.get(node.id) ?? [];
-      const assignments = handleAssignmentsByNode.get(node.id) ?? {};
-      for (const spec of specs) {
-        const targetId = assignments[spec.id];
-        if (!targetId || !visibleSet.has(targetId)) continue;
-        list.push({
-          key: `${node.id}:${spec.id}->${targetId}`,
-          from: node.id,
-          to: targetId,
-          sourceHandleId: `${node.id}:${spec.id}`,
-          targetHandleId: `${targetId}:in`,
-          sourceSpec: spec,
-          sourceCount: specs.length || 1,
-        });
-      }
-    }
-    return list;
-  }, [nodes, outputSpecsByNode, handleAssignmentsByNode, visibleSet]);
-
-  const [scale, setScaleState] = useState(1);
-  const [pan, setPanState] = useState({ x: 0, y: 0 });
-  const [nodeSizes, setNodeSizes] = useState<Record<string, { width: number; height: number }>>({});
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const scaleRef = useRef(scale);
-  const panRef = useRef(pan);
-  const [connectionPrompt, setConnectionPrompt] = useState<ConnectionPromptState | null>(null);
-  const connectionPromptRef = useRef<HTMLDivElement | null>(null);
-
-  type PointerState =
-    | { type: "pan"; pointerId: number; startClient: { x: number; y: number }; startPan: { x: number; y: number } }
-    | { type: "drag-node"; pointerId: number; nodeId: string; offset: { x: number; y: number } }
-    | {
-        type: "drag-connection";
-        pointerId: number;
-        nodeId: string;
-        handleId: string;
-        handleKey: string;
-        spec: HandleSpec;
-        anchorClient: { x: number; y: number };
-      };
-
-  type HandleRecomputeReason = "move" | "zoom" | "scroll" | "resize";
-  type ConnectionDraft = {
-    sourceId: string;
-    handleId: string;
-    handleKey: string;
-    from: { x: number; y: number };
-    to: { x: number; y: number };
-    targetHandleKey: string | null;
-  };
-
-  const pointerState = useRef<PointerState | null>(null);
-  const latestEventRef = useRef<{ clientX: number; clientY: number } | null>(null);
-  const pointerSchedulerRef = useRef(createHandleScheduler(() => {}));
-  const handleMeasureSchedulerRef = useRef(createHandleScheduler(() => {}));
-  const [connectionDraft, setConnectionDraft] = useState<ConnectionDraft | null>(null);
-  const connectionDraftRef = useRef(connectionDraft);
-  const [pendingDuplicateId, setPendingDuplicateId] = useState<string | null>(null);
-  const pendingHandleMeasureRef = useRef(false);
-
-  const scheduleHandleRecompute = useCallback(
-    (reason: HandleRecomputeReason = "move") => {
-      const state = pointerState.current;
-      if (reason === "move" && state?.type === "drag-node") {
-        pendingHandleMeasureRef.current = true;
-        return;
-      }
-      pendingHandleMeasureRef.current = false;
-      handleMeasureSchedulerRef.current.schedule();
-    },
-    []
-  );
-
-  useEffect(() => {
-    scaleRef.current = scale;
-  }, [scale]);
-  useEffect(() => {
-    panRef.current = pan;
-  }, [pan]);
-  useEffect(() => {
-    connectionDraftRef.current = connectionDraft;
-  }, [connectionDraft]);
-
-  const setScaleSafe = useCallback(
-    (next: number) => {
-      scaleRef.current = next;
-      setScaleState(next);
-      scheduleHandleRecompute("zoom");
-    },
-    [scheduleHandleRecompute]
-  );
-
-  const setPanSafe = useCallback(
-    (next: { x: number; y: number }) => {
-      panRef.current = next;
-      setPanState(next);
-      scheduleHandleRecompute("scroll");
-    },
-    [scheduleHandleRecompute]
-  );
-
-  const maybeAutoPan = useCallback(
-    (clientX: number, clientY: number) => {
-      const viewportEl = containerRef.current;
-      if (!viewportEl) return false;
-
-      const rect = viewportEl.getBoundingClientRect();
-      const { dx, dy } = computeAutoPanDelta({
-        clientX,
-        clientY,
-        rect,
-        margin: AUTOPAN_MARGIN,
-        maxSpeed: AUTOPAN_MAX_SPEED,
-      });
-
-      if (dx === 0 && dy === 0) {
-        return false;
-      }
-
-      const currentScale = scaleRef.current || 1;
-      const next = {
-        x: panRef.current.x - dx / currentScale,
-        y: panRef.current.y - dy / currentScale,
-      };
-
-      if (
-        Math.abs(next.x - panRef.current.x) < 0.001 &&
-        Math.abs(next.y - panRef.current.y) < 0.001
-      ) {
-        return false;
-      }
-
-      setPanSafe(next);
-      return true;
-    },
-    [setPanSafe]
-  );
-
-  useEffect(() => {
-    if (!connectionPrompt) return;
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!connectionPromptRef.current) return;
-      const target = event.target as Node | null;
-      if (target && connectionPromptRef.current.contains(target)) return;
-      setConnectionPrompt(null);
-    };
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setConnectionPrompt(null);
-      }
-    };
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleKey);
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleKey);
-    };
-  }, [connectionPrompt]);
-
-  const onWheel = useCallback(
-    (event: React.WheelEvent<HTMLDivElement>) => {
-      if (event.ctrlKey) {
-        event.preventDefault();
-        const next = Math.min(2.4, Math.max(0.4, scaleRef.current - event.deltaY * 0.001));
-        setScaleSafe(next);
-        return;
-      }
-      const currentScale = scaleRef.current || 1;
-      event.preventDefault();
-      setPanSafe({
-        x: panRef.current.x + event.deltaX / currentScale,
-        y: panRef.current.y + event.deltaY / currentScale,
-      });
-    },
-    [setPanSafe, setScaleSafe]
-  );
-
-  const updateNodePos = useCallback(
-    (
-      updater:
-        | Record<string, { x: number; y: number }>
-        | ((prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)
-    ) => {
-      onPositionsChange(updater);
-    },
-    [onPositionsChange]
-  );
-
-  useEffect(() => {
-    let needsUpdate = false;
-    const missing: Record<string, { x: number; y: number }> = {};
-    for (const id of Object.keys(autoLayout)) {
-      if (!nodePositions[id]) {
-        missing[id] = autoLayout[id];
-        needsUpdate = true;
-      }
-    }
-    if (!needsUpdate) return;
-    onPositionsChange((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      for (const [id, pos] of Object.entries(missing)) {
-        if (!next[id]) {
-          next[id] = pos;
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [autoLayout, nodePositions, onPositionsChange]);
-
-  const getPos = useCallback(
-    (id: string) => nodePositions[id] ?? autoLayout[id] ?? { x: 0, y: 0 },
-    [nodePositions, autoLayout]
-  );
-
-  const getHandlePercent = useCallback(
-    (nodeId: string, spec: HandleSpec): number => {
-      if (spec.type === "input") {
-        return 0.5;
-      }
-      const specs = outputSpecsByNode.get(nodeId) ?? [];
-      if (specs.length === 0) {
-        return 0.5;
-      }
-      const match = specs.find((candidate) => candidate.id === spec.id);
-      const order = match ? match.order : spec.order;
-      const divisor = specs.length + 1;
-      return divisor > 0 ? (order + 1) / divisor : 0.5;
-    },
-    [outputSpecsByNode]
-  );
-
-  const getNodeGeometry = useCallback(
-    (id: string): NodeGeometry => {
-      const position = getPos(id);
-      const size = nodeSizes[id] ?? { width: NODE_W, height: NODE_H };
-      return { position, size };
-    },
-    [getPos, nodeSizes]
-  );
-
-  const getHandlePoint = useCallback(
-    (nodeId: string, spec: HandleSpec): { x: number; y: number } => {
-      const geometry = getNodeGeometry(nodeId);
-      const percent = getHandlePercent(nodeId, spec);
-      const baseX = geometry.position.x;
-      const baseY = geometry.position.y;
-      const width = geometry.size.width;
-      const height = geometry.size.height;
-      const x = spec.side === "left" ? baseX : baseX + width;
-      const y = baseY + height * percent;
-      return { x, y };
-    },
-    [getHandlePercent, getNodeGeometry]
-  );
-
-  const buildInputCandidates = useCallback((): HandlePointCandidate[] => {
-    return nodes.map((node) => {
-      const point = getHandlePoint(node.id, INPUT_HANDLE_SPEC);
-      return {
-        id: `${node.id}:${INPUT_HANDLE_SPEC.id}`,
-        nodeId: node.id,
-        type: "input",
-        x: point.x,
-        y: point.y,
-      };
-    });
-  }, [nodes, getHandlePoint]);
-
-  const recomputeHandles = useCallback(() => {
-    const viewportEl = containerRef.current;
-    const viewportState = viewportEl
-      ? { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current }
-      : null;
-    const containerRect = viewportEl?.getBoundingClientRect();
-
-    const within = (a: number, b: number, epsilon = 0.5) => Math.abs(a - b) < epsilon;
-
-    if (viewportEl && viewportState && containerRect) {
-      setConnectionPrompt((current) => {
-        if (!current) return current;
-        const origin = getHandlePoint(current.sourceId, current.spec);
-        const screenPoint = canvasToScreen(origin.x, origin.y, viewportEl, viewportState);
-        const anchor = {
-          x: screenPoint.clientX - containerRect.left,
-          y: screenPoint.clientY - containerRect.top,
-        };
-        if (within(anchor.x, current.anchor.x) && within(anchor.y, current.anchor.y)) {
-          return current;
-        }
-        return { ...current, anchor };
-      });
-    }
-
-    setConnectionDraft((current) => {
-      if (!current) return current;
-
-      const pointer = pointerState.current;
-      let spec: HandleSpec | null = null;
-      if (pointer?.type === "drag-connection" && pointer.handleKey === current.handleKey) {
-        spec = pointer.spec;
-      } else {
-        const specs = outputSpecsByNode.get(current.sourceId) ?? [];
-        spec = specs.find((candidate) => candidate.id === current.handleId) ?? null;
-      }
-
-      if (!spec) {
-        return current;
-      }
-
-      const origin = getHandlePoint(current.sourceId, spec);
-      let nextTo = current.to;
-      if (current.targetHandleKey) {
-        const [targetNodeId] = current.targetHandleKey.split(":");
-        nextTo = getHandlePoint(targetNodeId, INPUT_HANDLE_SPEC);
-      }
-
-      if (
-        within(origin.x, current.from.x) &&
-        within(origin.y, current.from.y) &&
-        within(nextTo.x, current.to.x) &&
-        within(nextTo.y, current.to.y)
-      ) {
-        return current;
-      }
-
-      return {
-        ...current,
-        from: origin,
-        to: current.targetHandleKey ? nextTo : current.to,
-      };
-    });
-  }, [getHandlePoint, outputSpecsByNode, setConnectionDraft, setConnectionPrompt]);
-
-  const handleStartConnection = useCallback(
-    (nodeId: string, spec: HandleSpec, event: React.PointerEvent<HTMLElement>) => {
-      if (spec.type !== "output") return;
-      const viewportEl = containerRef.current;
-      if (!viewportEl) return;
-      setConnectionPrompt(null);
-      const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
-      const origin = getHandlePoint(nodeId, spec);
-      const anchorClient = canvasToScreen(origin.x, origin.y, viewportEl, viewportState);
-      pointerState.current = {
-        type: "drag-connection",
-        pointerId: event.pointerId,
-        nodeId,
-        handleId: spec.id,
-        handleKey: `${nodeId}:${spec.id}`,
-        spec,
-        anchorClient: { x: anchorClient.clientX, y: anchorClient.clientY },
-      };
-      latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
-      viewportEl.setPointerCapture?.(event.pointerId);
-      setConnectionDraft({
-        sourceId: nodeId,
-        handleId: spec.id,
-        handleKey: `${nodeId}:${spec.id}`,
-        from: origin,
-        to: origin,
-        targetHandleKey: null,
-      });
-      pointerSchedulerRef.current.schedule();
-      scheduleHandleRecompute("move");
-    },
-    [getHandlePoint, scheduleHandleRecompute]
-  );
-
-  const handleDuplicate = useCallback(
-    (id: string) => {
-      const result = onDuplicateNode(id);
-      if (result && typeof (result as PromiseLike<unknown>).then === "function") {
-        setPendingDuplicateId(id);
-        Promise.resolve(result).finally(() => {
-          setPendingDuplicateId((current) => (current === id ? null : current));
-        });
-      }
-    },
-    [onDuplicateNode]
-  );
-
-  const handleConnectSelection = useCallback(
-    (targetId: string | null) => {
-      setConnectionPrompt((prev) => {
-        if (!prev) return prev;
-        const success = onConnectHandle(prev.sourceId, prev.handleId, targetId);
-        if (success) {
-          scheduleHandleRecompute("move");
-          return null;
-        }
-        return prev;
-      });
-    },
-    [onConnectHandle, scheduleHandleRecompute]
-  );
-
-  const handleCreateSelection = useCallback(
-    (kind: ConnectionCreationKind) => {
-      setConnectionPrompt((prev) => {
-        if (!prev) return prev;
-        const createdId = onCreateForHandle(prev.sourceId, prev.handleId, kind);
-        return createdId ? null : prev;
-      });
-    },
-    [onCreateForHandle]
-  );
-
-  const targetOptions = useMemo(() => {
-    if (!connectionPrompt) return [];
-    return Object.values(flow.nodes)
-      .filter((node) => node.id !== connectionPrompt.sourceId)
-      .map((node) => ({
-        id: node.id,
-        label: node.label,
-        descriptor:
-          node.type === "menu"
-            ? "Menú"
-            : node.action?.kind
-            ? `Acción · ${node.action.kind}`
-            : "Acción",
-      }));
-  }, [connectionPrompt, flow.nodes]);
-
-  const handleNodeSizeChange = useCallback(
-    (id: string, size: { width: number; height: number }) => {
-      setNodeSizes((prev) => {
-        const current = prev[id];
-        if (current && Math.abs(current.width - size.width) < 0.5 && Math.abs(current.height - size.height) < 0.5) {
-          return prev;
-        }
-        return { ...prev, [id]: size };
-      });
-      scheduleHandleRecompute("resize");
-    },
-    [scheduleHandleRecompute]
-  );
-
-  useEffect(() => {
-    scheduleHandleRecompute();
-  }, [scheduleHandleRecompute, scale, pan, nodes, edges]);
-
-  useEffect(() => {
-    const onResize = () => scheduleHandleRecompute();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [scheduleHandleRecompute]);
-
-  const applyPointerUpdate = useCallback(() => {
-    const evt = latestEventRef.current;
-    const state = pointerState.current;
-    if (!evt || !state) return;
-    if (state.type === "drag-connection") {
-      const viewportEl = containerRef.current;
-      if (!viewportEl) return;
-      const autoPanned = maybeAutoPan(evt.clientX, evt.clientY);
-      if (autoPanned) {
-        pointerSchedulerRef.current.schedule();
-      }
-      const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
-      const pointerWorld = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
-      const origin = getHandlePoint(state.nodeId, state.spec);
-      const candidates = buildInputCandidates();
-      const hit = findNearestHandle(
-        pointerWorld,
-        candidates,
-        HANDLE_SNAP_TOLERANCE,
-        (candidate) => candidate.type === "input" && candidate.id !== state.handleKey
-      );
-      setConnectionDraft({
-        sourceId: state.nodeId,
-        handleId: state.handleId,
-        handleKey: state.handleKey,
-        from: origin,
-        to: hit ? { x: hit.handle.x, y: hit.handle.y } : pointerWorld,
-        targetHandleKey: hit ? hit.handle.id : null,
-      });
-      return;
-    }
-
-    if (state.type === "drag-node") {
-      const viewportEl = containerRef.current;
-      if (!viewportEl) return;
-      const autoPanned = maybeAutoPan(evt.clientX, evt.clientY);
-      if (autoPanned) {
-        pointerSchedulerRef.current.schedule();
-      }
-      const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
-      const pointerWorld = screenToCanvas(evt.clientX, evt.clientY, viewportEl, viewportState);
-      const nx = pointerWorld.x - state.offset.x;
-      const ny = pointerWorld.y - state.offset.y;
-      updateNodePos((prev) => {
-        const current = prev[state.nodeId];
-        if (current && Math.abs(current.x - nx) < 0.1 && Math.abs(current.y - ny) < 0.1) {
-          return prev;
-        }
-        const next = { ...prev, [state.nodeId]: { x: nx, y: ny } };
-        return next;
-      });
-      // Don't recompute handles during active drag - it causes visual glitches
-      // Handles will be recomputed when drag ends
-    } else if (state.type === "pan") {
-      const { startClient, startPan } = state;
-      const currentScale = scaleRef.current || 1;
-      const dx = (evt.clientX - startClient.x) / currentScale;
-      const dy = (evt.clientY - startClient.y) / currentScale;
-      setPanSafe({ x: startPan.x - dx, y: startPan.y - dy });
-    }
-  }, [maybeAutoPan, setPanSafe, updateNodePos, setConnectionDraft]);
-
-  useEffect(() => {
-    pointerSchedulerRef.current.setCallback(applyPointerUpdate);
-    return () => {
-      pointerSchedulerRef.current.cancel();
-    };
-  }, [applyPointerUpdate]);
-
-  useEffect(() => {
-    handleMeasureSchedulerRef.current.setCallback(() => {
-      if (typeof queueMicrotask === "function") {
-        queueMicrotask(recomputeHandles);
-      } else {
-        Promise.resolve().then(recomputeHandles);
-      }
-    });
-    return () => {
-      handleMeasureSchedulerRef.current.cancel();
-    };
-  }, [recomputeHandles]);
-
-  const stopPointer = useCallback((pointerId: number) => {
-    const current = pointerState.current;
-    if (current?.pointerId !== pointerId) return;
-    pointerState.current = null;
-    if (current.type === "drag-connection") {
-      setConnectionDraft(null);
-    }
-    if (current.type === "drag-node" && pendingHandleMeasureRef.current) {
-      pendingHandleMeasureRef.current = false;
-      handleMeasureSchedulerRef.current.schedule();
-    }
-    latestEventRef.current = null;
-    pointerSchedulerRef.current.cancel();
-    const container = containerRef.current;
-    container?.releasePointerCapture?.(pointerId);
-  }, []);
-
-  const handlePointerMove = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!pointerState.current || pointerState.current.pointerId !== event.pointerId) return;
-      latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
-      clearSelection();
-      pointerSchedulerRef.current.schedule();
-      scheduleHandleRecompute("move");
-    },
-    [clearSelection, scheduleHandleRecompute]
-  );
-
-  const handlePointerUp = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      const state = pointerState.current;
-      if (state?.pointerId === event.pointerId && state.type === "drag-connection") {
-        const draft = connectionDraftRef.current;
-        setConnectionDraft(null);
-        if (draft?.targetHandleKey) {
-          const targetId = draft.targetHandleKey.split(":")[0];
-          if (!onConnectHandle(state.nodeId, state.handleId, targetId)) {
-            onInvalidConnection("No se pudo conectar el bloque seleccionado");
-          } else {
-            scheduleHandleRecompute("move");
-          }
-        } else {
-          onInvalidConnection("Conecta el enlace a un puerto válido");
-          const viewportEl = containerRef.current;
-          const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
-          const handlePoint = getHandlePoint(state.nodeId, state.spec);
-          const anchorScreen = viewportEl
-            ? canvasToScreen(handlePoint.x, handlePoint.y, viewportEl, viewportState)
-            : { clientX: state.anchorClient.x, clientY: state.anchorClient.y };
-          const containerRect = viewportEl?.getBoundingClientRect();
-          const anchor = {
-            x: anchorScreen.clientX - (containerRect?.left ?? 0),
-            y: anchorScreen.clientY - (containerRect?.top ?? 0),
-          };
-          const assignments = handleAssignmentsByNode.get(state.nodeId) ?? {};
-          setConnectionPrompt({
-            sourceId: state.nodeId,
-            handleId: state.handleId,
-            spec: state.spec,
-            anchor,
-            currentTargetId: assignments[state.handleId] ?? null,
-          });
-          scheduleHandleRecompute("move");
-        }
-      }
-      stopPointer(event.pointerId);
-    },
-    [
-      stopPointer,
-      onConnectHandle,
-      onInvalidConnection,
-      handleAssignmentsByNode,
-      getHandlePoint,
-      scheduleHandleRecompute,
-    ]
-  );
-
-  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    if (pointerState.current) return;
-    if (isFromNode(event.target)) return;
-    pointerState.current = {
-      type: "pan",
-      pointerId: event.pointerId,
-      startClient: { x: event.clientX, y: event.clientY },
-      startPan: panRef.current,
-    };
-    latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
-    containerRef.current?.setPointerCapture?.(event.pointerId);
-    clearSelection();
-  }, []);
-
-  const handlePointerCancel = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      setConnectionDraft(null);
-      scheduleHandleRecompute("move");
-      stopPointer(event.pointerId);
-    },
-    [stopPointer, scheduleHandleRecompute]
-  );
-
-  const onNodePointerDown = useCallback(
-    (id: string) => (event: React.PointerEvent<HTMLDivElement>) => {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const viewportEl = containerRef.current;
-      if (!viewportEl) return;
-      const viewportState = { x: panRef.current.x, y: panRef.current.y, zoom: scaleRef.current };
-      const pointerWorld = screenToCanvas(event.clientX, event.clientY, viewportEl, viewportState);
-      const position = getPos(id);
-      pointerState.current = {
-        type: "drag-node",
-        pointerId: event.pointerId,
-        nodeId: id,
-        offset: { x: pointerWorld.x - position.x, y: pointerWorld.y - position.y },
-      };
-      latestEventRef.current = { clientX: event.clientX, clientY: event.clientY };
-      containerRef.current?.setPointerCapture?.(event.pointerId);
-      clearSelection();
-      pointerSchedulerRef.current.schedule();
-      scheduleHandleRecompute("move");
-    },
-    [clearSelection, getPos, scheduleHandleRecompute]
-  );
-
-  const stopCanvasButtonPointerDown = useCallback((event: React.PointerEvent<HTMLElement>) => {
-    event.stopPropagation();
-  }, []);
-
-  const gridStyle = useMemo<React.CSSProperties>(() => {
-    const scaledSize = GRID_SIZE * scale;
-    const offsetX = ((-pan.x * scale) % scaledSize + scaledSize) % scaledSize;
-    const offsetY = ((-pan.y * scale) % scaledSize + scaledSize) % scaledSize;
-
-    return {
-      backgroundImage: "radial-gradient(var(--grid-dot) 1px, transparent 1px)",
-      backgroundSize: `${scaledSize}px ${scaledSize}px`,
-      backgroundPosition: `${offsetX}px ${offsetY}px`,
-    };
-  }, [pan.x, pan.y, scale]);
-
-  return (
-    <div className="relative w-full rounded-xl border overflow-hidden bg-white" style={{ minHeight: "74vh", height: "74vh" }}>
-      <div className="absolute z-20 right-3 top-3 flex gap-2 bg-white/95 backdrop-blur rounded-full border border-emerald-200 p-2 shadow-lg">
-          <button
-            className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition"
-            onClick={() => setScaleSafe(scaleRef.current)}
-          >
-            🔍
-          </button>
-          <button
-            className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition"
-            onClick={() => setScaleSafe(Math.min(2.4, scaleRef.current + 0.1))}
-          >
-            ＋
-          </button>
-          <button
-            className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition"
-            onClick={() => setScaleSafe(Math.max(0.4, scaleRef.current - 0.1))}
-          >
-            －
-          </button>
-          <button
-            className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition"
-            onClick={() => {
-              setPanSafe({ x: 0, y: 0 });
-              setScaleSafe(1);
-            }}
-          >
-            ⛶
-          </button>
-          <button
-            className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition"
-            onClick={() => updateNodePos(() => ({ ...autoLayout }))}
-          >
-            Auto-ordenar
-          </button>
-          <button
-            className="px-3 py-1.5 text-sm border rounded-full bg-white/95 hover:bg-emerald-50 border-emerald-200 transition"
-            onClick={toggleScope}
-          >
-            {soloRoot ? "Mostrar todo" : "Solo raíz"}
-          </button>
-        </div>
-
-        <div
-          ref={containerRef}
-          onWheel={onWheel}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerLeave={handlePointerUp}
-          onPointerCancel={handlePointerCancel}
-          className="absolute inset-0 cursor-grab active:cursor-grabbing select-none"
-          style={gridStyle}
-        >
-          <div
-            className="absolute"
-            style={{
-              width: SURFACE_W,
-              height: SURFACE_H,
-              transform: `scale(${scale}) translate(${-pan.x}px, ${-pan.y}px)`,
-              transformOrigin: "0 0",
-            }}
-          >
-            {(edges.length > 0 || connectionDraft) && (
-              <svg className="absolute z-0" width={SURFACE_W} height={SURFACE_H}>
-                {edges.map((edge) => {
-                  const source = getHandlePoint(edge.from, edge.sourceSpec);
-                  const target = getHandlePoint(edge.to, INPUT_HANDLE_SPEC);
-                  const label = { x: (source.x + target.x) / 2, y: (source.y + target.y) / 2 };
-                  const overlayRect = {
-                    left: label.x - 60,
-                    right: label.x + 60,
-                    top: label.y - 18,
-                    bottom: label.y + 18,
-                  };
-                  const pathD = buildOrthogonalPath(source, target, {
-                    avoid: overlayRect,
-                    padding: 12,
-                  });
-
-                  return (
-                    <g key={edge.key}>
-                      <path
-                        d={pathD}
-                        stroke="#60a5fa"
-                        strokeWidth={2}
-                        strokeLinecap="round"
-                        vectorEffect="non-scaling-stroke"
-                        fill="none"
-                      />
-                      <foreignObject
-                        x={overlayRect.left}
-                        y={overlayRect.top}
-                        width={overlayRect.right - overlayRect.left}
-                        height={overlayRect.bottom - overlayRect.top}
-                        className="pointer-events-auto"
-                      >
-                        <div className="flex gap-1">
-                          <button
-                            className="px-1.5 py-0.5 text-[11px] border rounded bg-white"
-                            onPointerDown={stopCanvasButtonPointerDown}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onInsertBetween(edge.from, edge.to);
-                            }}
-                          >
-                            + bloque
-                          </button>
-                          <button
-                            className="px-1.5 py-0.5 text-[11px] border rounded bg-white"
-                            onPointerDown={stopCanvasButtonPointerDown}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onDeleteEdge(edge.from, edge.to);
-                            }}
-                          >
-                            borrar
-                          </button>
-                        </div>
-                      </foreignObject>
-                    </g>
-                  );
-                })}
-                {connectionDraft && (
-                  <path
-                    d={buildOrthogonalPath(connectionDraft.from, connectionDraft.to)}
-                    stroke="#60a5fa"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    vectorEffect="non-scaling-stroke"
-                    fill="none"
-                    strokeDasharray="6 4"
-                  />
-                )}
-              </svg>
-            )}
-
-            {nodes.map((node) => {
-              const position = getPos(node.id);
-              const outputSpecs = outputSpecsByNode.get(node.id) ?? [];
-              const assignments = handleAssignmentsByNode.get(node.id) ?? {};
-              return (
-                <FlowCanvasNode
-                  key={node.id}
-                  node={node}
-                  position={position}
-                  selected={selectedId === node.id}
-                  onSelect={onSelect}
-                  onNodePointerDown={onNodePointerDown}
-                  onAddChild={onAddChild}
-                  onDuplicateNode={handleDuplicate}
-                  onDeleteNode={onDeleteNode}
-                  stopNodeButtonPointerDown={stopCanvasButtonPointerDown}
-                  outputSpecs={outputSpecs}
-                  handleAssignments={assignments}
-                  rootId={flow.rootId}
-                  onStartConnection={handleStartConnection}
-                  onSizeChange={handleNodeSizeChange}
-                  duplicatePending={pendingDuplicateId === node.id}
-                  hasValidationError={invalidMessageIds.has(node.id)}
-                />
-              );
-            })}
-          </div>
-          {connectionPrompt && (
-            <div
-              className="absolute z-30"
-              style={{ left: connectionPrompt.anchor.x, top: connectionPrompt.anchor.y }}
-            >
-              <div
-                ref={connectionPromptRef}
-                className="min-w-[240px] max-w-[280px] -translate-x-1/2 translate-y-3 rounded-xl border border-emerald-200 bg-white p-3 shadow-xl"
-                onPointerDown={(event) => event.stopPropagation()}
-              >
-                <div className="text-[11px] font-semibold text-slate-600 mb-2">
-                  Siguiente paso · {connectionPrompt.spec.label}
-                </div>
-                <div className="flex flex-wrap gap-2 mb-3">
-                  <button
-                    className="px-2.5 py-1 text-xs rounded-full bg-emerald-500 text-white shadow-sm hover:bg-emerald-600"
-                    onClick={() => handleCreateSelection("message")}
-                  >
-                    Nuevo mensaje
-                  </button>
-                  <button
-                    className="px-2.5 py-1 text-xs rounded-full bg-emerald-500 text-white shadow-sm hover:bg-emerald-600"
-                    onClick={() => handleCreateSelection("buttons")}
-                  >
-                    Botones
-                  </button>
-                  <button
-                    className="px-2.5 py-1 text-xs rounded-full bg-emerald-500 text-white shadow-sm hover:bg-emerald-600"
-                    onClick={() => handleCreateSelection("ask")}
-                  >
-                    Pregunta
-                  </button>
-                  <button
-                    className="px-2.5 py-1 text-xs rounded-full bg-emerald-200 text-emerald-700 shadow-sm hover:bg-emerald-300"
-                    onClick={() => handleCreateSelection("menu")}
-                  >
-                    Submenú
-                  </button>
-                </div>
-                <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">
-                  Conectar con existente
-                </div>
-                <div className="max-h-48 overflow-y-auto space-y-1">
-                  {targetOptions.length === 0 ? (
-                    <div className="text-[11px] text-slate-400">No hay otros nodos disponibles.</div>
-                  ) : (
-                    targetOptions.map((option) => {
-                      const isActive = option.id === connectionPrompt.currentTargetId;
-                      return (
-                        <button
-                          key={option.id}
-                          className={`w-full text-left px-2 py-1 rounded-lg border text-xs flex flex-col gap-0.5 transition hover:border-emerald-300 hover:bg-emerald-50 ${
-                            isActive ? "border-emerald-400 bg-emerald-50" : "border-slate-200"
-                          }`}
-                          onClick={() => handleConnectSelection(option.id)}
-                        >
-                          <span className="font-medium text-slate-700 truncate">{option.label}</span>
-                          <span className="text-[10px] text-slate-400">{option.descriptor}</span>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-                {connectionPrompt.currentTargetId && (
-                  <button
-                    className="mt-3 w-full px-2.5 py-1 text-xs rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50"
-                    onClick={() => handleConnectSelection(null)}
-                  >
-                    Quitar destino
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-  );
-}
 type PersistedState = {
   flow: Flow;
   positions: Record<string, { x: number; y: number }>;
@@ -2076,15 +269,25 @@ export default function App(): JSX.Element {
         | ((prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)
     ) => {
       setPositionsState((prev) => {
-        const next =
+        const nextRaw =
           typeof updater === "function"
             ? (updater as (prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)(prev)
             : updater;
-        if (next === prev) return prev;
+        const sanitized = sanitizePositionMap(nextRaw);
+        const sameSize = Object.keys(prev).length === Object.keys(sanitized).length;
+        const identical =
+          sameSize &&
+          Object.entries(sanitized).every(([id, position]) => {
+            const existing = prev[id];
+            return existing?.x === position.x && existing?.y === position.y;
+          });
+        if (identical) {
+          return prev;
+        }
         if (!suppressDirtyRef.current) {
           setDirty(true);
         }
-        return next;
+        return sanitized;
       });
     },
     []
@@ -2093,7 +296,7 @@ export default function App(): JSX.Element {
   const replaceFlow = useCallback((nextFlow: Flow, nextPositions: Record<string, { x: number; y: number }> = {}) => {
     suppressDirtyRef.current = true;
     setFlowState(normalizeFlow(nextFlow));
-    setPositionsState(nextPositions);
+    setPositionsState(sanitizePositionMap(nextPositions));
     suppressDirtyRef.current = false;
     setSelectedId(nextFlow.rootId);
     setWorkspaceId(nextFlow.id);
@@ -2230,6 +433,54 @@ export default function App(): JSX.Element {
       showToast("No hay botones adicionales para convertir", "error");
     }
   }, [selectedId, setFlow, setSelectedId, showToast]);
+
+  const handleAttachmentUpload = useCallback(
+    (file: File | null) => {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const payload = typeof reader.result === "string" ? reader.result : "";
+        setFlow((prev) => {
+          const next: Flow = JSON.parse(JSON.stringify(prev));
+          const node = next.nodes[selectedId];
+          if (!node || node.action?.kind !== "attachment") return prev;
+          node.action = {
+            ...node.action,
+            data: {
+              ...(node.action.data || {}),
+              fileName: file.name,
+              mimeType: file.type,
+              fileSize: file.size,
+              fileData: payload,
+              url: "",
+            },
+          };
+          return next;
+        });
+      };
+      reader.readAsDataURL(file);
+    },
+    [selectedId, setFlow]
+  );
+
+  const handleAttachmentClear = useCallback(() => {
+    setFlow((prev) => {
+      const next: Flow = JSON.parse(JSON.stringify(prev));
+      const node = next.nodes[selectedId];
+      if (!node || node.action?.kind !== "attachment") return next;
+      node.action = {
+        ...node.action,
+        data: {
+          ...(node.action.data || {}),
+          fileName: "",
+          mimeType: "",
+          fileSize: 0,
+          fileData: "",
+        },
+      };
+      return next;
+    });
+  }, [selectedId, setFlow]);
 
   const handleAskUpdate = useCallback(
     (patch: Partial<Record<string, any>>) => {
@@ -2629,6 +880,7 @@ export default function App(): JSX.Element {
       | "tool"
       | "ask"
       | "scheduler"
+      | "end"
   ) {
     const nid = nextChildId(flow, parentId);
     const defaults: Record<string, any> = {
@@ -2640,7 +892,7 @@ export default function App(): JSX.Element {
         ],
         maxButtons: DEFAULT_BUTTON_LIMIT,
       }),
-      attachment: { attType:"image", url:"", name:"archivo" },
+      attachment: { attType:"image", url:"", name:"archivo", fileName:"", mimeType:"", fileSize:0, fileData:"" },
       webhook_out: {
         method:"POST",
         url:"https://api.ejemplo.com/webhook",
@@ -2662,10 +914,12 @@ export default function App(): JSX.Element {
         invalidTargetId: null,
       },
       scheduler: normalizeSchedulerData(undefined),
+      end: { note: "Fin del flujo" },
     };
+    const baseLabel = kind === "end" ? "Fin del flujo" : `Acción · ${kind}`;
     const newNode: FlowNode = {
       id: nid,
-      label: `Acción · ${kind}`,
+      label: baseLabel,
       type: "action",
       children: [],
       action: { kind: kind as ActionKind, data: defaults[kind] },
@@ -2683,11 +937,81 @@ export default function App(): JSX.Element {
 
   function deleteNode(id:string){
     if (id===flow.rootId) return;
-    const parentId = Object.values(flow.nodes).find(n=>n.children.includes(id))?.id;
+    const parentEntry = Object.values(flow.nodes).find(n=>n.children.includes(id));
+    const parentId = parentEntry?.id;
     const next: Flow = JSON.parse(JSON.stringify(flow));
-    deleteSubtree(next, id);
+    const removed = next.nodes[id];
+    if (!removed) return;
+    const preservedChildren = removed.children.filter((childId) => Boolean(next.nodes[childId]));
+    delete next.nodes[id];
+
+    if (parentId) {
+      const parentNode = next.nodes[parentId];
+      if (parentNode) {
+        const fallbackTarget = preservedChildren[0] ?? null;
+        const originalChildren = parentNode.children.filter((childId) => childId !== id);
+        const insertionIndex = parentNode.children.indexOf(id);
+        const sanitized = preservedChildren.filter((childId) => Boolean(next.nodes[childId]));
+        if (sanitized.length > 0) {
+          if (insertionIndex >= 0 && insertionIndex <= originalChildren.length) {
+            originalChildren.splice(insertionIndex, 0, ...sanitized);
+          } else {
+            originalChildren.push(...sanitized);
+          }
+        }
+        parentNode.children = Array.from(new Set(originalChildren));
+
+        if (parentNode.type === "menu" && parentNode.menuOptions) {
+          parentNode.menuOptions = parentNode.menuOptions.map((option, idx) =>
+            createMenuOption(idx, {
+              ...option,
+              targetId: option.targetId === id ? fallbackTarget : option.targetId,
+            })
+          );
+        } else if (parentNode.action?.kind === "buttons") {
+          const data = normalizeButtonsData(parentNode.action.data as Partial<ButtonsActionData> | undefined);
+          data.items = data.items.map((item, idx) =>
+            createButtonOption(idx, {
+              ...item,
+              targetId: item.targetId === id ? fallbackTarget : item.targetId,
+            })
+          );
+          if (data.moreTargetId === id) {
+            data.moreTargetId = fallbackTarget;
+          }
+          parentNode.action = { ...parentNode.action, data };
+        } else if (parentNode.action?.kind === "ask") {
+          const ask = getAskData(parentNode);
+          if (ask) {
+            const updated: AskActionData = { ...ask };
+            if (updated.answerTargetId === id) {
+              updated.answerTargetId = fallbackTarget;
+            }
+            if (updated.invalidTargetId === id) {
+              updated.invalidTargetId = fallbackTarget;
+            }
+            parentNode.action = { ...parentNode.action, data: updated };
+          }
+        } else if (parentNode.action?.kind === "scheduler") {
+          const scheduler = getSchedulerData(parentNode);
+          if (scheduler) {
+            const updated: SchedulerNodeData = { ...scheduler };
+            if (updated.inWindowTargetId === id) {
+              updated.inWindowTargetId = fallbackTarget;
+            }
+            if (updated.outOfWindowTargetId === id) {
+              updated.outOfWindowTargetId = fallbackTarget;
+            }
+            parentNode.action = { ...parentNode.action, data: updated };
+          }
+        }
+      }
+    }
+
     for (const node of Object.values(next.nodes)){
-      node.children = node.children.filter(childId=>Boolean(next.nodes[childId]));
+      node.children = node.children
+        .filter((childId)=>childId !== id)
+        .filter((childId)=>Boolean(next.nodes[childId]));
       if (node.type === "menu" && node.menuOptions) {
         node.menuOptions = node.menuOptions.map((option, idx) =>
           createMenuOption(idx, {
@@ -2922,6 +1246,14 @@ export default function App(): JSX.Element {
               }),
             },
           } as FlowNode;
+        } else if (kind === "end") {
+          newNode = {
+            id: nid,
+            label: "Fin del flujo",
+            type: "action",
+            children: [],
+            action: { kind: "end", data: { note: "Fin del flujo" } },
+          } as FlowNode;
         } else {
           newNode = {
             id: nid,
@@ -3136,7 +1468,7 @@ export default function App(): JSX.Element {
               </div>
             </div>
             <div className="p-2" style={{ minHeight: "76vh" }}>
-              <FlowCanvas
+              <ReactFlowCanvas
                 flow={flow}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
@@ -3150,7 +1482,7 @@ export default function App(): JSX.Element {
                 onInvalidConnection={(message) => showToast(message, "error")}
                 invalidMessageIds={emptyMessageNodes}
                 soloRoot={soloRoot}
-                toggleScope={()=>setSoloRoot(s=>!s)}
+                toggleScope={() => setSoloRoot((s) => !s)}
                 nodePositions={positionsState}
                 onPositionsChange={setPositions}
               />
@@ -3250,13 +1582,14 @@ export default function App(): JSX.Element {
                       <option value="ia_rag">IA · RAG</option>
                       <option value="tool">Tool/Acción externa</option>
                       <option value="ask">Pregunta al cliente</option>
+                      <option value="end">Finalizar flujo</option>
                     </select>
 
                     {(selected.action?.kind ?? "message")==="message" && (
                       <div className="space-y-1">
                         <label className="block text-xs mb-1">Mensaje</label>
-                        <input
-                          className={`w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 ${
+                        <textarea
+                          className={`w-full border rounded px-3 py-2 text-sm leading-relaxed resize-y min-h-[140px] focus:outline-none focus:ring-2 ${
                             selectedHasMessageError
                               ? "border-rose-300 focus:ring-rose-300"
                               : "focus:ring-emerald-300"
@@ -3264,10 +1597,31 @@ export default function App(): JSX.Element {
                           aria-invalid={selectedHasMessageError}
                           value={selected.action?.data?.text ?? ""}
                           onChange={(e)=>updateSelected({ action:{ kind:"message", data:{ text:e.target.value } } })}
+                          placeholder="Escribe el mensaje que recibirá el cliente..."
                         />
                         {selectedHasMessageError && (
                           <p className="text-[11px] text-rose-600">Este mensaje no puede estar vacío.</p>
                         )}
+                      </div>
+                    )}
+
+                    {selected.action?.kind === "end" && (
+                      <div className="space-y-2 text-xs border border-emerald-200 rounded-lg p-3 bg-emerald-50/60">
+                        <div className="text-sm font-semibold text-emerald-700 flex items-center gap-2">
+                          <span>🏁 Este bloque termina el flujo</span>
+                        </div>
+                        <p className="text-[11px] text-emerald-700/80">
+                          Cuando un cliente llegue a este punto, la conversación se marcará como finalizada y no se buscará un siguiente paso.
+                        </p>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] text-slate-500">Nota interna (opcional)</label>
+                          <textarea
+                            className="w-full border rounded px-2 py-1 text-xs resize-y min-h-[80px] focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                            value={selected.action?.data?.note ?? ""}
+                            onChange={(e)=>updateSelected({ action:{ kind:"end", data:{ ...(selected.action?.data||{}), note:e.target.value } } })}
+                            placeholder="Anota detalles para tu equipo sobre el cierre del flujo..."
+                          />
+                        </div>
                       </div>
                     )}
 
@@ -3494,17 +1848,75 @@ export default function App(): JSX.Element {
                     )}
 
                     {selected.action?.kind==="attachment" && (
-                      <div className="space-y-2">
-                        <div className="flex gap-2 text-xs">
-                          <select className="border rounded px-2 py-1" value={selected.action?.data?.attType ?? "image"} onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), attType:e.target.value } } })}>
+                      <div className="space-y-3 text-xs">
+                        <div className="flex gap-2">
+                          <select
+                            className="border rounded px-2 py-1"
+                            value={selected.action?.data?.attType ?? "image"}
+                            onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), attType:e.target.value } } })}
+                          >
                             <option value="image">Imagen</option>
                             <option value="file">Archivo</option>
                             <option value="audio">Audio</option>
                             <option value="video">Video</option>
                           </select>
-                          <input className="flex-1 border rounded px-2 py-1" placeholder="URL" value={selected.action?.data?.url ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), url:e.target.value } } })} />
+                          <input
+                            className="flex-1 border rounded px-2 py-1"
+                            placeholder="URL pública (opcional)"
+                            value={selected.action?.data?.url ?? ""}
+                            onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), url:e.target.value } } })}
+                          />
                         </div>
-                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Nombre visible" value={selected.action?.data?.name ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), name:e.target.value } } })} />
+                        <div className="space-y-1">
+                          <label className="block text-[11px] text-slate-500">Nombre visible</label>
+                          <input
+                            className="w-full border rounded px-2 py-1"
+                            placeholder="Documento promocional"
+                            value={selected.action?.data?.name ?? ""}
+                            onChange={(e)=>updateSelected({ action:{ kind:"attachment", data:{ ...(selected.action?.data||{}), name:e.target.value } } })}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] text-slate-500">Subir archivo desde tu PC</label>
+                          <input
+                            type="file"
+                            className="block w-full text-[11px] text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-emerald-100 file:px-3 file:py-1 file:text-emerald-700 hover:file:bg-emerald-200"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0] ?? null;
+                              handleAttachmentUpload(file);
+                              event.target.value = "";
+                            }}
+                          />
+                          <p className="text-[10px] text-slate-400">El archivo se guardará en el flujo como base64 para pruebas locales.</p>
+                        </div>
+                        {selected.action?.data?.fileData && (
+                          <div className="border rounded-lg p-2 bg-emerald-50 text-emerald-700 space-y-1">
+                            <div className="font-semibold flex items-center gap-2">
+                              <span>📎 {selected.action?.data?.fileName || "Archivo sin nombre"}</span>
+                            </div>
+                            <div className="text-[10px] text-emerald-700/80">
+                              {selected.action?.data?.mimeType || "tipo desconocido"} ·
+                              {` ${Math.max(1, Math.round(((selected.action?.data?.fileSize ?? 0) / 1024) || 0))} KB`}
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                className="px-2 py-0.5 border border-emerald-300 rounded bg-white text-emerald-700 hover:bg-emerald-100"
+                                onClick={handleAttachmentClear}
+                              >
+                                Quitar archivo
+                              </button>
+                              {typeof selected.action?.data?.fileData === "string" && selected.action?.data?.fileData && (
+                                <a
+                                  className="px-2 py-0.5 border border-emerald-300 rounded bg-white text-emerald-700 hover:bg-emerald-100"
+                                  href={selected.action.data.fileData}
+                                  download={selected.action?.data?.fileName || "archivo"}
+                                >
+                                  Descargar
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -3777,6 +2189,7 @@ export default function App(): JSX.Element {
                 <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"webhook_in")}>Acción · Webhook IN</button>
                 <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"transfer")}>Acción · Transferir</button>
                 <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"scheduler")}>Acción · Scheduler</button>
+                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-slate-400 to-slate-500 text-white shadow-sm transition hover:from-slate-500 hover:to-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-300" onClick={()=>addActionOfKind(selectedId,"end")}>Bloque · Finalizar flujo</button>
                 <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={seedDemo}>Demo rápido</button>
               </div>
             </div>

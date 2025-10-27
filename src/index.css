@@ -5,3 +5,18 @@
 :root{
   --grid-dot: #e2e8f0;
 }
+
+.react-flow__edge.flow-edge path {
+  stroke: #94a3b8;
+  stroke-width: 2px;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+
+.react-flow__edge.flow-edge.selected path {
+  stroke: #10b981;
+  stroke-width: 3px;
+}
+
+.react-flow__node {
+  z-index: 5 !important;
+}
