@@ -104,6 +104,7 @@ export function buildReactFlowGraph({
 }
 
 function resolveNodeType(node: FlowNode): string {
+  if (node.type === 'start' || node.action?.kind === 'start') return 'start';
   if (node.type === 'menu') return 'menu';
   if (node.action?.kind === 'message') return 'message';
   if (node.action?.kind === 'end') return 'end';

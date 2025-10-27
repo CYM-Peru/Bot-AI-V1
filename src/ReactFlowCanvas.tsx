@@ -39,8 +39,10 @@ import { MessageNode } from './flow/components/nodes/MessageNode';
 import { ActionNode } from './flow/components/nodes/ActionNode';
 import { ConditionNode } from './flow/components/nodes/ConditionNode';
 import { EndFlowNode } from './flow/components/nodes/EndFlowNode';
+import { StartNode } from './flow/components/nodes/StartNode';
 
 const NODE_TYPES: Record<string, ComponentType<NodeProps<RuntimeNode>>> = {
+  start: StartNode,
   menu: MenuNode,
   message: MessageNode,
   action: ActionNode,
