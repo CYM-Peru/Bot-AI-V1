@@ -57,6 +57,16 @@ type PositionMap = Record<string, { x: number; y: number }>;
 
 type RuntimeEdge = Edge<CanvasEdgeData>;
 
+type ConnectStartParams = {
+  nodeId?: string | null;
+  handleId?: string | null;
+};
+
+type FinalConnectionState = {
+  to?: XYPosition | null;
+  toNode?: { id: string } | null;
+};
+
 type QuickCreateState = {
   sourceId: string;
   handleId: string;
@@ -260,7 +270,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
   }, []);
 
   const handleConnectStart = useCallback(
-    (_event: MouseEvent | TouchEvent, params?: OnConnectStartParams) => {
+    (_event: MouseEvent | TouchEvent, params: ConnectStartParams) => {
       if (!params?.nodeId || !params.handleId) {
         pendingSourceRef.current = null;
         return;
@@ -268,16 +278,19 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
       pendingSourceRef.current = { sourceId: params.nodeId, handleId: params.handleId };
     },
     [],
-  ) as OnConnectStart;
+  );
 
   const handleConnectEnd = useCallback(
-    (event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
+    (
+      event: MouseEvent | TouchEvent,
+      connectionState?: FinalConnectionState,
+    ) => {
       const pending = pendingSourceRef.current;
       if (!pending) {
         setQuickCreateState(null);
         return;
       }
-      const targetNode = connectionState.toNode;
+      const targetNode = connectionState?.toNode;
       if (targetNode) {
         pendingSourceRef.current = null;
         setQuickCreateState(null);
@@ -289,7 +302,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
             x: event.changedTouches[0]?.clientX ?? 0,
             y: event.changedTouches[0]?.clientY ?? 0,
           };
-      const flowPoint = connectionState.to ?? screenToFlowPosition(clientPoint);
+      const flowPoint = connectionState?.to ?? screenToFlowPosition(clientPoint);
       const rect = wrapperRef.current?.getBoundingClientRect();
       const screenPosition = rect
         ? { x: clientPoint.x - rect.left, y: clientPoint.y - rect.top }
@@ -302,7 +315,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
       });
     },
     [screenToFlowPosition],
-  ) as OnConnectEnd;
+  );
 
   const quickCreateOptions = useMemo<ConnectionCreationKind[]>(
     () => ['menu', 'message', 'buttons', 'ask', 'scheduler', 'end'],
