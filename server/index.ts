@@ -3,10 +3,13 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { RuntimeEngine } from "../src/runtime/engine";
 import { NodeExecutor } from "../src/runtime/executor";
-import { InMemorySessionStore } from "../src/runtime/session";
 import { WhatsAppWebhookHandler } from "../src/api/whatsapp-webhook";
 import { LocalStorageFlowProvider } from "./flow-provider";
 import { HttpWebhookDispatcher } from "./webhook-dispatcher";
+import { createSessionStore } from "./session-store";
+import { Bitrix24Client } from "../src/integrations/bitrix24";
+import { botLogger, metricsTracker } from "../src/runtime/monitoring";
+import { createApiRoutes } from "./api-routes";
 
 // Load environment variables
 dotenv.config();
@@ -21,9 +24,23 @@ app.use(express.urlencoded({ extended: true }));
 
 // Initialize Runtime Engine
 const flowProvider = new LocalStorageFlowProvider();
-const sessionStore = new InMemorySessionStore();
+
+// Create session store based on configuration
+const sessionStore = createSessionStore({
+  type: (process.env.SESSION_STORAGE_TYPE as "memory" | "file") || "file",
+  fileStorageDir: process.env.SESSION_STORAGE_PATH || "./data/sessions",
+});
+
+// Initialize Bitrix24 client if configured
+const bitrix24Client = process.env.BITRIX24_WEBHOOK_URL
+  ? new Bitrix24Client({ webhookUrl: process.env.BITRIX24_WEBHOOK_URL })
+  : undefined;
+
 const webhookDispatcher = new HttpWebhookDispatcher();
-const executor = new NodeExecutor({ webhookDispatcher });
+const executor = new NodeExecutor({
+  webhookDispatcher,
+  bitrix24Client,
+});
 
 const runtimeEngine = new RuntimeEngine({
   flowProvider,
@@ -41,22 +58,25 @@ const whatsappHandler = new WhatsAppWebhookHandler({
     apiVersion: process.env.WHATSAPP_API_VERSION || "v20.0",
   },
   resolveFlow: async (context) => {
-    // Default flow resolution: map phone number to session
-    // You can customize this logic based on your needs
     const phoneNumber = context.message.from;
     const defaultFlowId = process.env.DEFAULT_FLOW_ID || "default-flow";
 
+    // Log conversation start
+    const sessionId = `whatsapp_${phoneNumber}`;
+    botLogger.logConversationStarted(sessionId, defaultFlowId);
+    metricsTracker.startConversation(sessionId, defaultFlowId);
+
     return {
-      sessionId: `whatsapp_${phoneNumber}`,
+      sessionId,
       flowId: defaultFlowId,
       contactId: phoneNumber,
       channel: "whatsapp",
     };
   },
   logger: {
-    info: (message, meta) => console.log(`[INFO] ${message}`, meta),
-    warn: (message, meta) => console.warn(`[WARN] ${message}`, meta),
-    error: (message, meta) => console.error(`[ERROR] ${message}`, meta),
+    info: (message, meta) => botLogger.info(message, meta),
+    warn: (message, meta) => botLogger.warn(message, meta),
+    error: (message, meta) => botLogger.error(message, undefined, meta),
   },
 });
 
@@ -131,6 +151,9 @@ app.get("/api/flows", async (req: Request, res: Response) => {
   }
 });
 
+// Mount additional API routes (validation, simulation, monitoring, etc.)
+app.use("/api", createApiRoutes({ flowProvider, sessionStore }));
+
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
@@ -141,6 +164,16 @@ app.listen(PORT, () => {
   console.log(`   - Access Token: ${process.env.WHATSAPP_ACCESS_TOKEN ? "✓" : "✗"}`);
   console.log(`   - Phone Number ID: ${process.env.WHATSAPP_PHONE_NUMBER_ID ? "✓" : "✗"}`);
   console.log(`   - Default Flow ID: ${process.env.DEFAULT_FLOW_ID || "default-flow"}`);
+  console.log(`   - Session Storage: ${process.env.SESSION_STORAGE_TYPE || "file"}`);
+  console.log(`   - Bitrix24: ${bitrix24Client ? "✓" : "✗"}`);
+  console.log(`\n📊 Additional Endpoints:`);
+  console.log(`   - Logs: GET http://localhost:${PORT}/api/logs`);
+  console.log(`   - Stats: GET http://localhost:${PORT}/api/stats`);
+  console.log(`   - Metrics: GET http://localhost:${PORT}/api/metrics`);
+  console.log(`   - Active Conversations: GET http://localhost:${PORT}/api/conversations/active`);
+  console.log(`   - Validate Flow: POST http://localhost:${PORT}/api/validate`);
+  console.log(`   - Simulate Start: POST http://localhost:${PORT}/api/simulate/start`);
+  console.log(`   - Simulate Message: POST http://localhost:${PORT}/api/simulate/message`);
 });
 
 // Graceful shutdown

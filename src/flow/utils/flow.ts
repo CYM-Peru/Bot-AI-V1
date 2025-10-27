@@ -2,6 +2,7 @@ import {
   type AskActionData,
   type ButtonsActionData,
   type ButtonOption,
+  type ConditionActionData,
   type CustomSchedule,
   type DateException,
   type Flow,
@@ -192,6 +193,26 @@ export function getSchedulerData(node: FlowNode): SchedulerNodeData | null {
   if (node.action?.kind !== 'scheduler') return null;
   const data = node.action.data as Partial<SchedulerNodeData> | undefined;
   return normalizeSchedulerData(data ?? undefined);
+}
+
+export function getConditionData(node: FlowNode): ConditionActionData | null {
+  if (node.action?.kind !== 'condition') return null;
+  const data = node.action.data as Partial<ConditionActionData> | undefined;
+
+  if (!data) {
+    return {
+      rules: [],
+      matchMode: 'any',
+      defaultTargetId: null,
+    };
+  }
+
+  return {
+    rules: Array.isArray(data.rules) ? data.rules : [],
+    matchMode: data.matchMode === 'all' ? 'all' : 'any',
+    defaultTargetId: typeof data.defaultTargetId === 'string' ? data.defaultTargetId : null,
+    bitrixConfig: data.bitrixConfig,
+  };
 }
 
 export function normalizeNode(node: FlowNode): FlowNode {
