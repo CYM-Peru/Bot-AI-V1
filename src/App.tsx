@@ -9,6 +9,7 @@ import { loadFlow, saveFlow } from "./data/persistence";
 import { debounce } from "./utils/debounce";
 import { CHANNEL_BUTTON_LIMITS, DEFAULT_BUTTON_LIMIT } from "./flow/channelLimits";
 import { ReactFlowCanvas } from "./ReactFlowCanvas";
+import { testWebhookOut, generateWebhookInUrl, type WebhookResponse } from "./flow/webhooks";
 import {
   ConnectionCreationKind,
   STRICTEST_LIMIT,
@@ -235,6 +236,8 @@ export default function App(): JSX.Element {
   const [dirty, setDirty] = useState(false);
   const [workspaceId, setWorkspaceId] = useState(flow.id);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [webhookTestResult, setWebhookTestResult] = useState<WebhookResponse | null>(null);
+  const [webhookTesting, setWebhookTesting] = useState(false);
 
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
     setToast({ id: Date.now(), message, type });
@@ -1392,6 +1395,55 @@ export default function App(): JSX.Element {
     }));
   }
 
+  const handleTestWebhook = useCallback(async () => {
+    const selected = flow.nodes[selectedId];
+    if (!selected || selected.action?.kind !== 'webhook_out') return;
+
+    const data = selected.action.data;
+    if (!data?.url) {
+      showToast('Configure la URL del webhook primero', 'error');
+      return;
+    }
+
+    const config = {
+      method: (data.method || 'POST') as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+      url: data.url,
+      headers: data.headers || [],
+      body: data.body,
+    };
+
+    setWebhookTesting(true);
+    setWebhookTestResult(null);
+
+    try {
+      const result = await testWebhookOut(config);
+      setWebhookTestResult(result);
+      if (result.success) {
+        showToast(`Webhook exitoso (${result.duration}ms)`, 'success');
+      } else {
+        showToast(result.error || 'Error en webhook', 'error');
+      }
+    } catch (error: any) {
+      showToast(error.message || 'Error ejecutando webhook', 'error');
+    } finally {
+      setWebhookTesting(false);
+    }
+  }, [flow, selectedId, showToast]);
+
+  const handleCopyWebhookInUrl = useCallback(() => {
+    const selected = flow.nodes[selectedId];
+    if (!selected || selected.action?.kind !== 'webhook_in') return;
+
+    const secret = selected.action.data?.secret;
+    const url = generateWebhookInUrl(flow.id, selectedId, secret);
+
+    navigator.clipboard.writeText(url).then(() => {
+      showToast('URL copiada al portapapeles', 'success');
+    }).catch(() => {
+      showToast('Error copiando URL', 'error');
+    });
+  }, [flow, selectedId, showToast]);
+
   function seedDemo(){
     setFlow(prev=>{
       const root = prev.nodes[prev.rootId];
@@ -1459,15 +1511,15 @@ export default function App(): JSX.Element {
       <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:items-start">
-        <div className="order-2 lg:order-1 lg:col-span-9 lg:col-start-1">
-          <div className="border rounded-xl bg-white shadow-sm">
-            <div className="px-3 py-2 border-b bg-slate-50 text-sm font-semibold flex items-center justify-between">
+        <div className="order-2 lg:order-1 lg:col-span-9 lg:col-start-1 flex flex-col" style={{ height: "calc(100vh - 120px)" }}>
+          <div className="bg-white flex-1 flex flex-col overflow-hidden">
+            <div className="px-3 py-2 bg-slate-50 text-sm font-semibold flex items-center justify-between border-b flex-shrink-0">
               <span>Canvas de flujo</span>
               <div className="flex gap-2">
                 <button className="px-3 py-1.5 text-sm rounded border border-emerald-200 bg-white hover:bg-emerald-50 transition" onClick={()=>setSoloRoot(s=>!s)}>{soloRoot?"Mostrar todo":"Solo raíz"}</button>
               </div>
             </div>
-            <div className="p-2" style={{ minHeight: "76vh" }}>
+            <div className="flex-1 overflow-hidden">
               <ReactFlowCanvas
                 flow={flow}
                 selectedId={selectedId}
@@ -1486,6 +1538,113 @@ export default function App(): JSX.Element {
                 nodePositions={positionsState}
                   onPositionsChange={setPositions}
                 />
+              </div>
+            </div>
+
+            {/* Toolbar de acciones debajo del canvas */}
+            <div className="border-t bg-white shadow-lg flex-shrink-0 overflow-x-auto">
+              <div className="px-4 py-3 flex gap-6">
+                {/* Estructura */}
+                <div className="flex flex-col gap-2">
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Estructura</h4>
+                  <button
+                    className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
+                    onClick={()=>addChildTo(selectedId,"menu")}
+                    disabled={!selectedId}
+                  >
+                    <span>📋</span> Submenú
+                  </button>
+                </div>
+
+                {/* Mensajes */}
+                <div className="flex flex-col gap-2">
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Mensajes</h4>
+                  <div className="flex gap-2">
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
+                      onClick={()=>addChildTo(selectedId,"action")}
+                      disabled={!selectedId}
+                    >
+                      <span>💬</span> Mensaje
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
+                      onClick={()=>addActionOfKind(selectedId,"buttons")}
+                      disabled={!selectedId}
+                    >
+                      <span>🔘</span> Botones
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
+                      onClick={()=>addActionOfKind(selectedId,"ask")}
+                      disabled={!selectedId}
+                    >
+                      <span>❓</span> Pregunta
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
+                      onClick={()=>addActionOfKind(selectedId,"attachment")}
+                      disabled={!selectedId}
+                    >
+                      <span>📎</span> Adjunto
+                    </button>
+                  </div>
+                </div>
+
+                {/* Integraciones */}
+                <div className="flex flex-col gap-2">
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Integraciones</h4>
+                  <div className="flex gap-2">
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 whitespace-nowrap"
+                      onClick={()=>addActionOfKind(selectedId,"webhook_out")}
+                      disabled={!selectedId}
+                    >
+                      <span>🔗</span> Webhook OUT
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 whitespace-nowrap"
+                      onClick={()=>addActionOfKind(selectedId,"webhook_in")}
+                      disabled={!selectedId}
+                    >
+                      <span>📥</span> Webhook IN
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 whitespace-nowrap"
+                      onClick={()=>addActionOfKind(selectedId,"transfer")}
+                      disabled={!selectedId}
+                    >
+                      <span>👤</span> Transferir
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 whitespace-nowrap"
+                      onClick={()=>addActionOfKind(selectedId,"scheduler")}
+                      disabled={!selectedId}
+                    >
+                      <span>⏰</span> Scheduler
+                    </button>
+                  </div>
+                </div>
+
+                {/* Control */}
+                <div className="flex flex-col gap-2">
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Control</h4>
+                  <div className="flex gap-2">
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-slate-500 text-white hover:bg-slate-600 transition flex items-center gap-2 whitespace-nowrap"
+                      onClick={()=>addActionOfKind(selectedId,"end")}
+                      disabled={!selectedId}
+                    >
+                      <span>🛑</span> Finalizar
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition flex items-center gap-2 whitespace-nowrap"
+                      onClick={seedDemo}
+                    >
+                      <span>⚡</span> Demo rápido
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -2116,13 +2275,70 @@ export default function App(): JSX.Element {
                         <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ const headers=[...(selected.action?.data?.headers||[])]; headers.push({k:"X-Key", v:"value"}); updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), headers } } }); }}>+ header</button>
                         <label className="block text-xs mt-2">Body (JSON)</label>
                         <textarea className="w-full border rounded px-2 py-1 text-xs h-24 font-mono" value={selected.action?.data?.body ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"webhook_out", data:{ ...(selected.action?.data||{}), body:e.target.value } } })} />
+
+                        {/* Botón de test */}
+                        <button
+                          className="w-full px-3 py-2 text-sm font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          onClick={handleTestWebhook}
+                          disabled={webhookTesting || !selected.action?.data?.url}
+                        >
+                          {webhookTesting ? '⏳ Probando...' : '🧪 Probar Webhook'}
+                        </button>
+
+                        {/* Resultados del test */}
+                        {webhookTestResult && (
+                          <div className={`p-3 rounded-lg text-xs ${webhookTestResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                            <div className="font-semibold mb-2 flex items-center justify-between">
+                              <span>{webhookTestResult.success ? '✅ Éxito' : '❌ Error'}</span>
+                              <span className="text-gray-500">{webhookTestResult.duration}ms</span>
+                            </div>
+                            {webhookTestResult.status && (
+                              <div className="mb-1"><span className="font-medium">Status:</span> {webhookTestResult.status}</div>
+                            )}
+                            {webhookTestResult.error && (
+                              <div className="text-red-700 mb-1"><span className="font-medium">Error:</span> {webhookTestResult.error}</div>
+                            )}
+                            {webhookTestResult.data && (
+                              <div className="mt-2">
+                                <div className="font-medium mb-1">Respuesta:</div>
+                                <pre className="bg-white p-2 rounded border overflow-auto max-h-40 text-[10px]">
+                                  {JSON.stringify(webhookTestResult.data, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
                     {selected.action?.kind==="webhook_in" && (
                       <div className="space-y-2">
+                        <label className="block text-xs font-medium">Path</label>
                         <input className="w-full border rounded px-2 py-1 text-xs" placeholder="/hooks/inbound" value={selected.action?.data?.path ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"webhook_in", data:{ ...(selected.action?.data||{}), path:e.target.value } } })} />
-                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Secret opcional" value={selected.action?.data?.secret ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"webhook_in", data:{ ...(selected.action?.data||{}), secret:e.target.value } } })} />
+
+                        <label className="block text-xs font-medium">Secret (opcional)</label>
+                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Secret opcional" type="password" value={selected.action?.data?.secret ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"webhook_in", data:{ ...(selected.action?.data||{}), secret:e.target.value } } })} />
+
+                        {/* URL generada */}
+                        <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
+                          <div className="text-xs font-medium mb-1">URL del Webhook:</div>
+                          <div className="flex gap-2">
+                            <input
+                              className="flex-1 border rounded px-2 py-1 text-xs font-mono bg-white"
+                              value={generateWebhookInUrl(flow.id, selectedId, selected.action?.data?.secret)}
+                              readOnly
+                            />
+                            <button
+                              className="px-3 py-1 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition"
+                              onClick={handleCopyWebhookInUrl}
+                            >
+                              📋 Copiar
+                            </button>
+                          </div>
+                          <div className="text-[10px] text-gray-500 mt-2">
+                            ℹ️ Esta URL está lista para recibir POST requests desde servicios externos como n8n
+                          </div>
+                        </div>
                       </div>
                     )}
 
@@ -2174,23 +2390,6 @@ export default function App(): JSX.Element {
                     Límite estricto multi-canal: {STRICTEST_LIMIT.max} botones.
                   </div>
                 </div>
-              </div>
-            </div>
-
-            <div className="border rounded-xl overflow-hidden bg-white shadow-sm">
-              <div className="px-3 py-2 border-b text-sm font-semibold">Agregar</div>
-              <div className="p-3 flex gap-3 flex-wrap">
-                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addChildTo(selectedId,"menu")}>Submenú</button>
-                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addChildTo(selectedId,"action")}>Acción (mensaje)</button>
-                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"buttons")}>Acción · Botones</button>
-                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"ask")}>Acción · Pregunta</button>
-                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"attachment")}>Acción · Adjunto</button>
-                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"webhook_out")}>Acción · Webhook OUT</button>
-                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"webhook_in")}>Acción · Webhook IN</button>
-                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"transfer")}>Acción · Transferir</button>
-                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={()=>addActionOfKind(selectedId,"scheduler")}>Acción · Scheduler</button>
-                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-slate-400 to-slate-500 text-white shadow-sm transition hover:from-slate-500 hover:to-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-300" onClick={()=>addActionOfKind(selectedId,"end")}>Bloque · Finalizar flujo</button>
-                <button className="px-4 py-2 text-sm font-medium rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 text-white shadow-sm transition hover:from-emerald-500 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={seedDemo}>Demo rápido</button>
               </div>
             </div>
           </div>
