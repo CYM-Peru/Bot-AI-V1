@@ -2388,7 +2388,7 @@ export default function App(): JSX.Element {
               </div>
             </div>
             <div className="p-2" style={{ minHeight: "76vh" }}>
-              <FlowCanvas
+              <ReactFlowCanvas
                 flow={flow}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
