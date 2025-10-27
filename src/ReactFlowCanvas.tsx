@@ -126,6 +126,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
   const [quickCreateState, setQuickCreateState] = useState<QuickCreateState | null>(null);
   const [visibleNodeIds, setVisibleNodeIds] = useState<string[]>([]);
   const initialFitViewDone = useRef(false); // Track si ya hicimos el fitView inicial
+  const lastFlowId = useRef<string>(flow.id); // Track flow ID changes
   const rightMousePan = useRightMousePan();
 
   const graph = useMemo(() => {
@@ -163,11 +164,19 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
     setNodes(decoratedNodes);
   }, [decoratedNodes]);
 
-  // fitView SOLO la primera vez que hay nodos (una sola vez en toda la vida del componente)
+  // Reset auto-fit flag when flow ID changes (new flow loaded)
+  useEffect(() => {
+    if (flow.id !== lastFlowId.current) {
+      initialFitViewDone.current = false;
+      lastFlowId.current = flow.id;
+    }
+  }, [flow.id]);
+
+  // Auto-fit view on initial load or when new flow is loaded
   useEffect(() => {
     if (decoratedNodes.length > 0 && !initialFitViewDone.current) {
       fitView({ padding: 0.2, duration: 200 });
-      initialFitViewDone.current = true; // Marcar como hecho para siempre
+      initialFitViewDone.current = true;
     }
   }, [decoratedNodes, fitView]);
 
@@ -392,6 +401,14 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
           onClick={props.toggleScope}
         >
           {props.soloRoot ? 'Mostrar todo' : 'Solo raíz'}
+        </button>
+        <button
+          type="button"
+          className="rounded-full border border-blue-200 px-2 py-1 font-medium text-blue-700 hover:bg-blue-50"
+          onClick={() => fitView({ padding: 0.2, duration: 300 })}
+          title="Centrar y ajustar vista"
+        >
+          🎯 Centrar
         </button>
       </div>
     </div>

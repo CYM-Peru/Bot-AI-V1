@@ -95,6 +95,14 @@ export function NodeCard(props: NodeCardProps) {
         );
       })}
 
+      {/* Delay indicator badge in top-right corner */}
+      {data.flowNode.delay && data.flowNode.delay > 0 && (
+        <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-50 border border-blue-200 text-[10px] font-medium text-blue-700">
+          <span>⏱️</span>
+          <span>{data.flowNode.delay}s</span>
+        </div>
+      )}
+
       <div className="px-4 pt-4 pb-2">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-lg">
