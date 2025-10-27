@@ -4,14 +4,14 @@ import { createHandleScheduler } from "../scheduler";
 describe("createHandleScheduler", () => {
   it("coalesces multiple calls within the same frame", () => {
     const callbacks: FrameRequestCallback[] = [];
-    const requestFrame = vi.fn<[FrameRequestCallback], number>((cb) => {
+    const requestFrame = vi.fn((cb: FrameRequestCallback) => {
       callbacks.push(cb);
-      return callbacks.length;
+      return callbacks.length as number;
     });
-    const cancelFrame = vi.fn<[number], void>();
+    const cancelFrame = vi.fn();
     const recompute = vi.fn();
 
-    const scheduler = createHandleScheduler(recompute, requestFrame, cancelFrame);
+    const scheduler = createHandleScheduler(recompute, requestFrame as any, cancelFrame);
 
     scheduler.schedule();
     scheduler.schedule();
