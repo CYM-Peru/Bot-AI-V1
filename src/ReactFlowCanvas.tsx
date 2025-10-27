@@ -131,6 +131,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
   const pendingSourceRef = useRef<{ sourceId: string; handleId: string } | null>(null);
   const [quickCreateState, setQuickCreateState] = useState<QuickCreateState | null>(null);
   const [visibleNodeIds, setVisibleNodeIds] = useState<string[]>([]);
+  const initialFitViewDone = useRef(false); // Track si ya hicimos el fitView inicial
   const rightMousePan = useRightMousePan();
 
   useEffect(() => {
@@ -194,9 +195,11 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
     setNodes(decoratedNodes);
   }, [decoratedNodes]);
 
+  // fitView SOLO la primera vez que hay nodos (una sola vez en toda la vida del componente)
   useEffect(() => {
-    if (decoratedNodes.length > 0) {
-      fitView({ padding: 0.2, duration: 300 });
+    if (decoratedNodes.length > 0 && !initialFitViewDone.current) {
+      fitView({ padding: 0.2, duration: 200 });
+      initialFitViewDone.current = true; // Marcar como hecho para siempre
     }
   }, [decoratedNodes, fitView]);
 
