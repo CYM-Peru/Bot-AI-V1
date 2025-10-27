@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLocalStorageStrategy, loadFlow, saveFlow, setPersistenceStrategy } from "../data/persistence";
 import type { Flow } from "../flow/types";
-import { normalizeFlow, normalizeSchedulerData } from "../App";
+import { normalizeFlow, normalizeSchedulerData } from "../flow/utils/flow";
 
 describe("builder persistence", () => {
   const workspaceId = "ws-test";

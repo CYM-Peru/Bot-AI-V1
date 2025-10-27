@@ -1,25 +1,86 @@
-import { useCallback, useMemo } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+} from 'react';
 import {
-  ReactFlow,
-  Node,
-  Edge,
-  Controls,
   Background,
   BackgroundVariant,
-  useNodesState,
-  useEdgesState,
-  addEdge,
-  Connection,
-  NodeTypes,
-  NodeChange,
-  EdgeChange,
+  Controls,
+  MiniMap,
+  ReactFlow,
+  ReactFlowProvider,
+  applyEdgeChanges,
+  applyNodeChanges,
+  type Connection,
+  type Edge,
+  type EdgeChange,
+  type NodeChange,
+  type NodeProps,
+  type XYPosition,
+  useReactFlow,
 } from '@xyflow/react';
+import type {
+  FinalConnectionState,
+  OnConnectEnd,
+  OnConnectStart,
+  OnConnectStartParams,
+} from '@xyflow/system';
 import '@xyflow/react/dist/style.css';
-import { FlowNode, Flow, NodeType } from './flow/types';
+import type { Flow, NodeType } from './flow/types';
+import { type ConnectionCreationKind } from './flow/utils/flow';
+import {
+  buildReactFlowGraph,
+  type CanvasEdgeData,
+  type CanvasNodeData,
+} from './flow/adapters/reactFlow';
+import { useRightMousePan } from './flow/hooks/useRightMousePan';
+import type { RuntimeNode, RuntimeNodeData } from './flow/components/nodes/types';
+import { MenuNode } from './flow/components/nodes/MenuNode';
+import { MessageNode } from './flow/components/nodes/MessageNode';
+import { ActionNode } from './flow/components/nodes/ActionNode';
+import { ConditionNode } from './flow/components/nodes/ConditionNode';
+import { EndFlowNode } from './flow/components/nodes/EndFlowNode';
 
-export type ConnectionCreationKind = "menu" | "message" | "buttons" | "ask";
+const NODE_TYPES: Record<string, ComponentType<NodeProps<RuntimeNode>>> = {
+  menu: MenuNode,
+  message: MessageNode,
+  action: ActionNode,
+  condition: ConditionNode,
+  end: EndFlowNode,
+};
 
-interface ReactFlowCanvasProps {
+type PositionMap = Record<string, { x: number; y: number }>;
+
+type RuntimeEdge = Edge<CanvasEdgeData>;
+
+type ConnectStartParams = {
+  nodeId?: string | null;
+  handleId?: string | null;
+};
+
+type FinalConnectionState = {
+  to?: XYPosition | null;
+  toNode?: { id: string } | null;
+};
+
+type QuickCreateState = {
+  sourceId: string;
+  handleId: string;
+  position: { x: number; y: number };
+  screen: { x: number; y: number };
+};
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+const isValidPosition = (position?: XYPosition | null): position is XYPosition =>
+  Boolean(position && isFiniteNumber(position.x) && isFiniteNumber(position.y));
+
+export interface ReactFlowCanvasProps {
   flow: Flow;
   selectedId: string;
   onSelect: (id: string) => void;
@@ -34,276 +95,385 @@ interface ReactFlowCanvasProps {
   invalidMessageIds: Set<string>;
   soloRoot: boolean;
   toggleScope: () => void;
-  nodePositions: Record<string, { x: number; y: number }>;
+  nodePositions: PositionMap;
   onPositionsChange: (
     updater:
-      | Record<string, { x: number; y: number }>
-      | ((prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)
+      | PositionMap
+      | ((prev: PositionMap) => PositionMap),
   ) => void;
 }
 
-// Convertir FlowNode a React Flow Node
-function convertToReactFlowNode(
-  flowNode: FlowNode,
-  position: { x: number; y: number }
-): Node {
-  return {
-    id: flowNode.id,
-    type: 'custom',
-    position,
-    data: {
-      label: flowNode.label,
-      flowNode, // Pasamos el nodo completo para acceder a toda su data
-    },
-  };
+export function ReactFlowCanvas(props: ReactFlowCanvasProps) {
+  return (
+    <ReactFlowProvider>
+      <ReactFlowCanvasInner {...props} />
+    </ReactFlowProvider>
+  );
 }
 
-// Generar edges basados en children y targetIds
-function generateEdges(nodes: Record<string, FlowNode>): Edge[] {
-  const edges: Edge[] = [];
+function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
+  const {
+    flow,
+    selectedId,
+    onSelect,
+    onAddChild,
+    onDeleteNode,
+    onDuplicateNode,
+    onDeleteEdge,
+    onConnectHandle,
+    onCreateForHandle,
+    onInvalidConnection,
+    invalidMessageIds,
+    soloRoot,
+    nodePositions,
+    onPositionsChange,
+  } = props;
+  const { screenToFlowPosition, fitView } = useReactFlow<RuntimeNode, RuntimeEdge>();
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [nodes, setNodes] = useState<RuntimeNode[]>([]);
+  const [edges, setEdges] = useState<RuntimeEdge[]>([]);
+  const [canvasHeight, setCanvasHeight] = useState<number>(600);
+  const pendingSourceRef = useRef<{ sourceId: string; handleId: string } | null>(null);
+  const [quickCreateState, setQuickCreateState] = useState<QuickCreateState | null>(null);
+  const [visibleNodeIds, setVisibleNodeIds] = useState<string[]>([]);
+  const rightMousePan = useRightMousePan();
 
-  Object.values(nodes).forEach((node) => {
-    // Edges desde children
-    node.children?.forEach((childId) => {
-      edges.push({
-        id: `${node.id}-${childId}`,
-        source: node.id,
-        target: childId,
-        type: 'smoothstep',
-      });
-    });
-
-    // Edges desde menuOptions
-    node.menuOptions?.forEach((option) => {
-      if (option.targetId) {
-        edges.push({
-          id: `${node.id}-menu-${option.id}-${option.targetId}`,
-          source: node.id,
-          target: option.targetId,
-          sourceHandle: option.id,
-          type: 'smoothstep',
-        });
-      }
-    });
-
-    // Edges desde actions con targetIds
-    if (node.action) {
-      const { kind, data } = node.action;
-
-      // Buttons action
-      if (kind === 'buttons' && data?.items) {
-        data.items.forEach((button: any) => {
-          if (button.targetId) {
-            edges.push({
-              id: `${node.id}-button-${button.id}-${button.targetId}`,
-              source: node.id,
-              target: button.targetId,
-              sourceHandle: button.id,
-              type: 'smoothstep',
-            });
-          }
-        });
-        if (data.moreTargetId) {
-          edges.push({
-            id: `${node.id}-more-${data.moreTargetId}`,
-            source: node.id,
-            target: data.moreTargetId,
-            sourceHandle: 'more',
-            type: 'smoothstep',
-          });
-        }
-      }
-
-      // Ask action
-      if (kind === 'ask' && data) {
-        if (data.answerTargetId) {
-          edges.push({
-            id: `${node.id}-answer-${data.answerTargetId}`,
-            source: node.id,
-            target: data.answerTargetId,
-            sourceHandle: 'answer',
-            type: 'smoothstep',
-          });
-        }
-        if (data.invalidTargetId) {
-          edges.push({
-            id: `${node.id}-invalid-${data.invalidTargetId}`,
-            source: node.id,
-            target: data.invalidTargetId,
-            sourceHandle: 'invalid',
-            type: 'smoothstep',
-          });
-        }
-      }
-
-      // Scheduler action
-      if (kind === 'scheduler' && data) {
-        if (data.inWindowTargetId) {
-          edges.push({
-            id: `${node.id}-inwindow-${data.inWindowTargetId}`,
-            source: node.id,
-            target: data.inWindowTargetId,
-            sourceHandle: 'inWindow',
-            type: 'smoothstep',
-          });
-        }
-        if (data.outOfWindowTargetId) {
-          edges.push({
-            id: `${node.id}-outwindow-${data.outOfWindowTargetId}`,
-            source: node.id,
-            target: data.outOfWindowTargetId,
-            sourceHandle: 'outOfWindow',
-            type: 'smoothstep',
-          });
-        }
-      }
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) {
+      return;
     }
-  });
 
-  return edges;
-}
+    const updateSize = () => {
+      const nextHeight = wrapper.clientHeight;
+      if (nextHeight > 0) {
+        setCanvasHeight(nextHeight);
+      }
+    };
 
-// Custom node component
-function CustomNode({ data, selected }: { data: any; selected: boolean }) {
-  const flowNode: FlowNode = data.flowNode;
-  const isInvalid = data.isInvalid || false;
+    updateSize();
 
-  const borderColor = selected
-    ? 'border-blue-500'
-    : isInvalid
-    ? 'border-red-500'
-    : 'border-stone-400';
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(updateSize);
+      observer.observe(wrapper);
+      return () => observer.disconnect();
+    }
+
+    const onWindowResize = () => updateSize();
+    window.addEventListener('resize', onWindowResize);
+    return () => window.removeEventListener('resize', onWindowResize);
+  }, []);
+
+  const graph = useMemo(() => {
+    return buildReactFlowGraph({
+      flow,
+      soloRoot,
+      invalidMessageIds,
+      nodePositions,
+    });
+  }, [flow, soloRoot, invalidMessageIds, nodePositions]);
+
+  const handleAttach = useCallback((nodeId: string, files: FileList) => {
+    const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+    // TODO: integrar con la capa de negocio que persiste adjuntos.
+    console.info('Adjuntos listos para procesar', nodeId, fileArray.map((file) => file.name));
+  }, []);
+
+  const decoratedNodes = useMemo(() => {
+    return graph.nodes.map((node) => ({
+      ...node,
+      data: {
+        ...(node.data as CanvasNodeData),
+        isSelected: node.id === selectedId,
+        onSelect,
+        onAddChild,
+        onDuplicate: onDuplicateNode,
+        onDelete: onDeleteNode,
+        onAttach: handleAttach,
+      },
+    })) as RuntimeNode[];
+  }, [graph.nodes, selectedId, onSelect, onAddChild, onDuplicateNode, onDeleteNode, handleAttach]);
+
+  useEffect(() => {
+    setNodes(decoratedNodes);
+  }, [decoratedNodes]);
+
+  useEffect(() => {
+    if (decoratedNodes.length > 0) {
+      fitView({ padding: 0.2, duration: 300 });
+    }
+  }, [decoratedNodes, fitView]);
+
+  useEffect(() => {
+    setEdges(
+      graph.edges.map((edge) => ({
+        ...edge,
+        selectable: true,
+        style: { strokeWidth: 2 },
+        className: 'flow-edge',
+      })),
+    );
+    setVisibleNodeIds(graph.visibleNodeIds);
+  }, [graph.edges, graph.visibleNodeIds]);
+
+  const handleNodesChange = useCallback(
+    (changes: NodeChange<RuntimeNode>[]) => {
+      setNodes((nds) => applyNodeChanges<RuntimeNode>(changes, nds));
+      const updates: PositionMap = {};
+      changes.forEach((change) => {
+        if (change.type === 'position' && isValidPosition(change.position)) {
+          updates[change.id] = { x: change.position.x, y: change.position.y };
+        }
+      });
+      if (Object.keys(updates).length > 0) {
+        onPositionsChange((prev) => ({ ...prev, ...updates }));
+      }
+      pendingSourceRef.current = { sourceId: params.nodeId, handleId: params.handleId };
+    },
+    [onPositionsChange],
+  );
+
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange<RuntimeEdge>[]) => {
+      setEdges((eds) => applyEdgeChanges<RuntimeEdge>(changes, eds));
+    },
+    [],
+  );
+
+  const handleConnect = useCallback(
+    (connection: Connection) => {
+      if (!connection.source || !connection.sourceHandle) return;
+      const ok = onConnectHandle(connection.source, connection.sourceHandle, connection.target ?? null);
+      if (!ok) {
+        onInvalidConnection('No se pudo crear la conexión. Verifica los tipos de nodos.');
+      }
+      pendingSourceRef.current = null;
+      setQuickCreateState(null);
+    },
+    [onConnectHandle, onInvalidConnection],
+  );
+
+  const handleEdgesDelete = useCallback(
+    (deleted: RuntimeEdge[]) => {
+      deleted.forEach((edge) => {
+        if (edge.source && edge.target) {
+          onDeleteEdge(edge.source, edge.target);
+        }
+      });
+    },
+    [onDeleteEdge],
+  );
+
+  const handlePaneContextMenu = useCallback((event: React.MouseEvent | MouseEvent) => {
+    event.preventDefault();
+  }, []);
+
+  const handleConnectStart = useCallback(
+    (_event: MouseEvent | TouchEvent, params: ConnectStartParams) => {
+      if (!params?.nodeId || !params.handleId) {
+        pendingSourceRef.current = null;
+        return;
+      }
+      pendingSourceRef.current = { sourceId: params.nodeId, handleId: params.handleId };
+    },
+    [],
+  );
+
+  const handleConnectEnd = useCallback(
+    (
+      event: MouseEvent | TouchEvent,
+      connectionState?: FinalConnectionState,
+    ) => {
+      const pending = pendingSourceRef.current;
+      if (!pending) {
+        setQuickCreateState(null);
+        return;
+      }
+      const targetNode = connectionState?.toNode;
+      if (targetNode) {
+        pendingSourceRef.current = null;
+        setQuickCreateState(null);
+        return;
+      }
+      const clientPoint = 'clientX' in event
+        ? { x: event.clientX, y: event.clientY }
+        : {
+            x: event.changedTouches[0]?.clientX ?? 0,
+            y: event.changedTouches[0]?.clientY ?? 0,
+          };
+      const flowPoint = connectionState?.to ?? screenToFlowPosition(clientPoint);
+      const rect = wrapperRef.current?.getBoundingClientRect();
+      const screenPosition = rect
+        ? { x: clientPoint.x - rect.left, y: clientPoint.y - rect.top }
+        : clientPoint;
+      setQuickCreateState({
+        sourceId: pending.sourceId,
+        handleId: pending.handleId,
+        position: flowPoint,
+        screen: screenPosition,
+      });
+    },
+    [screenToFlowPosition],
+  );
+
+  const quickCreateOptions = useMemo<ConnectionCreationKind[]>(
+    () => ['menu', 'message', 'buttons', 'ask', 'scheduler', 'end'],
+    [],
+  );
+
+  const handleQuickCreate = useCallback(
+    (kind: ConnectionCreationKind) => {
+      setQuickCreateState((current) => {
+        if (!current) return null;
+        const createdId = onCreateForHandle(current.sourceId, current.handleId, kind);
+        if (createdId) {
+          onPositionsChange((prev) => ({ ...prev, [createdId]: current.position }));
+          onSelect(createdId);
+        }
+        pendingSourceRef.current = null;
+        return null;
+      });
+    },
+    [onCreateForHandle, onPositionsChange, onSelect],
+  );
+
+  const handleSelectionChange = useCallback(
+    (params: { nodes?: RuntimeNode[]; edges?: RuntimeEdge[] }) => {
+      if (!params.nodes || params.nodes.length === 0) return;
+      const latest = params.nodes[params.nodes.length - 1];
+      onSelect(latest.id);
+    },
+    [onSelect],
+  );
 
   return (
     <div
-      className={`px-4 py-3 shadow-md rounded-md bg-white border-2 ${borderColor} min-w-[200px] max-w-[300px]`}
+      ref={wrapperRef}
+      className="relative h-full w-full min-h-[600px] rounded-xl bg-slate-100/60"
+      onMouseDown={(event) => {
+        const target = event.target as HTMLElement | null;
+        if (event.button === 2 && target?.closest('.react-flow__pane')) {
+          rightMousePan.onPaneMouseDown(event);
+        }
+      }}
+      onMouseMove={(event) => {
+        if ((event.buttons & 2) === 2) {
+          rightMousePan.onPaneMouseMove(event);
+        }
+      }}
+      onMouseUp={() => {
+        rightMousePan.onPaneMouseUp();
+      }}
+      onMouseLeave={() => {
+        rightMousePan.onPaneMouseUp();
+      }}
+      onContextMenu={handlePaneContextMenu}
     >
-      <div className="font-bold text-sm truncate">{flowNode.label}</div>
-      {flowNode.description && (
-        <div className="text-xs text-gray-500 mt-1 truncate">{flowNode.description}</div>
-      )}
-      {flowNode.type === 'action' && flowNode.action && (
-        <div className="text-xs text-blue-600 mt-1 capitalize">{flowNode.action.kind}</div>
-      )}
-      {flowNode.type === 'menu' && flowNode.menuOptions && (
-        <div className="text-xs text-green-600 mt-1">
-          {flowNode.menuOptions.length} opciones
-        </div>
-      )}
+      <ReactFlow<RuntimeNode, RuntimeEdge>
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={NODE_TYPES}
+        defaultEdgeOptions={{ type: 'step', animated: false, className: 'flow-edge' }}
+        className="h-full rounded-lg shadow-inner"
+        style={{ width: '100%', height: canvasHeight, minHeight: 400, background: '#f8fafc' }}
+        onNodesChange={handleNodesChange}
+        onEdgesChange={handleEdgesChange}
+        onConnect={handleConnect}
+        onEdgesDelete={handleEdgesDelete}
+        onConnectStart={handleConnectStart}
+        onConnectEnd={handleConnectEnd}
+        onPaneContextMenu={handlePaneContextMenu}
+        onSelectionChange={handleSelectionChange}
+        panOnDrag
+        zoomOnScroll
+        selectionOnDrag
+        elevateEdgesOnSelect
+        fitView
+      >
+        <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} color="#cbd5f5" />
+        <Controls position="bottom-left" />
+        <MiniMap pannable zoomable />
+        {quickCreateState && (
+          <QuickCreatePopover
+            position={quickCreateState.screen}
+            options={quickCreateOptions}
+            onSelect={handleQuickCreate}
+            onDismiss={() => {
+              setQuickCreateState(null);
+              pendingSourceRef.current = null;
+            }}
+          />
+        )}
+      </ReactFlow>
+      <div className="absolute top-3 right-3 z-10 flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs shadow">
+        <span>{visibleNodeIds.length} nodos visibles</span>
+        <button
+          type="button"
+          className="rounded-full border border-emerald-200 px-2 py-1 font-medium text-emerald-700 hover:bg-emerald-50"
+          onClick={props.toggleScope}
+        >
+          {props.soloRoot ? 'Mostrar todo' : 'Solo raíz'}
+        </button>
+      </div>
     </div>
   );
 }
 
-const nodeTypes: NodeTypes = {
-  custom: CustomNode,
+type QuickCreatePopoverProps = {
+  position: { x: number; y: number };
+  options: ConnectionCreationKind[];
+  onSelect: (kind: ConnectionCreationKind) => void;
+  onDismiss: () => void;
 };
 
-export function ReactFlowCanvas({
-  flow,
-  selectedId,
-  onSelect,
-  onAddChild,
-  onDeleteNode,
-  onDuplicateNode,
-  onInsertBetween,
-  onDeleteEdge,
-  onConnectHandle,
-  onCreateForHandle,
-  onInvalidConnection,
-  invalidMessageIds,
-  soloRoot,
-  toggleScope,
-  nodePositions,
-  onPositionsChange,
-}: ReactFlowCanvasProps) {
-  // Convertir datos a formato React Flow
-  const initialNodes = useMemo(() => {
-    return Object.values(flow.nodes).map((flowNode) => {
-      const node = convertToReactFlowNode(
-        flowNode,
-        nodePositions[flowNode.id] || { x: 0, y: 0 }
-      );
-      // Añadir información adicional a data
-      node.data = {
-        ...node.data,
-        isInvalid: invalidMessageIds.has(flowNode.id),
-      };
-      node.selected = flowNode.id === selectedId;
-      return node;
-    });
-  }, [flow.nodes, nodePositions, selectedId, invalidMessageIds]);
-
-  const initialEdges = useMemo(() => {
-    return generateEdges(flow.nodes);
-  }, [flow.nodes]);
-
-  const [nodes, setNodes, onNodesChangeInternal] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChangeInternal] = useEdgesState(initialEdges);
-
-  // Manejar cambios de nodos
-  const handleNodesChange = useCallback(
-    (changes: NodeChange[]) => {
-      onNodesChangeInternal(changes);
-
-      // Actualizar posiciones cuando hay cambios de posición
-      const positionChanges = changes.filter((c) => c.type === 'position' && 'position' in c && c.position);
-      if (positionChanges.length > 0) {
-        const newPositions = { ...nodePositions };
-        positionChanges.forEach((change) => {
-          if (change.type === 'position' && 'position' in change && change.position) {
-            newPositions[change.id] = change.position;
-          }
-        });
-        onPositionsChange(newPositions);
-      }
-    },
-    [onNodesChangeInternal, nodePositions, onPositionsChange]
-  );
-
-  // Manejar click en nodo
-  const handleNodeClick = useCallback(
-    (_event: React.MouseEvent, node: Node) => {
-      onSelect(node.id);
-    },
-    [onSelect]
-  );
-
-  // Manejar conexiones
-  const handleConnect = useCallback(
-    (connection: Connection) => {
-      if (connection.source && connection.target) {
-        const handleId = connection.sourceHandle || 'default';
-        const success = onConnectHandle(connection.source, handleId, connection.target);
-        if (success) {
-          setEdges((eds) => addEdge({ ...connection, type: 'smoothstep' }, eds));
-        } else {
-          onInvalidConnection('No se pudo conectar el bloque seleccionado');
-        }
-      }
-    },
-    [onConnectHandle, onInvalidConnection, setEdges]
-  );
+function QuickCreatePopover({ position, options, onSelect, onDismiss }: QuickCreatePopoverProps) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onDismiss();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onDismiss]);
 
   return (
-    <div style={{ width: '100%', height: '70vh' }}>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={handleNodesChange}
-        onEdgesChange={onEdgesChangeInternal}
-        onConnect={handleConnect}
-        onNodeClick={handleNodeClick}
-        nodeTypes={nodeTypes}
-        fitView
-        attributionPosition="bottom-left"
-        defaultEdgeOptions={{
-          type: 'smoothstep',
-          animated: false,
-        }}
-      >
-        <Controls />
-        <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
-      </ReactFlow>
+    <div
+      className="pointer-events-auto absolute z-20 w-40 rounded-lg border border-slate-200 bg-white shadow-lg"
+      style={{ left: position.x, top: position.y }}
+    >
+      <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600">Crear nuevo nodo</div>
+      <ul className="divide-y divide-slate-100 text-sm">
+        {options.map((option) => (
+          <li key={option}>
+            <button
+              type="button"
+              className="w-full px-3 py-2 text-left text-slate-600 hover:bg-emerald-50"
+              onClick={() => onSelect(option)}
+            >
+              {renderOptionLabel(option)}
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
+}
+
+function renderOptionLabel(option: ConnectionCreationKind): string {
+  switch (option) {
+    case 'menu':
+      return 'Menú';
+    case 'message':
+      return 'Mensaje';
+    case 'buttons':
+      return 'Botones';
+    case 'ask':
+      return 'Pregunta';
+    case 'scheduler':
+      return 'Scheduler';
+    case 'end':
+      return 'Fin del flujo';
+    default:
+      return option;
+  }
 }
