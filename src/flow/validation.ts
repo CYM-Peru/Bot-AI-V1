@@ -451,7 +451,7 @@ export class FlowValidator {
       return;
     }
 
-    node.children.forEach((childId, index) => {
+    node.children.forEach((childId) => {
       if (!flow.nodes[childId]) {
         this.addIssue({
           level: "error",
