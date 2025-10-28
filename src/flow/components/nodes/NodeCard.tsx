@@ -150,7 +150,7 @@ export function NodeCard(props: NodeCardProps) {
 
       {/* Delay indicator badge in top-right corner */}
       {data.flowNode.delay && data.flowNode.delay > 0 && (
-        <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-50 border border-blue-200 text-[10px] font-medium text-blue-700">
+        <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-[10px] font-medium text-blue-700 shadow-sm">
           <span>⏱️</span>
           <span>{data.flowNode.delay}s</span>
         </div>
