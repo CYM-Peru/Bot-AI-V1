@@ -373,6 +373,137 @@ curl -X POST http://localhost:3000/api/flows/mi-flow \
 
 ## 8. Troubleshooting
 
+### 🔴 Error: PM2 Process en Estado "errored" (15+ reinicios)
+
+**Síntomas**:
+- `pm2 info bot-ai-backend` muestra `status: errored`
+- El proceso tiene múltiples reinicios
+- `exec cwd: /root` en lugar del directorio del proyecto
+- `/var/www/bot-ai/` no existe
+
+**Causa**: PM2 está ejecutándose desde el directorio incorrecto
+
+**Solución Completa**:
+
+#### 1. Detener el proceso PM2 actual
+
+```bash
+pm2 stop bot-ai-backend
+pm2 delete bot-ai-backend
+```
+
+#### 2. Ubicar el proyecto
+
+```bash
+# Encontrar el proyecto
+find /home /var/www /opt /root -name "Bot-AI-V1" -type d 2>/dev/null
+
+# O buscar por package.json
+find /home /var/www /opt /root -name "package.json" -exec grep -l "flow-builder-demo" {} \; 2>/dev/null
+```
+
+#### 3. Ir al directorio del proyecto
+
+```bash
+cd /ruta/encontrada/Bot-AI-V1
+```
+
+#### 4. Verificar configuración
+
+```bash
+# Verificar que existe package.json
+ls -la package.json
+
+# Verificar que existe .env
+ls -la .env
+
+# Si no existe .env, crearlo
+cp .env.example .env
+nano .env  # Configurar variables necesarias
+```
+
+#### 5. Usar el script de despliegue automatizado
+
+El proyecto incluye un script que configura todo correctamente:
+
+```bash
+# Dar permisos de ejecución
+chmod +x deploy.sh
+
+# Ejecutar despliegue
+./deploy.sh
+
+# O en producción
+NODE_ENV=production ./deploy.sh
+```
+
+#### 6. Verificar que funciona
+
+```bash
+# Ver estado
+pm2 status
+
+# Ver logs
+pm2 logs bot-ai-backend --lines 50
+
+# Probar el servidor
+curl http://localhost:3000/health
+
+# Probar métricas
+curl http://localhost:3000/api/stats
+```
+
+#### 7. Configuración Manual (si el script falla)
+
+Si prefieres configurar manualmente:
+
+```bash
+# 1. Ir al directorio del proyecto
+cd /ruta/al/Bot-AI-V1
+
+# 2. Crear directorios necesarios
+mkdir -p data/flows data/sessions logs
+
+# 3. Instalar dependencias
+npm install
+
+# 4. Editar ecosystem.config.js con la ruta correcta
+nano ecosystem.config.js
+
+# Actualizar la línea cwd con la ruta absoluta:
+# cwd: '/ruta/absoluta/al/Bot-AI-V1',
+
+# 5. Iniciar con PM2
+pm2 start ecosystem.config.js
+
+# 6. Guardar configuración
+pm2 save
+
+# 7. Configurar inicio automático
+pm2 startup
+```
+
+### 📊 Verificar Endpoints de Métricas
+
+Una vez que el servidor esté funcionando, prueba los endpoints:
+
+```bash
+# Estadísticas generales
+curl http://localhost:3000/api/stats
+
+# Métricas de conversaciones
+curl http://localhost:3000/api/metrics
+
+# Conversaciones activas
+curl http://localhost:3000/api/conversations/active
+
+# Logs del sistema
+curl http://localhost:3000/api/logs?limit=50
+
+# Logs con filtros
+curl "http://localhost:3000/api/logs?level=error&limit=20"
+```
+
 ### Error: "Webhook verification failed"
 
 **Causa**: El Verify Token no coincide
