@@ -4,6 +4,7 @@ import ChatWindow from "./ChatWindow";
 import type { Attachment, Conversation, Message } from "./types";
 import { fetchConversations, fetchMessages, sendMessage, uploadAttachment } from "./crmApi";
 import { createCrmSocket, type CrmSocket } from "./socket";
+import CrmDock from "../components/CRM/CrmDock";
 
 interface ConversationState {
   messages: Message[];
@@ -159,26 +160,29 @@ export default function CRMPage() {
   );
 
   return (
-    <div className="flex h-[calc(100vh-160px)] min-h-[480px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
-      <div className="w-[320px] flex-shrink-0">
-        {loadingConversations && conversations.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-slate-500">
-            Cargando conversaciones…
-          </div>
-        ) : (
-          <ConversationList
-            conversations={conversations}
-            selectedId={selectedConversationId}
-            onSelect={handleSelectConversation}
-          />
-        )}
+    <div className="flex h-full flex-col gap-4">
+      <CrmDock />
+      <div className="flex flex-1 min-h-[480px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
+        <div className="w-[320px] flex-shrink-0">
+          {loadingConversations && conversations.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-sm text-slate-500">
+              Cargando conversaciones…
+            </div>
+          ) : (
+            <ConversationList
+              conversations={conversations}
+              selectedId={selectedConversationId}
+              onSelect={handleSelectConversation}
+            />
+          )}
+        </div>
+        <ChatWindow
+          conversation={selectedConversation}
+          messages={currentState?.messages ?? []}
+          attachments={currentState?.attachments ?? []}
+          onSend={handleSend}
+        />
       </div>
-      <ChatWindow
-        conversation={selectedConversation}
-        messages={currentState?.messages ?? []}
-        attachments={currentState?.attachments ?? []}
-        onSend={handleSend}
-      />
     </div>
   );
 }

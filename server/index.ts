@@ -12,6 +12,7 @@ import { Bitrix24Client } from "../src/integrations/bitrix24";
 import { botLogger, metricsTracker } from "../src/runtime/monitoring";
 import { createApiRoutes } from "./api-routes";
 import { registerCrmModule } from "./crm";
+import { initCrmWSS } from "./ws/crmGateway";
 
 // Load environment variables
 dotenv.config();
@@ -52,9 +53,10 @@ const runtimeEngine = new RuntimeEngine({
 });
 
 // Conversational CRM module
+const crmSocketManager = initCrmWSS(server);
 const crmModule = registerCrmModule({
   app,
-  server,
+  socketManager: crmSocketManager,
   bitrixClient,
 });
 
@@ -93,10 +95,13 @@ const whatsappHandler = new WhatsAppWebhookHandler({
   },
 });
 
-// Health check endpoint
-app.get("/health", (_req: Request, res: Response) => {
+const healthHandler = (_req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
+};
+
+// Health check endpoints
+app.get("/health", healthHandler);
+app.get("/api/healthz", healthHandler);
 
 // WhatsApp webhook endpoint
 app.all("/webhook/whatsapp", async (req: Request, res: Response) => {
@@ -188,6 +193,8 @@ server.listen(PORT, () => {
   console.log(`   - Simulate Start: POST http://localhost:${PORT}/api/simulate/start`);
   console.log(`   - Simulate Message: POST http://localhost:${PORT}/api/simulate/message`);
 });
+
+export { server };
 
 // Graceful shutdown
 process.on("SIGTERM", () => {

@@ -1,24 +1,23 @@
 import type { Application } from "express";
 import { Router } from "express";
-import type { Server } from "http";
 import type { ChangeValue, WhatsAppMessage } from "../../src/api/whatsapp-webhook";
 import type { Bitrix24Client } from "../../src/integrations/bitrix24";
-import { createCrmRealtimeManager } from "./sockets";
 import { createAttachmentsRouter } from "./routes/attachments";
 import { createMessagesRouter } from "./routes/messages";
 import { createConversationsRouter } from "./routes/conversations";
 import { createBitrixService } from "./services/bitrix";
 import { handleIncomingWhatsAppMessage } from "./inbound";
+import type { CrmRealtimeManager } from "../ws/crmGateway";
 
 export interface RegisterCrmOptions {
   app: Application;
-  server: Server;
+  socketManager: CrmRealtimeManager;
   bitrixClient?: Bitrix24Client;
 }
 
 export function registerCrmModule(options: RegisterCrmOptions) {
   const router = Router();
-  const realtime = createCrmRealtimeManager(options.server);
+  const realtime = options.socketManager;
   const bitrixService = createBitrixService(options.bitrixClient);
 
   router.use("/attachments", createAttachmentsRouter());

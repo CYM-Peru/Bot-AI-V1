@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { crmDb } from "../db";
-import type { CrmRealtimeManager } from "../sockets";
+import type { CrmRealtimeManager } from "../../ws/crmGateway";
 import type { BitrixService } from "../services/bitrix";
 import { sendOutboundMessage } from "../services/whatsapp";
 import type { MessageType } from "../models";

@@ -151,6 +151,34 @@ npm run build
 # - Backend: dist/server/ (Node.js compilado)
 ```
 
+## 🌐 CRM WS
+
+La pasarela WebSocket del CRM se expone en `wss://<tu-dominio>/api/crm/ws` y funciona sobre el mismo servidor Express.
+
+### Eventos soportados
+- `welcome`: enviado por el servidor al conectar, incluye `clientId` y `serverTime`.
+- `event`: notificaciones de negocio (`crm:msg:new`, `crm:msg:update`, `crm:conv:update`, `crm:typing`).
+- `ack`: confirmaciones para comandos `message` y `read` enviados por el cliente.
+- `error`: payload inválido o tipo desconocido.
+
+### Comandos del cliente
+- `{"type":"hello"}` para solicitar un `welcome` adicional.
+- `{"type":"message","payload":{"text":"hola"}}` para enviar un ping y recibir `ack`.
+- `{"type":"typing","payload":{"convId":"<id>"}}` propaga el estado de escritura.
+- `{"type":"read","payload":{"convId":"<id>"}}` marca la conversación como leída.
+
+### QA rápido
+```bash
+# Health check backend
+curl -fsS https://wsp.azaleia.com.pe/api/healthz
+
+# WebSocket con wscat
+wscat -c wss://wsp.azaleia.com.pe/api/crm/ws
+# Enviar comandos de prueba
+> {"type":"hello"}
+> {"type":"message","payload":{"text":"ping"}}
+```
+
 ## 🧪 Testing
 
 ```bash
