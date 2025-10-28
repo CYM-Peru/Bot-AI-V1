@@ -110,8 +110,8 @@ const healthHandler = (_req: Request, res: Response) => {
 app.get("/health", healthHandler);
 app.get("/api/healthz", healthHandler);
 
-// WhatsApp webhook endpoint
-app.all("/webhook/whatsapp", async (req: Request, res: Response) => {
+// WhatsApp webhook endpoint (Meta for Developers configured URL)
+app.all("/api/meta/webhook", async (req: Request, res: Response) => {
   try {
     const request = new Request(
       `${req.protocol}://${req.get("host")}${req.originalUrl}`,
@@ -182,7 +182,7 @@ app.use("/api", createApiRoutes({ flowProvider, sessionStore }));
 // Start server
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📱 WhatsApp webhook: http://localhost:${PORT}/webhook/whatsapp`);
+  console.log(`📱 WhatsApp webhook: http://localhost:${PORT}/api/meta/webhook`);
   console.log(`🏥 Health check: http://localhost:${PORT}/health`);
   console.log(`\n⚙️  Configuration:`);
   console.log(`   - Verify Token: ${whatsappEnv.verifyToken ? "✓" : "✗"}`);
