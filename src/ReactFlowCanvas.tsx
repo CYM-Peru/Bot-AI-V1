@@ -37,14 +37,18 @@ import type { RuntimeNode } from './flow/components/nodes/types';
 import { MenuNode } from './flow/components/nodes/MenuNode';
 import { MessageNode } from './flow/components/nodes/MessageNode';
 import { ActionNode } from './flow/components/nodes/ActionNode';
-import { ConditionNode } from './flow/components/nodes/ConditionNode';
 import { EndFlowNode } from './flow/components/nodes/EndFlowNode';
+import { StartNode } from './flow/components/nodes/StartNode';
+import { QuestionNode } from './flow/components/nodes/QuestionNode';
+import { ValidationNode } from './flow/components/nodes/ValidationNode';
 
 const NODE_TYPES: Record<string, ComponentType<NodeProps<RuntimeNode>>> = {
+  start: StartNode,
   menu: MenuNode,
   message: MessageNode,
+  question: QuestionNode,
+  validation: ValidationNode,
   action: ActionNode,
-  condition: ConditionNode,
   end: EndFlowNode,
 };
 
@@ -81,6 +85,7 @@ export interface ReactFlowCanvasProps {
   onDeleteEdge: (parentId: string, childId: string) => void;
   onConnectHandle: (sourceId: string, handleId: string, targetId: string | null) => boolean;
   onCreateForHandle: (sourceId: string, handleId: string, kind: ConnectionCreationKind) => string | null;
+  onAttachToMessage: (nodeId: string, files: FileList) => void;
   onInvalidConnection: (message: string) => void;
   invalidMessageIds: Set<string>;
   soloRoot: boolean;
@@ -91,6 +96,7 @@ export interface ReactFlowCanvasProps {
       | PositionMap
       | ((prev: PositionMap) => PositionMap),
   ) => void;
+  onRegisterFitView?: (fn: (() => void) | null) => void;
 }
 
 export function ReactFlowCanvas(props: ReactFlowCanvasProps) {
@@ -112,14 +118,21 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
     onDeleteEdge,
     onConnectHandle,
     onCreateForHandle,
+    onAttachToMessage,
     onInvalidConnection,
     invalidMessageIds,
     soloRoot,
     nodePositions,
     onPositionsChange,
+    onRegisterFitView,
   } = props;
   const { screenToFlowPosition, fitView } = useReactFlow<RuntimeNode, RuntimeEdge>();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [wrapperReady, setWrapperReady] = useState(false);
+  const handleWrapperRef = useCallback((node: HTMLDivElement | null) => {
+    wrapperRef.current = node;
+    setWrapperReady(Boolean(node));
+  }, []);
   const [nodes, setNodes] = useState<RuntimeNode[]>([]);
   const [edges, setEdges] = useState<RuntimeEdge[]>([]);
   const pendingSourceRef = useRef<{ sourceId: string; handleId: string } | null>(null);
@@ -138,12 +151,13 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
     });
   }, [flow, soloRoot, invalidMessageIds, nodePositions]);
 
-  const handleAttach = useCallback((nodeId: string, files: FileList) => {
-    const fileArray = Array.from(files);
-    if (fileArray.length === 0) return;
-    // TODO: integrar con la capa de negocio que persiste adjuntos.
-    console.info('Adjuntos listos para procesar', nodeId, fileArray.map((file) => file.name));
-  }, []);
+  const handleAttach = useCallback(
+    (nodeId: string, files: FileList) => {
+      if (files.length === 0) return;
+      onAttachToMessage(nodeId, files);
+    },
+    [onAttachToMessage],
+  );
 
   const decoratedNodes = useMemo(() => {
     return graph.nodes.map((node) => ({
@@ -164,6 +178,22 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
     setNodes(decoratedNodes);
   }, [decoratedNodes]);
 
+  useEffect(() => {
+    if (!onRegisterFitView || !wrapperReady) {
+      return () => undefined;
+    }
+    const register = () => {
+      if (!wrapperRef.current) {
+        return;
+      }
+      fitView({ padding: 0.25, duration: 200 });
+    };
+    onRegisterFitView(register);
+    return () => {
+      onRegisterFitView(null);
+    };
+  }, [fitView, onRegisterFitView, wrapperReady]);
+
   // Reset auto-fit flag when flow ID changes (new flow loaded)
   useEffect(() => {
     if (flow.id !== lastFlowId.current) {
@@ -174,11 +204,11 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
 
   // Auto-fit view on initial load or when new flow is loaded
   useEffect(() => {
-    if (decoratedNodes.length > 0 && !initialFitViewDone.current) {
+    if (decoratedNodes.length > 0 && !initialFitViewDone.current && wrapperReady) {
       fitView({ padding: 0.2, duration: 200 });
       initialFitViewDone.current = true;
     }
-  }, [decoratedNodes, fitView]);
+  }, [decoratedNodes, fitView, wrapperReady]);
 
   useEffect(() => {
     setEdges(
@@ -297,12 +327,14 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
       'message',
       'buttons',
       'ask',
+      'question',
       'attachment',
       'webhook_out',
       'webhook_in',
       'transfer',
       'scheduler',
       'condition',
+      'validation',
       'end',
     ],
     [],
@@ -348,7 +380,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
 
   return (
     <div
-      ref={wrapperRef}
+      ref={handleWrapperRef}
       className="relative h-full w-full"
       onMouseDown={(event) => {
         const target = event.target as HTMLElement | null;
@@ -446,9 +478,9 @@ function QuickCreatePopover({ position, options, onSelect, onDismiss }: QuickCre
   // Organize options by category
   const categorizedOptions = {
     estructura: options.filter(opt => opt === 'menu'),
-    mensajes: options.filter(opt => ['message', 'buttons', 'ask', 'attachment'].includes(opt)),
+    mensajes: options.filter(opt => ['message', 'buttons', 'ask', 'question', 'attachment'].includes(opt)),
     integraciones: options.filter(opt => ['webhook_out', 'webhook_in', 'transfer', 'scheduler'].includes(opt)),
-    logica: options.filter(opt => opt === 'condition'),
+    logica: options.filter(opt => ['condition', 'validation'].includes(opt)),
     control: options.filter(opt => opt === 'end'),
   };
 
@@ -550,6 +582,8 @@ function renderOptionLabel(option: ConnectionCreationKind): string {
     case 'buttons':
       return '🔘 Botones';
     case 'ask':
+      return '❓ Pregunta (Legacy)';
+    case 'question':
       return '❓ Pregunta';
     case 'attachment':
       return '📎 Adjunto';
@@ -562,7 +596,9 @@ function renderOptionLabel(option: ConnectionCreationKind): string {
     case 'scheduler':
       return '⏰ Scheduler';
     case 'condition':
-      return '🔀 Condición';
+      return '🔀 Condición (Legacy)';
+    case 'validation':
+      return '🛡️ Validación';
     case 'end':
       return '🛑 Fin del flujo';
     default:

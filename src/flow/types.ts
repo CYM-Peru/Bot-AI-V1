@@ -1,6 +1,7 @@
-export type NodeType = "menu" | "action";
+export type NodeType = "start" | "menu" | "action";
 
 export type ActionKind =
+  | "start"
   | "message"
   | "buttons"
   | "attachment"
@@ -121,6 +122,22 @@ export interface ConditionActionData {
     identifierField: string;     // Campo para identificar la entidad (ej: "PHONE")
     fieldsToCheck: string[];     // Campos a verificar
   };
+  keywordGroups?: ValidationKeywordGroup[];
+  keywordGroupLogic?: KeywordGroupLogic;
+  matchTargetId?: string | null;
+  noMatchTargetId?: string | null;
+  errorTargetId?: string | null;
+}
+
+export type KeywordMatchMode = "contains" | "exact";
+
+export type KeywordGroupLogic = "and" | "or";
+
+export interface ValidationKeywordGroup {
+  id: string;
+  label?: string;
+  mode: KeywordMatchMode;
+  keywords: string[];
 }
 
 export type FlowAction = {

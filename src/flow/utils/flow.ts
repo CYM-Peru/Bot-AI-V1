@@ -12,6 +12,7 @@ import {
   type SchedulerMode,
   type SchedulerNodeData,
   type TimeWindow,
+  type ValidationKeywordGroup,
   type Weekday,
 } from '../types';
 import { CHANNEL_BUTTON_LIMITS, DEFAULT_BUTTON_LIMIT } from '../channelLimits';
@@ -195,6 +196,17 @@ export function getSchedulerData(node: FlowNode): SchedulerNodeData | null {
   return normalizeSchedulerData(data ?? undefined);
 }
 
+function sanitizeKeywordGroup(index: number, raw: Partial<ValidationKeywordGroup> | undefined): ValidationKeywordGroup {
+  const fallbackId = createId(`kw-group-${index + 1}`);
+  const id = typeof raw?.id === 'string' && raw.id.trim() ? raw.id : fallbackId;
+  const mode = raw?.mode === 'exact' ? 'exact' : 'contains';
+  const keywords = Array.isArray(raw?.keywords)
+    ? raw!.keywords.map((kw) => (typeof kw === 'string' ? kw.trim() : '')).filter((kw) => kw.length > 0)
+    : [];
+  const label = typeof raw?.label === 'string' && raw.label.trim() ? raw.label.trim() : undefined;
+  return { id, mode, keywords, label };
+}
+
 export function getConditionData(node: FlowNode): ConditionActionData | null {
   if (node.action?.kind !== 'condition') return null;
   const data = node.action.data as Partial<ConditionActionData> | undefined;
@@ -204,6 +216,12 @@ export function getConditionData(node: FlowNode): ConditionActionData | null {
       rules: [],
       matchMode: 'any',
       defaultTargetId: null,
+      bitrixConfig: undefined,
+      keywordGroups: [],
+      keywordGroupLogic: 'or',
+      matchTargetId: null,
+      noMatchTargetId: null,
+      errorTargetId: null,
     };
   }
 
@@ -211,7 +229,14 @@ export function getConditionData(node: FlowNode): ConditionActionData | null {
     rules: Array.isArray(data.rules) ? data.rules : [],
     matchMode: data.matchMode === 'all' ? 'all' : 'any',
     defaultTargetId: typeof data.defaultTargetId === 'string' ? data.defaultTargetId : null,
-    bitrixConfig: data.bitrixConfig,
+    bitrixConfig: sanitizeBitrixConfig(data.bitrixConfig),
+    keywordGroups: Array.isArray(data.keywordGroups)
+      ? data.keywordGroups.map((group, index) => sanitizeKeywordGroup(index, group))
+      : [],
+    keywordGroupLogic: data.keywordGroupLogic === 'and' ? 'and' : 'or',
+    matchTargetId: typeof data.matchTargetId === 'string' ? data.matchTargetId : null,
+    noMatchTargetId: typeof data.noMatchTargetId === 'string' ? data.noMatchTargetId : null,
+    errorTargetId: typeof data.errorTargetId === 'string' ? data.errorTargetId : null,
   };
 }
 
@@ -300,6 +325,35 @@ export function normalizeNode(node: FlowNode): FlowNode {
         children: childList,
       };
       changed = true;
+    }
+  }
+
+  if (node.action?.kind === 'condition') {
+    const normalized = getConditionData(node);
+    if (normalized) {
+      const childSet = new Set(next.children ?? []);
+      if (normalized.matchTargetId) childSet.add(normalized.matchTargetId);
+      if (normalized.noMatchTargetId) childSet.add(normalized.noMatchTargetId);
+      if (normalized.errorTargetId) childSet.add(normalized.errorTargetId);
+      if (normalized.defaultTargetId) childSet.add(normalized.defaultTargetId);
+      const childList = Array.from(childSet);
+      const currentData = node.action.data as Partial<ConditionActionData> | undefined;
+      const normalizedData: ConditionActionData = {
+        ...normalized,
+        rules: Array.isArray(normalized.rules) ? normalized.rules : [],
+      };
+      const dataChanged = JSON.stringify(currentData ?? null) !== JSON.stringify(normalizedData);
+      const childrenChanged =
+        childList.length !== (next.children?.length ?? 0) ||
+        childList.some((id, idx) => next.children?.[idx] !== id);
+      if (dataChanged || childrenChanged) {
+        next = {
+          ...next,
+          action: { ...next.action, data: normalizedData } as FlowAction,
+          children: childList,
+        };
+        changed = true;
+      }
     }
   }
 
@@ -482,6 +536,35 @@ export function applyHandleAssignment(
     return true;
   }
 
+  if (node.action?.kind === 'condition') {
+    const condition = getConditionData(node);
+    if (!condition) return false;
+    const updated: ConditionActionData = { ...condition };
+    if (handleId === 'out:validation:match') {
+      if (updated.matchTargetId === targetId) return false;
+      updated.matchTargetId = targetId;
+    } else if (handleId === 'out:validation:nomatch') {
+      if (updated.noMatchTargetId === targetId) return false;
+      updated.noMatchTargetId = targetId;
+    } else if (handleId === 'out:validation:error') {
+      if (updated.errorTargetId === targetId) return false;
+      updated.errorTargetId = targetId;
+    } else if (handleId === 'out:default') {
+      if (updated.defaultTargetId === targetId) return false;
+      updated.defaultTargetId = targetId;
+    } else {
+      return false;
+    }
+    node.action = { ...node.action, data: updated } as FlowAction;
+    const childSet = new Set(node.children ?? []);
+    if (updated.matchTargetId) childSet.add(updated.matchTargetId);
+    if (updated.noMatchTargetId) childSet.add(updated.noMatchTargetId);
+    if (updated.errorTargetId) childSet.add(updated.errorTargetId);
+    if (updated.defaultTargetId) childSet.add(updated.defaultTargetId);
+    node.children = Array.from(childSet);
+    return true;
+  }
+
   if (handleId === 'out:default') {
     const current = node.children?.[0] ?? null;
     if (current === targetId) return false;
@@ -519,6 +602,18 @@ export const INPUT_HANDLE_SPEC: HandleSpec = {
 };
 
 export function getOutputHandleSpecs(node: FlowNode): HandleSpec[] {
+  if (node.type === 'start' || node.action?.kind === 'start') {
+    return [
+      {
+        id: 'out:default',
+        label: 'Iniciar',
+        side: 'right',
+        type: 'output',
+        order: 0,
+        variant: 'default',
+      },
+    ];
+  }
   if (node.type === 'menu') {
     return getMenuOptions(node).map((option, idx) => ({
       id: `out:menu:${option.id}`,
@@ -566,6 +661,15 @@ export function getOutputHandleSpecs(node: FlowNode): HandleSpec[] {
       { id: 'out:schedule:out', label: 'Fuera de horario', side: 'right', type: 'output', order: 1, variant: 'default' },
     ];
   }
+  const condition = getConditionData(node);
+  if (condition) {
+    return [
+      { id: 'out:validation:match', label: 'Coincide', side: 'right', type: 'output', order: 0, variant: 'default' },
+      { id: 'out:validation:nomatch', label: 'Sin coincidencia', side: 'right', type: 'output', order: 1, variant: 'default' },
+      { id: 'out:validation:error', label: 'Error', side: 'right', type: 'output', order: 2, variant: 'invalid' },
+      { id: 'out:default', label: 'Fallback', side: 'right', type: 'output', order: 3, variant: 'default' },
+    ];
+  }
   if (node.action?.kind === 'end') {
     return [];
   }
@@ -608,6 +712,15 @@ export function getHandleAssignments(node: FlowNode): Record<string, string | nu
       'out:schedule:out': scheduler.outOfWindowTargetId ?? null,
     };
   }
+  const condition = getConditionData(node);
+  if (condition) {
+    return {
+      'out:validation:match': condition.matchTargetId ?? null,
+      'out:validation:nomatch': condition.noMatchTargetId ?? null,
+      'out:validation:error': condition.errorTargetId ?? null,
+      'out:default': condition.defaultTargetId ?? null,
+    };
+  }
   return { 'out:default': node.children?.[0] ?? null };
 }
 
@@ -632,6 +745,8 @@ export type ConnectionCreationKind =
   | 'message'
   | 'buttons'
   | 'ask'
+  | 'question'
+  | 'validation'
   | 'attachment'
   | 'webhook_out'
   | 'webhook_in'
@@ -644,3 +759,42 @@ export const STRICTEST_LIMIT = CHANNEL_BUTTON_LIMITS.reduce(
   (best, entry) => (entry.max < best.max ? entry : best),
   CHANNEL_BUTTON_LIMITS[0],
 );
+const DEFAULT_BITRIX_ENTITY: Required<NonNullable<ConditionActionData['bitrixConfig']>>['entityType'] = 'lead';
+const DEFAULT_BITRIX_IDENTIFIER = 'PHONE';
+const DEFAULT_BITRIX_FIELDS = ['NAME', 'LAST_NAME'];
+
+function sanitizeBitrixConfig(
+  config: ConditionActionData['bitrixConfig'] | undefined,
+): ConditionActionData['bitrixConfig'] | undefined {
+  if (!config) {
+    return undefined;
+  }
+
+  const entityType: NonNullable<ConditionActionData['bitrixConfig']>['entityType'] =
+    config.entityType === 'deal' ||
+    config.entityType === 'contact' ||
+    config.entityType === 'company'
+      ? config.entityType
+      : DEFAULT_BITRIX_ENTITY;
+
+  const identifierField =
+    typeof config.identifierField === 'string' && config.identifierField.trim()
+      ? config.identifierField.trim().toUpperCase()
+      : DEFAULT_BITRIX_IDENTIFIER;
+
+  const fields = Array.isArray(config.fieldsToCheck)
+    ? config.fieldsToCheck
+        .map((field) => (typeof field === 'string' ? field.trim().toUpperCase() : ''))
+        .filter((field): field is string => field.length > 0)
+    : [];
+
+  const deduped = Array.from(new Set(fields));
+  const safeFields = deduped.length > 0 ? deduped : [...DEFAULT_BITRIX_FIELDS];
+
+  return {
+    entityType,
+    identifierField,
+    fieldsToCheck: safeFields,
+  };
+}
+
