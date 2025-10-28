@@ -14,7 +14,7 @@ interface ConnectionsTabsProps {
 
 export function ConnectionsTabs({ tabs, activeTab, onSelect }: ConnectionsTabsProps) {
   return (
-    <div className="connections-tabs" role="tablist" aria-orientation="vertical">
+    <div className="conn-tabs" role="tablist" aria-orientation="vertical">
       {tabs.map((tab) => {
         const isActive = activeTab === tab.id;
         return (
@@ -25,7 +25,7 @@ export function ConnectionsTabs({ tabs, activeTab, onSelect }: ConnectionsTabsPr
             aria-selected={isActive}
             aria-controls={`connections-panel-${tab.id}`}
             id={`connections-tab-${tab.id}`}
-            className={`connections-tab${isActive ? ' is-active' : ''}`}
+            className={`conn-tab${isActive ? ' is-active' : ''}`}
             onClick={() => onSelect(tab.id)}
           >
             <span aria-hidden="true">{tab.icon}</span>

@@ -15,7 +15,7 @@ import { NodeSearchModal } from "./components/NodeSearchModal";
 import { TemplateSelector } from "./components/TemplateSelector";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import type { FlowTemplate } from "./templates/flowTemplates";
-import { toPng } from 'html-to-image';
+import { toPng } from './utils/htmlToImage';
 import { ConnectionsButton } from "./components/Connections/ConnectionsButton";
 import { ConnectionsPanel } from "./components/Connections/ConnectionsPanel";
 import {
@@ -1317,20 +1317,6 @@ export default function App(): JSX.Element {
     debouncedManualSave();
   }, [debouncedManualSave]);
 
-  const handleLoad = useCallback(async () => {
-    try {
-      const stored = await loadFlow<PersistedState>(workspaceIdRef.current);
-      if (!stored || !stored.flow) {
-        showToast("No se encontró un flujo guardado", "error");
-        return;
-      }
-      replaceFlow(stored.flow, stored.positions ?? {});
-      showToast("Flujo cargado", "success");
-    } catch (error) {
-      showToast("Error al cargar", "error");
-    }
-  }, [replaceFlow, showToast]);
-
   const handleExport = useCallback(() => {
     if (typeof window === "undefined") {
       showToast("Exportación no disponible", "error");
@@ -2291,13 +2277,6 @@ export default function App(): JSX.Element {
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <button
             className="btn btn--ghost"
-            onClick={() => setShowTemplateSelector(true)}
-            type="button"
-          >
-            📋 Templates
-          </button>
-          <button
-            className="btn btn--ghost"
             onClick={undoRedoActions.undo}
             disabled={!undoRedoActions.canUndo}
             title="Deshacer (Ctrl+Z)"
@@ -2322,8 +2301,12 @@ export default function App(): JSX.Element {
           >
             Guardar
           </button>
-          <button className="btn btn--ghost" onClick={handleLoad} type="button">
-            Cargar
+          <button
+            className="btn btn--primary"
+            disabled={hasBlockingErrors}
+            type="button"
+          >
+            Publicar
           </button>
           <button className="btn btn--ghost" onClick={handleExportPNG} type="button">
             📸 Exportar PNG
@@ -2333,13 +2316,6 @@ export default function App(): JSX.Element {
           </button>
           <button className="btn btn--ghost" onClick={handleExport} type="button">
             Exportar JSON
-          </button>
-          <button
-            className="btn btn--primary"
-            disabled={hasBlockingErrors}
-            type="button"
-          >
-            Publicar
           </button>
         </div>
         {hasBlockingErrors && (

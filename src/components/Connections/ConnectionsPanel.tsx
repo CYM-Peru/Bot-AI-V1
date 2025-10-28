@@ -74,29 +74,25 @@ export function ConnectionsPanel({ open, onClose }: ConnectionsPanelProps) {
   }
 
   return (
-    <div className="connections-backdrop" role="presentation" onClick={onClose}>
+    <div className="conn-backdrop" role="presentation" onClick={onClose}>
       <aside
         id="connections-panel"
-        className="connections-panel"
+        className="conn-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby="connections-panel-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="connections-panel__header">
+        <header className="conn-header">
           <div>
-            <h2
-              id="connections-panel-title"
-              ref={headingRef}
-              tabIndex={-1}
-            >
+            <h2 id="connections-panel-title" ref={headingRef} tabIndex={-1} className="conn-title">
               Conexiones
             </h2>
-            <p className="text-sm text-slate-500">Gestiona Bitrix24 y WhatsApp sin salir del canvas.</p>
+            <p className="conn-subtitle">Gestiona Bitrix24 y WhatsApp sin salir del canvas.</p>
           </div>
           <button
             type="button"
-            className="connections-panel__close"
+            className="conn-close"
             onClick={onClose}
             aria-label="Cerrar panel de conexiones"
           >
@@ -104,36 +100,29 @@ export function ConnectionsPanel({ open, onClose }: ConnectionsPanelProps) {
           </button>
         </header>
 
-        <div className="connections-panel__body">
+        <div className="conn-body">
           <ConnectionsTabs tabs={tabs} activeTab={activeTab} onSelect={setActiveTab} />
 
-          <div className="connections-panel__content">
-            <div className="connections-panel__scroll">
-              <Suspense fallback={<div className="p-6 text-sm text-slate-500">Cargando configuración...</div>}>
-                {activeTab === 'bitrix' ? (
-                  <div
-                    id="connections-panel-bitrix"
-                    role="tabpanel"
-                    aria-labelledby="connections-tab-bitrix"
-                    className="bitrix-panel"
-                  >
-                    <BitrixSettings />
-                  </div>
-                ) : (
-                  <div
-                    id="connections-panel-whatsapp"
-                    role="tabpanel"
-                    aria-labelledby="connections-tab-whatsapp"
-                    className="whatsapp-panel"
-                  >
-                    <WhatsappSettings
-                      headingId="connections-panel-whatsapp-heading"
-                      className="whatsapp-panel"
-                    />
-                  </div>
-                )}
-              </Suspense>
-            </div>
+          <div className="conn-content">
+            <Suspense fallback="Cargando…">
+              {activeTab === 'bitrix' ? (
+                <div
+                  id="connections-panel-bitrix"
+                  role="tabpanel"
+                  aria-labelledby="connections-tab-bitrix"
+                >
+                  <BitrixSettings />
+                </div>
+              ) : (
+                <div
+                  id="connections-panel-whatsapp"
+                  role="tabpanel"
+                  aria-labelledby="connections-tab-whatsapp"
+                >
+                  <WhatsappSettings headingId="connections-panel-whatsapp-heading" className="w-full" />
+                </div>
+              )}
+            </Suspense>
           </div>
         </div>
       </aside>
