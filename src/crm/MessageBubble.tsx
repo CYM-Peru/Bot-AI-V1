@@ -55,15 +55,38 @@ export default function MessageBubble({ message, attachments, repliedTo, replied
 function StatusBadge({ status }: { status: Message["status"] }) {
   switch (status) {
     case "pending":
-      return <span>Pendiente…</span>;
+      return (
+        <span className="inline-flex items-center gap-1" title="Enviando...">
+          <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="3" />
+            <path className="opacity-75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        </span>
+      );
     case "sent":
-      return <span>Enviado</span>;
+      return (
+        <span className="text-white/90" title="Enviado">
+          ✓
+        </span>
+      );
     case "delivered":
-      return <span>Entregado</span>;
+      return (
+        <span className="text-white/90" title="Entregado">
+          ✓✓
+        </span>
+      );
     case "read":
-      return <span>Leído</span>;
+      return (
+        <span className="text-blue-300" title="Leído">
+          ✓✓
+        </span>
+      );
     case "failed":
-      return <span className="text-rose-100">Fallido</span>;
+      return (
+        <span className="inline-flex items-center gap-1 text-rose-100" title="Falló el envío">
+          ⚠️
+        </span>
+      );
     default:
       return null;
   }
