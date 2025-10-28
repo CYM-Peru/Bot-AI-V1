@@ -118,6 +118,7 @@ export class DatabaseFlowProvider implements FlowProvider {
   }
 
   async getFlow(flowId: string): Promise<Flow | null> {
+    void flowId;
     // TODO: Implement database query
     // Example with Prisma:
     // const flow = await this.db.flow.findUnique({ where: { id: flowId } });
@@ -127,6 +128,8 @@ export class DatabaseFlowProvider implements FlowProvider {
   }
 
   async saveFlow(flowId: string, flow: Flow): Promise<void> {
+    void flowId;
+    void flow;
     // TODO: Implement database save
     // Example with Prisma:
     // await this.db.flow.upsert({
