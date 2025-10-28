@@ -37,14 +37,18 @@ import type { RuntimeNode } from './flow/components/nodes/types';
 import { MenuNode } from './flow/components/nodes/MenuNode';
 import { MessageNode } from './flow/components/nodes/MessageNode';
 import { ActionNode } from './flow/components/nodes/ActionNode';
-import { ConditionNode } from './flow/components/nodes/ConditionNode';
 import { EndFlowNode } from './flow/components/nodes/EndFlowNode';
+import { StartNode } from './flow/components/nodes/StartNode';
+import { QuestionNode } from './flow/components/nodes/QuestionNode';
+import { ValidationNode } from './flow/components/nodes/ValidationNode';
 
 const NODE_TYPES: Record<string, ComponentType<NodeProps<RuntimeNode>>> = {
+  start: StartNode,
   menu: MenuNode,
   message: MessageNode,
+  question: QuestionNode,
+  validation: ValidationNode,
   action: ActionNode,
-  condition: ConditionNode,
   end: EndFlowNode,
 };
 
@@ -92,6 +96,7 @@ export interface ReactFlowCanvasProps {
       | PositionMap
       | ((prev: PositionMap) => PositionMap),
   ) => void;
+  onRegisterFitView?: (fn: (() => void) | null) => void;
 }
 
 export function ReactFlowCanvas(props: ReactFlowCanvasProps) {
@@ -119,9 +124,15 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
     soloRoot,
     nodePositions,
     onPositionsChange,
+    onRegisterFitView,
   } = props;
   const { screenToFlowPosition, fitView } = useReactFlow<RuntimeNode, RuntimeEdge>();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [wrapperReady, setWrapperReady] = useState(false);
+  const handleWrapperRef = useCallback((node: HTMLDivElement | null) => {
+    wrapperRef.current = node;
+    setWrapperReady(Boolean(node));
+  }, []);
   const [nodes, setNodes] = useState<RuntimeNode[]>([]);
   const [edges, setEdges] = useState<RuntimeEdge[]>([]);
   const pendingSourceRef = useRef<{ sourceId: string; handleId: string } | null>(null);
@@ -167,6 +178,22 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
     setNodes(decoratedNodes);
   }, [decoratedNodes]);
 
+  useEffect(() => {
+    if (!onRegisterFitView || !wrapperReady) {
+      return () => undefined;
+    }
+    const register = () => {
+      if (!wrapperRef.current) {
+        return;
+      }
+      fitView({ padding: 0.25, duration: 200 });
+    };
+    onRegisterFitView(register);
+    return () => {
+      onRegisterFitView(null);
+    };
+  }, [fitView, onRegisterFitView, wrapperReady]);
+
   // Reset auto-fit flag when flow ID changes (new flow loaded)
   useEffect(() => {
     if (flow.id !== lastFlowId.current) {
@@ -177,11 +204,11 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
 
   // Auto-fit view on initial load or when new flow is loaded
   useEffect(() => {
-    if (decoratedNodes.length > 0 && !initialFitViewDone.current) {
+    if (decoratedNodes.length > 0 && !initialFitViewDone.current && wrapperReady) {
       fitView({ padding: 0.2, duration: 200 });
       initialFitViewDone.current = true;
     }
-  }, [decoratedNodes, fitView]);
+  }, [decoratedNodes, fitView, wrapperReady]);
 
   useEffect(() => {
     setEdges(
@@ -295,7 +322,19 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
   );
 
   const quickCreateOptions = useMemo<ConnectionCreationKind[]>(
-    () => ['menu', 'message', 'buttons', 'ask', 'scheduler', 'end'],
+    () => [
+      'menu',
+      'message',
+      'buttons',
+      'question',
+      'validation',
+      'attachment',
+      'webhook_out',
+      'webhook_in',
+      'transfer',
+      'scheduler',
+      'end',
+    ],
     [],
   );
 
@@ -339,7 +378,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
 
   return (
     <div
-      ref={wrapperRef}
+      ref={handleWrapperRef}
       className="relative h-full w-full"
       onMouseDown={(event) => {
         const target = event.target as HTMLElement | null;
@@ -465,10 +504,20 @@ function renderOptionLabel(option: ConnectionCreationKind): string {
       return 'Mensaje';
     case 'buttons':
       return 'Botones';
-    case 'ask':
+    case 'question':
       return 'Pregunta';
+    case 'validation':
+      return 'Validación';
+    case 'attachment':
+      return 'Adjunto';
     case 'scheduler':
       return 'Scheduler';
+    case 'webhook_out':
+      return 'Webhook OUT';
+    case 'webhook_in':
+      return 'Webhook IN';
+    case 'transfer':
+      return 'Transferir';
     case 'end':
       return 'Fin del flujo';
     default:

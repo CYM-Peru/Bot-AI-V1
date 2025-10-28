@@ -11,6 +11,23 @@ import {
 
 export function ActionNode(props: NodeProps<RuntimeNode>) {
   const { data } = props;
+  const badgeTone = useMemo(() => {
+    const kind = data.flowNode.action?.kind;
+    switch (kind) {
+      case 'webhook_out':
+      case 'webhook_in':
+      case 'handoff':
+      case 'transfer':
+      case 'ia_rag':
+      case 'tool':
+        return 'integration' as const;
+      case 'scheduler':
+      case 'condition':
+        return 'validation' as const;
+      default:
+        return 'message' as const;
+    }
+  }, [data.flowNode.action?.kind]);
   const summary = useMemo(() => {
     const kind = data.flowNode.action?.kind ?? 'acción';
     if (kind === 'buttons') {
@@ -97,7 +114,7 @@ export function ActionNode(props: NodeProps<RuntimeNode>) {
       title={data.flowNode.label}
       subtitle={data.flowNode.description}
       badgeLabel="Acción"
-      badgeTone="action"
+      badgeTone={badgeTone}
       icon="⚙️"
       body={summary}
     />
