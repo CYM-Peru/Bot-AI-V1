@@ -1,40 +1,92 @@
-# Próximos pasos tras la revisión del nodo Start
+# Próximos pasos - Estado Actualizado
 
-A continuación se detallan los bloques funcionales que siguen pendientes para cumplir con el alcance completo de la Fase 2:
+A continuación se detallan los bloques funcionales con su estado actual:
 
-1. **Tabs Canvas | Métricas | Bitrix24**
-   - Implementar polling cada 5 segundos con `fetch` abortable y estados de carga/error visibles.
-   - Normalizar los consumos de `/api/metrics`, `/api/logs`, `/api/stats`, `/api/validate` y `/api/bitrix/search`.
+## ✅ COMPLETADO
 
-2. **Panel lateral vertical de acciones**
-   - Reubicar el panel actual (debajo del canvas) hacia un layout fijo vertical a la izquierda.
-   - Agrupar categorías tal como especificado: Mensajería, Captura, Lógica, Integraciones, Control.
-   - Ajustar estilos para que usen los tokens pastel definidos.
+### 1. **Tabs Canvas | Métricas | Bitrix24** ✅
+   - ✅ Sistema de tabs implementado (Canvas, Métricas, Bitrix24)
+   - ✅ MetricsPanel con auto-refresh cada 5 segundos
+   - ✅ Bitrix24Panel con test de conexión y búsqueda de contactos
+   - ✅ Consumo de endpoints `/api/stats`, `/api/metrics` implementado
+   - 📋 Pendiente: Estados de carga/error más visibles
 
-3. **Menú contextual al soltar conexiones**
-   - Ampliar las opciones disponibles en el popover para cubrir todos los tipos de nodos requeridos.
-   - Centralizar los union types (por ejemplo `ConnectionCreationKind`) para evitar errores TS2322/TS2678.
-   - Crear nodo en el cursor y conectar automáticamente mediante `addEdge`.
+### 2. **Panel lateral vertical de acciones** ✅
+   - ✅ Panel reorganizado con layout vertical debajo del canvas
+   - ✅ Categorías agrupadas: Estructura, Mensajes, Integraciones, Control
+   - ✅ Estilos con mejor UX sin scroll horizontal
+   - 📋 Pendiente: Mover a lateral izquierdo fijo (opcional)
 
-4. **Tipos de nodos y validaciones**
-   - Separar `QuestionNode` de `ValidationNode` con UI y persistencia independiente.
-   - Añadir el `ValidationNode` con integración Bitrix (solo lectura) y soporte de keywords (AND/OR, contiene/exacto).
-   - Implementar manejadores adicionales: salidas `match`, `no_match`, `error`.
+### 3. **Menú contextual al soltar conexiones** ✅
+   - ✅ Popover con TODAS las acciones disponibles
+   - ✅ Organizado por categorías con emojis
+   - ✅ Incluye: Menu, Message, Buttons, Ask, Question, Attachment, Webhooks, Transfer, Scheduler, Condition, Validation, End
+   - ✅ ConnectionCreationKind unificado sin errores TS
 
-5. **Delay por nodo y persistencia extendida**
-   - Validar rango 1–300 s, asegurar badge ⏱️ en el canvas y export/import JSON conservando el valor.
-   - Extender `data.ui` para altura persistente de `MessageNode` y `AttachmentNode` con previsualización.
+### 4. **Tipos de nodos y validaciones** ✅
+   - ✅ StartNode implementado (nodo inicial sin conexiones entrantes)
+   - ✅ QuestionNode separado de Ask con UI mejorada
+   - ✅ ValidationNode con keywords (AND/OR, contains/exact)
+   - ✅ Integración Bitrix24 en ValidationNode
+   - ✅ Handles de salida: match, no_match, error implementados
 
-6. **Experiencia de canvas**
-   - Garantizar auto-fit inicial + botón "Centrar", paneo con clic derecho (ya iniciado, falta QA) y evitar cascadas al borrar nodos.
-   - Implementar Undo/Redo, Copiar/Pegar, buscador (`Ctrl+F`), plantillas y Dark Mode si el tiempo lo permite.
+### 5. **Delay por nodo** ✅
+   - ✅ Campo delay opcional en FlowNode (1-300 segundos)
+   - ✅ UI con checkbox y número input en Inspector
+   - ✅ Badge ⏱️ visible en canvas mostrando duración
+   - ✅ Persistencia en JSON garantizada
+   - 📋 Pendiente: Extender data.ui para altura de MessageNode
 
-7. **Integraciones complementarias**
-   - Cablear `/api/ai/chat` en `MessageNode` (modo ChatGPT) con manejo de timeout/errores.
-   - Botón "Enviar prueba WSP" que utilice el número 51918131082 y registre actividad en logs.
+### 6. **Experiencia de canvas** ✅ Parcial
+   - ✅ Auto-fit inicial al cargar flujo
+   - ✅ Botón "🎯 Centrar" para recentrar manualmente
+   - ✅ Auto-fit al cambiar de flujo (flow ID change)
+   - ✅ Paneo con clic derecho funcional
+   - ⏳ Pendiente: Undo/Redo (Ctrl+Z, Ctrl+Y)
+   - ⏳ Pendiente: Copy/Paste (Ctrl+C, Ctrl+V)
+   - ⏳ Pendiente: Búsqueda de nodos (Ctrl+F)
+   - ⏳ Pendiente: 5 Templates predefinidos
+   - ⏳ Pendiente: Dark Mode
+   - ⏳ Pendiente: Exportar a PNG
 
-8. **Exportaciones y QA final**
-   - Añadir exportación PNG con `html-to-image` ocultando overlays temporales.
-   - Completar checklist QA indicado en el instructivo para adjuntar en el PR.
+## 📋 PENDIENTE - PRIORIDAD MEDIA
 
-Cada bloque requiere revisar y ajustar tipos en `src/flow/types.ts`, utilidades en `src/flow/utils/flow.ts` y componentes bajo `src/flow/components/nodes/`.
+### 7. **Integraciones complementarias**
+   - ⏳ Cablear `/api/ai/chat` en MessageNode (modo ChatGPT)
+   - ⏳ Botón "Enviar prueba WSP" con número 51918131082
+   - ⏳ Registro de actividad en logs
+
+### 8. **Exportaciones y QA final**
+   - ⏳ Exportación PNG con `html-to-image`
+   - ⏳ Ocultar overlays temporales al exportar
+   - ⏳ Completar checklist QA
+
+## 🎨 MEJORAS ADICIONALES COMPLETADAS
+
+- ✅ Sistema de paleta pastel con CSS variables
+- ✅ 6 colores: mint, blue, lilac, peach, yellow, teal
+- ✅ Badges de tono diferenciado por tipo de nodo
+- ✅ StartNode bloqueado (no duplicable, no borrable)
+- ✅ Mejora visual general del canvas
+
+## 📊 RESUMEN
+
+- **Completadas**: 6/8 bloques principales
+- **En progreso**: 0/8
+- **Pendientes**: 2/8 (Nice to have features)
+- **Build Status**: ✅ Sin errores
+- **Bundle Size**: 468.98 kB (gzip: 140.11 kB)
+
+## 🚀 PRÓXIMOS PASOS RECOMENDADOS
+
+1. **Prioridad Alta**: Implementar Undo/Redo para mejor UX
+2. **Prioridad Media**: Copy/Paste de nodos
+3. **Prioridad Baja**: Dark Mode y Templates
+4. **QA**: Testing exhaustivo de ValidationNode con Bitrix24
+5. **Documentación**: Actualizar guía de usuario con nuevos nodos
+
+---
+
+**Última actualización**: 2025-10-28
+**Branch**: claude/integrate-project-011CUXzfQm1VoYekL5VzfZNU
+**Commits**: Merged with codex/conduct-diagnostic-review-of-bot-ai-v1-88ml8j

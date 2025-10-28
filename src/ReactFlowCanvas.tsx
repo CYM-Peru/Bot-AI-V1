@@ -37,16 +37,18 @@ import type { RuntimeNode } from './flow/components/nodes/types';
 import { MenuNode } from './flow/components/nodes/MenuNode';
 import { MessageNode } from './flow/components/nodes/MessageNode';
 import { ActionNode } from './flow/components/nodes/ActionNode';
-import { ConditionNode } from './flow/components/nodes/ConditionNode';
 import { EndFlowNode } from './flow/components/nodes/EndFlowNode';
 import { StartNode } from './flow/components/nodes/StartNode';
+import { QuestionNode } from './flow/components/nodes/QuestionNode';
+import { ValidationNode } from './flow/components/nodes/ValidationNode';
 
 const NODE_TYPES: Record<string, ComponentType<NodeProps<RuntimeNode>>> = {
   start: StartNode,
   menu: MenuNode,
   message: MessageNode,
+  question: QuestionNode,
+  validation: ValidationNode,
   action: ActionNode,
-  condition: ConditionNode,
   end: EndFlowNode,
 };
 
@@ -94,6 +96,7 @@ export interface ReactFlowCanvasProps {
       | PositionMap
       | ((prev: PositionMap) => PositionMap),
   ) => void;
+  onRegisterFitView?: (fn: (() => void) | null) => void;
 }
 
 export function ReactFlowCanvas(props: ReactFlowCanvasProps) {
@@ -121,9 +124,15 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
     soloRoot,
     nodePositions,
     onPositionsChange,
+    onRegisterFitView,
   } = props;
   const { screenToFlowPosition, fitView } = useReactFlow<RuntimeNode, RuntimeEdge>();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [wrapperReady, setWrapperReady] = useState(false);
+  const handleWrapperRef = useCallback((node: HTMLDivElement | null) => {
+    wrapperRef.current = node;
+    setWrapperReady(Boolean(node));
+  }, []);
   const [nodes, setNodes] = useState<RuntimeNode[]>([]);
   const [edges, setEdges] = useState<RuntimeEdge[]>([]);
   const pendingSourceRef = useRef<{ sourceId: string; handleId: string } | null>(null);
@@ -169,6 +178,22 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
     setNodes(decoratedNodes);
   }, [decoratedNodes]);
 
+  useEffect(() => {
+    if (!onRegisterFitView || !wrapperReady) {
+      return () => undefined;
+    }
+    const register = () => {
+      if (!wrapperRef.current) {
+        return;
+      }
+      fitView({ padding: 0.25, duration: 200 });
+    };
+    onRegisterFitView(register);
+    return () => {
+      onRegisterFitView(null);
+    };
+  }, [fitView, onRegisterFitView, wrapperReady]);
+
   // Reset auto-fit flag when flow ID changes (new flow loaded)
   useEffect(() => {
     if (flow.id !== lastFlowId.current) {
@@ -179,11 +204,11 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
 
   // Auto-fit view on initial load or when new flow is loaded
   useEffect(() => {
-    if (decoratedNodes.length > 0 && !initialFitViewDone.current) {
+    if (decoratedNodes.length > 0 && !initialFitViewDone.current && wrapperReady) {
       fitView({ padding: 0.2, duration: 200 });
       initialFitViewDone.current = true;
     }
-  }, [decoratedNodes, fitView]);
+  }, [decoratedNodes, fitView, wrapperReady]);
 
   useEffect(() => {
     setEdges(
@@ -297,7 +322,21 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
   );
 
   const quickCreateOptions = useMemo<ConnectionCreationKind[]>(
-    () => ['menu', 'message', 'buttons', 'ask', 'scheduler', 'end'],
+    () => [
+      'menu',
+      'message',
+      'buttons',
+      'ask',
+      'question',
+      'attachment',
+      'webhook_out',
+      'webhook_in',
+      'transfer',
+      'scheduler',
+      'condition',
+      'validation',
+      'end',
+    ],
     [],
   );
 
@@ -341,7 +380,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
 
   return (
     <div
-      ref={wrapperRef}
+      ref={handleWrapperRef}
       className="relative h-full w-full"
       onMouseDown={(event) => {
         const target = event.target as HTMLElement | null;
@@ -436,25 +475,100 @@ function QuickCreatePopover({ position, options, onSelect, onDismiss }: QuickCre
     return () => window.removeEventListener('keydown', onKey);
   }, [onDismiss]);
 
+  // Organize options by category
+  const categorizedOptions = {
+    estructura: options.filter(opt => opt === 'menu'),
+    mensajes: options.filter(opt => ['message', 'buttons', 'ask', 'question', 'attachment'].includes(opt)),
+    integraciones: options.filter(opt => ['webhook_out', 'webhook_in', 'transfer', 'scheduler'].includes(opt)),
+    logica: options.filter(opt => ['condition', 'validation'].includes(opt)),
+    control: options.filter(opt => opt === 'end'),
+  };
+
   return (
     <div
-      className="pointer-events-auto absolute z-20 w-40 rounded-lg border border-slate-200 bg-white shadow-lg"
+      className="pointer-events-auto absolute z-20 w-56 rounded-lg border border-slate-200 bg-white shadow-xl max-h-[500px] overflow-y-auto"
       style={{ left: position.x, top: position.y }}
     >
-      <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600">Crear nuevo nodo</div>
-      <ul className="divide-y divide-slate-100 text-sm">
-        {options.map((option) => (
-          <li key={option}>
-            <button
-              type="button"
-              className="w-full px-3 py-2 text-left text-slate-600 hover:bg-emerald-50"
-              onClick={() => onSelect(option)}
-            >
-              {renderOptionLabel(option)}
-            </button>
-          </li>
-        ))}
-      </ul>
+      <div className="sticky top-0 border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 bg-white">
+        Crear nuevo nodo
+      </div>
+      <div className="divide-y divide-slate-100">
+        {categorizedOptions.estructura.length > 0 && (
+          <div className="p-2">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide px-2 py-1">Estructura</div>
+            {categorizedOptions.estructura.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-emerald-50 rounded"
+                onClick={() => onSelect(option)}
+              >
+                {renderOptionLabel(option)}
+              </button>
+            ))}
+          </div>
+        )}
+        {categorizedOptions.mensajes.length > 0 && (
+          <div className="p-2">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide px-2 py-1">Mensajes</div>
+            {categorizedOptions.mensajes.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-emerald-50 rounded"
+                onClick={() => onSelect(option)}
+              >
+                {renderOptionLabel(option)}
+              </button>
+            ))}
+          </div>
+        )}
+        {categorizedOptions.integraciones.length > 0 && (
+          <div className="p-2">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide px-2 py-1">Integraciones</div>
+            {categorizedOptions.integraciones.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 rounded"
+                onClick={() => onSelect(option)}
+              >
+                {renderOptionLabel(option)}
+              </button>
+            ))}
+          </div>
+        )}
+        {categorizedOptions.logica.length > 0 && (
+          <div className="p-2">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide px-2 py-1">Lógica</div>
+            {categorizedOptions.logica.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-sky-50 rounded"
+                onClick={() => onSelect(option)}
+              >
+                {renderOptionLabel(option)}
+              </button>
+            ))}
+          </div>
+        )}
+        {categorizedOptions.control.length > 0 && (
+          <div className="p-2">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide px-2 py-1">Control</div>
+            {categorizedOptions.control.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 rounded"
+                onClick={() => onSelect(option)}
+              >
+                {renderOptionLabel(option)}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -462,17 +576,31 @@ function QuickCreatePopover({ position, options, onSelect, onDismiss }: QuickCre
 function renderOptionLabel(option: ConnectionCreationKind): string {
   switch (option) {
     case 'menu':
-      return 'Menú';
+      return '📋 Menú';
     case 'message':
-      return 'Mensaje';
+      return '💬 Mensaje';
     case 'buttons':
-      return 'Botones';
+      return '🔘 Botones';
     case 'ask':
-      return 'Pregunta';
+      return '❓ Pregunta (Legacy)';
+    case 'question':
+      return '❓ Pregunta';
+    case 'attachment':
+      return '📎 Adjunto';
+    case 'webhook_out':
+      return '🔗 Webhook OUT';
+    case 'webhook_in':
+      return '📥 Webhook IN';
+    case 'transfer':
+      return '👤 Transferir';
     case 'scheduler':
-      return 'Scheduler';
+      return '⏰ Scheduler';
+    case 'condition':
+      return '🔀 Condición (Legacy)';
+    case 'validation':
+      return '🛡️ Validación';
     case 'end':
-      return 'Fin del flujo';
+      return '🛑 Fin del flujo';
     default:
       return option;
   }

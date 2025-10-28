@@ -13,6 +13,11 @@ import { testWebhookOut, generateWebhookInUrl, type WebhookResponse } from "./fl
 import { WhatsAppConfigPanel } from "./components/WhatsAppConfig";
 import { MetricsPanel } from "./components/MetricsPanel";
 import { Bitrix24Panel } from "./components/Bitrix24Panel";
+import { NodeSearchModal } from "./components/NodeSearchModal";
+import { TemplateSelector } from "./components/TemplateSelector";
+import { useUndoRedo } from "./hooks/useUndoRedo";
+import type { FlowTemplate } from "./templates/flowTemplates";
+import { toPng } from 'html-to-image';
 import {
   ConnectionCreationKind,
   STRICTEST_LIMIT,
@@ -20,9 +25,13 @@ import {
   convertButtonsOverflowToList,
   createButtonOption,
   createMenuOption,
+  createId,
   getAskData,
+  getConditionData,
   getButtonsData,
+  getHandleAssignments,
   getMenuOptions,
+  getOutputHandleSpecs,
   getSchedulerData,
   nextChildId,
   normalizeButtonsData,
@@ -39,11 +48,14 @@ import type {
   MenuOption,
   NodeType,
   AskActionData,
+  ConditionActionData,
   SchedulerMode,
   SchedulerNodeData,
   TimeWindow,
   DateException,
   Weekday,
+  ValidationKeywordGroup,
+  KeywordGroupLogic,
 } from "./flow/types";
 import { validateCustomSchedule } from "./flow/scheduler";
 
@@ -293,6 +305,44 @@ export default function App(): JSX.Element {
   const [showWhatsAppConfig, setShowWhatsAppConfig] = useState(false);
   const [mainTab, setMainTab] = useState<'canvas' | 'metrics' | 'bitrix'>('canvas');
 
+  const [bitrixFieldOptions, setBitrixFieldOptions] = useState<string[]>([]);
+  const [bitrixFieldsLoading, setBitrixFieldsLoading] = useState(false);
+  const [bitrixFieldsError, setBitrixFieldsError] = useState<string | null>(null);
+
+  const [centerCanvas, setCenterCanvas] = useState<(() => void) | null>(null);
+  const handleRegisterFitView = useCallback((fn: (() => void) | null) => {
+    setCenterCanvas(() => fn ?? null);
+  }, []);
+
+  // Undo/Redo system
+  type EditorState = {
+    flow: Flow;
+    positions: Record<string, { x: number; y: number }>;
+  };
+
+  const [editorState, undoRedoActions] = useUndoRedo<EditorState>({
+    flow: demoFlow,
+    positions: {},
+  });
+
+  // Track if we're applying undo/redo to prevent infinite loops
+  const isApplyingHistory = useRef(false);
+
+  // Copy/Paste system
+  const [clipboard, setClipboard] = useState<FlowNode | null>(null);
+
+  // Node Search system
+  const [showNodeSearch, setShowNodeSearch] = useState(false);
+
+  // Template selector
+  const [showTemplateSelector, setShowTemplateSelector] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      setCenterCanvas(null);
+    };
+  }, []);
+
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
     setToast({ id: Date.now(), message, type });
   }, []);
@@ -350,6 +400,115 @@ export default function App(): JSX.Element {
     []
   );
 
+  // Sync flow and positions changes to undo/redo history
+  useEffect(() => {
+    if (!isApplyingHistory.current) {
+      const timeoutId = setTimeout(() => {
+        undoRedoActions.set({ flow, positions: positionsState });
+      }, 300); // Debounce to avoid too many history entries
+      return () => clearTimeout(timeoutId);
+    }
+  }, [flow, positionsState, undoRedoActions]);
+
+  // Apply undo/redo state changes
+  useEffect(() => {
+    if (editorState.flow !== flow || JSON.stringify(editorState.positions) !== JSON.stringify(positionsState)) {
+      isApplyingHistory.current = true;
+      suppressDirtyRef.current = true;
+
+      setFlowState(editorState.flow);
+      setPositionsState(editorState.positions);
+
+      suppressDirtyRef.current = false;
+      isApplyingHistory.current = false;
+    }
+  }, [editorState]);
+
+  // Keyboard shortcuts for undo/redo and copy/paste
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in an input/textarea
+      const target = e.target as HTMLElement;
+      const isTyping = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+
+      // Undo: Ctrl+Z or Cmd+Z
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey && !isTyping) {
+        e.preventDefault();
+        if (undoRedoActions.canUndo) {
+          undoRedoActions.undo();
+          showToast('Deshecho', 'success');
+        }
+      }
+      // Redo: Ctrl+Y or Cmd+Shift+Z
+      if (((e.ctrlKey || e.metaKey) && e.key === 'y') || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z')) {
+        if (!isTyping) {
+          e.preventDefault();
+          if (undoRedoActions.canRedo) {
+            undoRedoActions.redo();
+            showToast('Rehecho', 'success');
+          }
+        }
+      }
+
+      // Copy: Ctrl+C or Cmd+C
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !isTyping) {
+        e.preventDefault();
+        const selected = flow.nodes[selectedId];
+        if (selected && selected.id !== flow.rootId) {
+          // Deep clone the node
+          const cloned: FlowNode = JSON.parse(JSON.stringify(selected));
+          setClipboard(cloned);
+          showToast(`Copiado: ${selected.label}`, 'success');
+        }
+      }
+
+      // Paste: Ctrl+V or Cmd+V
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v' && !isTyping) {
+        e.preventDefault();
+        if (clipboard) {
+          // Create a duplicate of the clipboard node
+          const newId = createId(`${clipboard.id}-copy`);
+          const newNode: FlowNode = {
+            ...JSON.parse(JSON.stringify(clipboard)),
+            id: newId,
+            label: `${clipboard.label} (Copia)`,
+            children: [], // Reset children
+          };
+
+          // Add the new node to the flow
+          setFlow((prev) => {
+            const nextNodes = { ...prev.nodes, [newId]: newNode };
+            return { ...prev, nodes: nextNodes };
+          });
+
+          // Position it near the original if we have position data
+          const originalPosition = positionsState[clipboard.id];
+          if (originalPosition) {
+            setPositions((prev) => ({
+              ...prev,
+              [newId]: {
+                x: originalPosition.x + 50,
+                y: originalPosition.y + 50,
+              },
+            }));
+          }
+
+          setSelectedId(newId);
+          showToast(`Pegado: ${newNode.label}`, 'success');
+        }
+      }
+
+      // Search: Ctrl+F or Cmd+F
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        setShowNodeSearch(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undoRedoActions, showToast, selectedId, flow, clipboard, positionsState, setFlow, setPositions]);
+
   const replaceFlow = useCallback((nextFlow: Flow, nextPositions: Record<string, { x: number; y: number }> = {}) => {
     suppressDirtyRef.current = true;
     const normalized = ensureStartNode(normalizeFlow(nextFlow));
@@ -360,6 +519,37 @@ export default function App(): JSX.Element {
     setWorkspaceId(normalized.id);
     setDirty(false);
   }, []);
+
+  const handleSelectTemplate = useCallback((template: FlowTemplate) => {
+    replaceFlow(template.flow, {});
+    setDirty(true);
+    showToast(`Template "${template.name}" cargado`, 'success');
+  }, [replaceFlow, showToast]);
+
+  const handleExportPNG = useCallback(async () => {
+    const canvasElement = document.querySelector('.react-flow__viewport');
+    if (!canvasElement) {
+      showToast('No se pudo encontrar el canvas', 'error');
+      return;
+    }
+
+    try {
+      const dataUrl = await toPng(canvasElement as HTMLElement, {
+        cacheBust: true,
+        backgroundColor: '#f8fafc',
+      });
+
+      const link = document.createElement('a');
+      link.download = `${flow.name.replace(/\s+/g, '-').toLowerCase()}-${Date.now()}.png`;
+      link.href = dataUrl;
+      link.click();
+
+      showToast('Flujo exportado como PNG', 'success');
+    } catch (error) {
+      console.error('Error exporting PNG:', error);
+      showToast('Error al exportar PNG', 'error');
+    }
+  }, [flow.name, showToast]);
 
   const selected = flow.nodes[selectedId] ?? flow.nodes[flow.rootId];
   const emptyMessageNodes = useMemo(() => {
@@ -382,6 +572,59 @@ export default function App(): JSX.Element {
   const askValidationOptions =
     askDataForSelected?.validation?.type === "options" ? askDataForSelected.validation.options : [];
   const schedulerDataForSelected = getSchedulerData(selected);
+  const validationDataForSelected = getConditionData(selected);
+  const conditionTargetOptions = useMemo(() => {
+    return Object.values(flow.nodes)
+      .filter((node) => node.id !== selectedId)
+      .map((node) => ({ id: node.id, label: node.label || node.id }));
+  }, [flow.nodes, selectedId]);
+
+  type ConditionTargetKey = "matchTargetId" | "noMatchTargetId" | "errorTargetId" | "defaultTargetId";
+
+
+
+  useEffect(() => {
+    if (selected.action?.kind !== 'condition') {
+      return;
+    }
+    let cancelled = false;
+    const loadFields = async () => {
+      try {
+        setBitrixFieldsLoading(true);
+        setBitrixFieldsError(null);
+        const response = await fetch('/api/bitrix/fields');
+        if (!response.ok) {
+          throw new Error('No se pudo cargar el catálogo de campos');
+        }
+        const payload = await response.json();
+        const fields = Array.isArray(payload?.fields) ? payload.fields : [];
+        if (!cancelled) {
+          setBitrixFieldOptions(fields.map((field: string) => String(field)));
+        }
+      } catch (error) {
+        console.error('Error fetching Bitrix fields', error);
+        if (!cancelled) {
+          setBitrixFieldsError(error instanceof Error ? error.message : 'Error desconocido');
+          setBitrixFieldOptions([
+            'NAME',
+            'LAST_NAME',
+            'EMAIL',
+            'PHONE',
+            'UF_CRM_CUSTOM',
+          ]);
+        }
+      } finally {
+        if (!cancelled) {
+          setBitrixFieldsLoading(false);
+        }
+      }
+    };
+
+    void loadFields();
+    return () => {
+      cancelled = true;
+    };
+  }, [selected.action?.kind]);
 
   const handleMenuOptionUpdate = useCallback(
     (optionId: string, patch: Partial<MenuOption>) => {
@@ -647,6 +890,230 @@ export default function App(): JSX.Element {
       })();
     },
     [setFlow, setPositions, setSelectedId, showToast],
+  );
+
+  const updateSelectedAction = useCallback(
+    (kind: ActionKind, data?: unknown) => {
+      setFlow((prev) => {
+        const currentNode = prev.nodes[selectedId];
+        if (!currentNode) {
+          return prev;
+        }
+
+        const actionData =
+          data === undefined || data === null ? undefined : (data as Record<string, any>);
+        const nextNode: FlowNode = {
+          ...currentNode,
+          action: actionData !== undefined ? { kind, data: actionData } : { kind },
+        };
+
+        if (kind === "end") {
+          nextNode.children = [];
+        }
+
+        return {
+          ...prev,
+          nodes: {
+            ...prev.nodes,
+            [selectedId]: nextNode,
+          },
+        };
+      });
+    },
+    [selectedId, setFlow],
+  );
+
+  const handleValidationUpdate = useCallback(
+    (updater: ConditionActionData | ((prev: ConditionActionData) => ConditionActionData)) => {
+      setFlow((prev) => {
+        const currentNode = prev.nodes[selectedId];
+        if (!currentNode || currentNode.action?.kind !== "condition") {
+          return prev;
+        }
+
+        const base = getConditionData(currentNode);
+        if (!base) {
+          return prev;
+        }
+
+        const nextData =
+          typeof updater === "function"
+            ? (updater as (prev: ConditionActionData) => ConditionActionData)(base)
+            : updater;
+
+        const sanitized = getConditionData({
+          ...currentNode,
+          action: { kind: "condition", data: nextData },
+        });
+
+        const nextNode: FlowNode = {
+          ...currentNode,
+          action: { kind: "condition", data: sanitized ?? nextData },
+        };
+
+        return {
+          ...prev,
+          nodes: {
+            ...prev.nodes,
+            [selectedId]: nextNode,
+          },
+        };
+      });
+    },
+    [selectedId, setFlow],
+  );
+
+  const handleValidationTargetChange = useCallback(
+    (key: ConditionTargetKey, targetId: string | null) => {
+      handleValidationUpdate((prev) => {
+        const next = { ...prev } as ConditionActionData;
+        next[key] = targetId;
+        return next;
+      });
+    },
+    [handleValidationUpdate],
+  );
+
+  const handleKeywordGroupChange = useCallback(
+    (groupId: string, updater: (group: ValidationKeywordGroup) => ValidationKeywordGroup) => {
+      handleValidationUpdate((prev) => {
+        const groups = [...(prev.keywordGroups ?? [])];
+        const index = groups.findIndex((group) => group.id === groupId);
+        if (index === -1) {
+          return prev;
+        }
+        const current = groups[index];
+        const nextGroups = [...groups];
+        nextGroups[index] = updater(current);
+        return { ...prev, keywordGroups: nextGroups };
+      });
+    },
+    [handleValidationUpdate],
+  );
+
+  const handleAddKeywordGroup = useCallback(() => {
+    handleValidationUpdate((prev) => {
+      const nextGroups = [...(prev.keywordGroups ?? [])];
+      nextGroups.push({
+        id: createId("kw"),
+        label: `Grupo ${nextGroups.length + 1}`,
+        mode: "contains",
+        keywords: ["palabra"],
+      });
+      return { ...prev, keywordGroups: nextGroups };
+    });
+  }, [handleValidationUpdate]);
+
+  const handleRemoveKeywordGroup = useCallback(
+    (groupId: string) => {
+      handleValidationUpdate((prev) => {
+        const groups = (prev.keywordGroups ?? []).filter((group) => group.id !== groupId);
+        return { ...prev, keywordGroups: groups };
+      });
+    },
+    [handleValidationUpdate],
+  );
+
+  const handleKeywordLogicChange = useCallback(
+    (logic: KeywordGroupLogic) => {
+      handleValidationUpdate((prev) => ({
+        ...prev,
+        keywordGroupLogic: logic,
+      }));
+    },
+    [handleValidationUpdate],
+  );
+
+  const handleAddKeywordToGroup = useCallback(
+    (groupId: string) => {
+      handleKeywordGroupChange(groupId, (group) => ({
+        ...group,
+        keywords: [...(group.keywords ?? []), "palabra"],
+      }));
+    },
+    [handleKeywordGroupChange],
+  );
+
+  const handleKeywordValueChange = useCallback(
+    (groupId: string, index: number, value: string) => {
+      handleKeywordGroupChange(groupId, (group) => {
+        const keywords = [...(group.keywords ?? [])];
+        keywords[index] = value;
+        return { ...group, keywords };
+      });
+    },
+    [handleKeywordGroupChange],
+  );
+
+  const handleRemoveKeyword = useCallback(
+    (groupId: string, index: number) => {
+      handleKeywordGroupChange(groupId, (group) => {
+        const keywords = (group.keywords ?? []).filter((_, idx) => idx !== index);
+        return { ...group, keywords };
+      });
+    },
+    [handleKeywordGroupChange],
+  );
+
+  const renderConditionTargetSelector = useCallback(
+    ({
+      label,
+      helper,
+      key,
+      value,
+      tone,
+    }: {
+      label: string;
+      helper?: string;
+      key: ConditionTargetKey;
+      value: string | null;
+      tone: "default" | "success" | "warning" | "danger";
+    }) => {
+      const toneClasses: Record<"default" | "success" | "warning" | "danger", string> = {
+        default: "border-slate-200",
+        success: "border-emerald-200 bg-emerald-50/60",
+        warning: "border-amber-200 bg-amber-50/60",
+        danger: "border-rose-200 bg-rose-50/70",
+      };
+      const accent = toneClasses[tone] ?? toneClasses.default;
+      return (
+        <div key={key} className={`rounded-lg border ${accent} p-2 space-y-2`}>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <div className="text-[11px] font-semibold text-slate-600">{label}</div>
+              {helper && <p className="text-[10px] text-slate-400">{helper}</p>}
+            </div>
+            {value && (
+              <button
+                type="button"
+                className="px-2 py-0.5 text-[10px] border rounded"
+                onClick={() => setSelectedId(value)}
+              >
+                Ver nodo
+              </button>
+            )}
+          </div>
+          <select
+            className="w-full border rounded px-2 py-1 text-[12px]"
+            value={value ?? ""}
+            onChange={(event) =>
+              handleValidationTargetChange(
+                key,
+                event.target.value ? event.target.value : null,
+              )
+            }
+          >
+            <option value="">Sin destino</option>
+            {conditionTargetOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      );
+    },
+    [conditionTargetOptions, handleValidationTargetChange, setSelectedId],
   );
 
   const handleAskUpdate = useCallback(
@@ -1045,62 +1512,167 @@ export default function App(): JSX.Element {
       | "handoff"
       | "ia_rag"
       | "tool"
-      | "ask"
+      | "question"
+      | "validation"
       | "scheduler"
-      | "end"
+      | "end",
   ) {
-    const nid = nextChildId(flow, parentId);
-    const defaults: Record<string, any> = {
-      message: { text: "Mensaje" },
-      buttons: normalizeButtonsData({
-        items: [
-          createButtonOption(0, { label: "Sí", value: "YES" }),
-          createButtonOption(1, { label: "No", value: "NO" }),
-        ],
-        maxButtons: DEFAULT_BUTTON_LIMIT,
-      }),
-      attachment: { attType:"image", url:"", name:"archivo", fileName:"", mimeType:"", fileSize:0, fileData:"" },
-      webhook_out: {
-        method:"POST",
-        url:"https://api.ejemplo.com/webhook",
-        headers:[{k:"Content-Type", v:"application/json"}],
-        body:'{\\n  "user_id": "{{user.id}}",\\n  "input": "{{last_message}}"\\n}',
-      },
-      webhook_in: { path:"/hooks/inbound", secret:"", sample:"{ id: 123, text: 'hola' }" },
-      transfer: { target:"open_channel", destination:"ventas" },
-      handoff: { queue:"agentes", note:"pasar a humano" },
-      ia_rag: { prompt:"Buscar en base de conocimiento..." },
-      tool: { name:"mi-tool", args:{} },
-      ask: {
-        questionText: "¿Cuál es tu respuesta?",
-        varName: "respuesta",
-        varType: "text",
-        validation: { type: "none" },
-        retryMessage: "Lo siento, ¿puedes intentarlo de nuevo?",
-        answerTargetId: null,
-        invalidTargetId: null,
-      },
-      scheduler: normalizeSchedulerData(undefined),
-      end: { note: "Fin del flujo" },
-    };
-    const baseLabel = kind === "end" ? "Fin del flujo" : `Acción · ${kind}`;
-    const newNode: FlowNode = {
-      id: nid,
-      label: baseLabel,
-      type: "action",
-      children: [],
-      action: { kind: kind as ActionKind, data: defaults[kind] },
-    };
-    setFlow(prev=>({
-      ...prev,
-      nodes:{
-        ...prev.nodes,
-        [nid]: newNode,
-        [parentId]: { ...prev.nodes[parentId], children:[...prev.nodes[parentId].children, nid] }
+    let createdId: string | null = null;
+    let failure: string | null = null;
+
+    setFlow((prev) => {
+      const parent = prev.nodes[parentId];
+      if (!parent) {
+        failure = "Selecciona un nodo válido para agregar acciones";
+        return prev;
       }
-    }));
-    setSelectedId(nid);
+
+      const handleSpecs = getOutputHandleSpecs(parent);
+      if (handleSpecs.length === 0) {
+        failure = "Este nodo no admite más conexiones";
+        return prev;
+      }
+
+      const nid = nextChildId(prev, parentId);
+
+      const defaults: Record<typeof kind, any> = {
+        message: { text: "Mensaje" },
+        buttons: normalizeButtonsData({
+          items: [
+            createButtonOption(0, { label: "Sí", value: "YES" }),
+            createButtonOption(1, { label: "No", value: "NO" }),
+          ],
+          maxButtons: DEFAULT_BUTTON_LIMIT,
+        }),
+        attachment: { attType: "image", url: "", name: "archivo", fileName: "", mimeType: "", fileSize: 0, fileData: "" },
+        webhook_out: {
+          method: "POST",
+          url: "https://api.ejemplo.com/webhook",
+          headers: [{ k: "Content-Type", v: "application/json" }],
+          body: '{\n  "user_id": "{{user.id}}",\n  "input": "{{last_message}}"\n}',
+        },
+        webhook_in: { path: "/hooks/inbound", secret: "", sample: "{ id: 123, text: 'hola' }" },
+        transfer: { target: "open_channel", destination: "ventas" },
+        handoff: { queue: "agentes", note: "pasar a humano" },
+        ia_rag: { prompt: "Buscar en base de conocimiento..." },
+        tool: { name: "mi-tool", args: {} },
+        question: {
+          questionText: "¿Cuál es tu respuesta?",
+          varName: "respuesta",
+          varType: "text",
+          validation: { type: "none" },
+          retryMessage: "Lo siento, ¿puedes intentarlo de nuevo?",
+          answerTargetId: null,
+          invalidTargetId: null,
+        },
+        validation: {
+          rules: [],
+          matchMode: "any",
+          defaultTargetId: null,
+          bitrixConfig: {
+            entityType: "lead",
+            identifierField: "PHONE",
+            fieldsToCheck: ["NAME", "LAST_NAME"],
+          },
+          keywordGroups: [
+            {
+              id: createId("kw"),
+              label: "Grupo 1",
+              mode: "contains",
+              keywords: ["keyword"],
+            },
+          ],
+          keywordGroupLogic: "or",
+          matchTargetId: null,
+          noMatchTargetId: null,
+          errorTargetId: null,
+        },
+        scheduler: normalizeSchedulerData(undefined),
+        end: { note: "Fin del flujo" },
+      };
+
+      const labelMap: Record<typeof kind, string> = {
+        message: "Mensaje",
+        buttons: "Botones",
+        attachment: "Adjunto",
+        webhook_out: "Webhook OUT",
+        webhook_in: "Webhook IN",
+        transfer: "Transferir",
+        handoff: "Handoff",
+        ia_rag: "IA RAG",
+        tool: "Herramienta",
+        question: "Pregunta",
+        validation: "Validación",
+        scheduler: "Scheduler",
+        end: "Fin del flujo",
+      };
+
+      const actionKindMap: Record<typeof kind, ActionKind> = {
+        message: "message",
+        buttons: "buttons",
+        attachment: "attachment",
+        webhook_out: "webhook_out",
+        webhook_in: "webhook_in",
+        transfer: "transfer",
+        handoff: "handoff",
+        ia_rag: "ia_rag",
+        tool: "tool",
+        question: "ask",
+        validation: "condition",
+        scheduler: "scheduler",
+        end: "end",
+      };
+
+      const newNode: FlowNode = {
+        id: nid,
+        label: labelMap[kind] ?? `Acción · ${kind}`,
+        type: "action",
+        children: [],
+        action: { kind: actionKindMap[kind], data: defaults[kind] },
+      };
+
+      const nextNodes: Flow["nodes"] = { ...prev.nodes };
+      const parentClone: FlowNode = {
+        ...parent,
+        children: Array.isArray(parent.children) ? [...parent.children] : [],
+      };
+      if (parent.menuOptions) {
+        parentClone.menuOptions = parent.menuOptions.map((option, idx) => createMenuOption(idx, option));
+      }
+      if (parent.action) {
+        parentClone.action = {
+          ...parent.action,
+          data:
+            parent.action.data && typeof parent.action.data === "object"
+              ? JSON.parse(JSON.stringify(parent.action.data))
+              : parent.action.data,
+        };
+      }
+
+      nextNodes[parentId] = parentClone;
+      nextNodes[nid] = newNode;
+
+      const nextFlow: Flow = { ...prev, nodes: nextNodes };
+      const assignments = getHandleAssignments(parentClone);
+      const availableHandle =
+        handleSpecs.find((spec) => !assignments[spec.id])?.id ?? handleSpecs[0]?.id ?? "out:default";
+
+      if (!availableHandle || !applyHandleAssignment(nextFlow, parentId, availableHandle, nid)) {
+        failure = "No hay salidas disponibles en este nodo.";
+        return prev;
+      }
+
+      createdId = nid;
+      return nextFlow;
+    });
+
+    if (createdId) {
+      setSelectedId(createdId);
+    } else if (failure) {
+      showToast(failure, "error");
+    }
   }
+
 
   function deleteNode(id:string){
     if (id===flow.rootId) return;
@@ -1156,6 +1728,24 @@ export default function App(): JSX.Element {
             }
             if (updated.invalidTargetId === id) {
               updated.invalidTargetId = fallbackTarget;
+            }
+            parentNode.action = { ...parentNode.action, data: updated };
+          }
+        } else if (parentNode.action?.kind === "condition") {
+          const condition = getConditionData(parentNode);
+          if (condition) {
+            const updated: ConditionActionData = { ...condition };
+            if (updated.matchTargetId === id) {
+              updated.matchTargetId = fallbackTarget;
+            }
+            if (updated.noMatchTargetId === id) {
+              updated.noMatchTargetId = fallbackTarget;
+            }
+            if (updated.errorTargetId === id) {
+              updated.errorTargetId = fallbackTarget;
+            }
+            if (updated.defaultTargetId === id) {
+              updated.defaultTargetId = fallbackTarget;
             }
             parentNode.action = { ...parentNode.action, data: updated };
           }
@@ -1370,70 +1960,104 @@ export default function App(): JSX.Element {
         const source = next.nodes[sourceId];
         if (!source) return prev;
         const nid = nextChildId(next, sourceId);
-        const baseLabel =
-          kind === "menu"
-            ? "Nuevo submenú"
-            : kind === "ask"
-            ? "Pregunta al cliente"
-            : kind === "buttons"
-            ? "Acción · botones"
-            : "Acción · mensaje";
+
+        const labelMap: Partial<Record<ConnectionCreationKind, string>> = {
+          menu: "Nuevo submenú",
+          message: "Mensaje",
+          buttons: "Botones",
+          question: "Pregunta al cliente",
+          validation: "Validación",
+          attachment: "Adjunto",
+          webhook_out: "Webhook OUT",
+          webhook_in: "Webhook IN",
+          transfer: "Transferencia",
+          scheduler: "Scheduler",
+          end: "Fin del flujo",
+        };
+
         let newNode: FlowNode;
         if (kind === "menu") {
-          newNode = { id: nid, label: baseLabel, type: "menu", children: [], menuOptions: [] } as FlowNode;
-        } else if (kind === "ask") {
-          newNode = {
-            id: nid,
-            label: baseLabel,
-            type: "action",
-            children: [],
-            action: {
-              kind: "ask",
-              data: {
-                questionText: "¿Cuál es tu respuesta?",
-                varName: "respuesta",
-                varType: "text",
-                validation: { type: "none" },
-                retryMessage: "Lo siento, ¿puedes intentarlo de nuevo?",
-                answerTargetId: null,
-                invalidTargetId: null,
-              },
-            },
-          } as FlowNode;
-        } else if (kind === "buttons") {
-          newNode = {
-            id: nid,
-            label: baseLabel,
-            type: "action",
-            children: [],
-            action: {
-              kind: "buttons",
-              data: normalizeButtonsData({
-                items: [
-                  createButtonOption(0, { label: "Opción 1", value: "OP_1" }),
-                  createButtonOption(1, { label: "Opción 2", value: "OP_2" }),
-                ],
-                maxButtons: DEFAULT_BUTTON_LIMIT,
-              }),
-            },
-          } as FlowNode;
-        } else if (kind === "end") {
-          newNode = {
-            id: nid,
-            label: "Fin del flujo",
-            type: "action",
-            children: [],
-            action: { kind: "end", data: { note: "Fin del flujo" } },
-          } as FlowNode;
+          newNode = { id: nid, label: labelMap.menu ?? "Submenú", type: "menu", children: [], menuOptions: [] } as FlowNode;
         } else {
+          const actionKindMap: Partial<Record<ConnectionCreationKind, ActionKind>> = {
+            message: "message",
+            buttons: "buttons",
+            question: "ask",
+            validation: "condition",
+            attachment: "attachment",
+            webhook_out: "webhook_out",
+            webhook_in: "webhook_in",
+            transfer: "transfer",
+            scheduler: "scheduler",
+            end: "end",
+          };
+
+          const dataDefaults: Partial<Record<ConnectionCreationKind, any>> = {
+            message: { text: "Mensaje" },
+            buttons: normalizeButtonsData({
+              items: [
+                createButtonOption(0, { label: "Opción 1", value: "OP_1" }),
+                createButtonOption(1, { label: "Opción 2", value: "OP_2" }),
+              ],
+              maxButtons: DEFAULT_BUTTON_LIMIT,
+            }),
+            question: {
+              questionText: "¿Cuál es tu respuesta?",
+              varName: "respuesta",
+              varType: "text",
+              validation: { type: "none" },
+              retryMessage: "Lo siento, ¿puedes intentarlo de nuevo?",
+              answerTargetId: null,
+              invalidTargetId: null,
+            },
+            validation: {
+              rules: [],
+              matchMode: "any",
+              defaultTargetId: null,
+              bitrixConfig: {
+                entityType: "lead",
+                identifierField: "PHONE",
+                fieldsToCheck: ["NAME", "LAST_NAME"],
+              },
+              keywordGroups: [
+                {
+                  id: createId("kw"),
+                  label: "Grupo 1",
+                  mode: "contains",
+                  keywords: ["keyword"],
+                },
+              ],
+              keywordGroupLogic: "or",
+              matchTargetId: null,
+              noMatchTargetId: null,
+              errorTargetId: null,
+            },
+            attachment: { attType: "image", url: "", name: "archivo", fileName: "", mimeType: "", fileSize: 0, fileData: "" },
+            webhook_out: {
+              method: "POST",
+              url: "https://api.ejemplo.com/webhook",
+              headers: [{ k: "Content-Type", v: "application/json" }],
+              body: '{\n  "user_id": "{{user.id}}",\n  "input": "{{last_message}}"\n}',
+            },
+            webhook_in: { path: "/hooks/inbound", secret: "", sample: "{ id: 123, text: 'hola' }" },
+            transfer: { target: "open_channel", destination: "ventas" },
+            scheduler: normalizeSchedulerData(undefined),
+            end: { note: "Fin del flujo" },
+          };
+
+          const actionKind = actionKindMap[kind] ?? "message";
+          const actionData = dataDefaults[kind] ?? { text: "Mensaje" };
+          const label = labelMap[kind] ?? `Acción · ${kind}`;
+
           newNode = {
             id: nid,
-            label: baseLabel,
+            label,
             type: "action",
             children: [],
-            action: { kind: "message", data: { text: "Mensaje" } },
+            action: { kind: actionKind, data: actionData },
           } as FlowNode;
         }
+
         next.nodes[nid] = newNode;
         if (!applyHandleAssignment(next, sourceId, handleId, nid)) {
           delete next.nodes[nid];
@@ -1452,7 +2076,7 @@ export default function App(): JSX.Element {
       }
       return createdId;
     },
-    [setFlow, setPositions, setSelectedId]
+    [setFlow, setPositions, setSelectedId],
   );
 
   function insertBetween(parentId:string, childId:string){
@@ -1684,6 +2308,28 @@ export default function App(): JSX.Element {
             📱 WhatsApp API
           </button>
           <button
+            className="px-3 py-1.5 text-sm border border-purple-500 rounded bg-white hover:bg-purple-50 text-purple-600 font-medium"
+            onClick={() => setShowTemplateSelector(true)}
+          >
+            📋 Templates
+          </button>
+          <button
+            className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={undoRedoActions.undo}
+            disabled={!undoRedoActions.canUndo}
+            title="Deshacer (Ctrl+Z)"
+          >
+            ↶ Deshacer
+          </button>
+          <button
+            className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={undoRedoActions.redo}
+            disabled={!undoRedoActions.canRedo}
+            title="Rehacer (Ctrl+Y)"
+          >
+            ↷ Rehacer
+          </button>
+          <button
             className={`px-3 py-1.5 text-sm border rounded ${
               hasBlockingErrors
                 ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
@@ -1696,6 +2342,7 @@ export default function App(): JSX.Element {
           </button>
           <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleLoad}>Cargar</button>
           <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleExport}>Exportar JSON</button>
+          <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleExportPNG}>📸 Exportar PNG</button>
           <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleImportClick}>Importar JSON</button>
           <button
             className={`px-3 py-1.5 text-sm rounded ${
@@ -1723,12 +2370,19 @@ export default function App(): JSX.Element {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:items-start">
         <div className="order-2 lg:order-1 lg:col-span-9 lg:col-start-1 flex flex-col" style={{ height: "calc(100vh - 120px)" }}>
           <div className="bg-white flex-1 flex flex-col overflow-hidden">
-            <div className="px-3 py-2 bg-slate-50 text-sm font-semibold flex items-center justify-between border-b flex-shrink-0">
-              <span>Canvas de flujo</span>
-              <div className="flex gap-2">
-                <button className="px-3 py-1.5 text-sm rounded border border-emerald-200 bg-white hover:bg-emerald-50 transition" onClick={()=>setSoloRoot(s=>!s)}>{soloRoot?"Mostrar todo":"Solo raíz"}</button>
+              <div className="px-3 py-2 bg-slate-50 text-sm font-semibold flex items-center justify-between border-b flex-shrink-0">
+                <span>Canvas de flujo</span>
+                <div className="flex gap-2">
+                  <button
+                    className="px-3 py-1.5 text-sm rounded border border-blue-200 bg-white text-blue-700 hover:bg-blue-50 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                    onClick={() => centerCanvas?.()}
+                    disabled={!centerCanvas}
+                  >
+                    🎯 Centrar
+                  </button>
+                  <button className="px-3 py-1.5 text-sm rounded border border-emerald-200 bg-white hover:bg-emerald-50 transition" onClick={()=>setSoloRoot(s=>!s)}>{soloRoot?"Mostrar todo":"Solo raíz"}</button>
+                </div>
               </div>
-            </div>
             <div className="flex-1 overflow-hidden">
               <ReactFlowCanvas
                 flow={flow}
@@ -1741,13 +2395,14 @@ export default function App(): JSX.Element {
                 onDeleteEdge={deleteEdge}
                 onConnectHandle={handleConnectHandle}
                 onCreateForHandle={handleCreateForHandle}
-                onAttachToMessage={handleMessageAttachments}
-                onInvalidConnection={(message) => showToast(message, "error")}
-                invalidMessageIds={emptyMessageNodes}
-                soloRoot={soloRoot}
-                toggleScope={() => setSoloRoot((s) => !s)}
-                nodePositions={positionsState}
+                  onAttachToMessage={handleMessageAttachments}
+                  onInvalidConnection={(message) => showToast(message, "error")}
+                  soloRoot={soloRoot}
+                  toggleScope={() => setSoloRoot((s) => !s)}
+                  nodePositions={positionsState}
                   onPositionsChange={setPositions}
+                  onRegisterFitView={handleRegisterFitView}
+                  invalidMessageIds={emptyMessageNodes}
                 />
               </div>
             </div>
@@ -1755,100 +2410,102 @@ export default function App(): JSX.Element {
             {/* Toolbar de acciones debajo del canvas - VERTICAL */}
             <div className="border-t bg-white shadow-lg flex-shrink-0 overflow-y-auto max-h-48">
               <div className="px-4 py-3 space-y-4">
-                {/* Estructura */}
-                <div className="space-y-2">
-                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Estructura</h4>
-                  <div className="flex flex-wrap gap-2">
+                <section className="space-y-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mensajería</h4>
+                  <div className="flex flex-col gap-2">
                     <button
                       className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2"
-                      onClick={()=>addChildTo(selectedId,"menu")}
-                      disabled={!selectedId}
-                    >
-                      <span>📋</span> Submenú
-                    </button>
-                  </div>
-                </div>
-
-                {/* Mensajes */}
-                <div className="space-y-2">
-                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Mensajes</h4>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2"
-                      onClick={()=>addChildTo(selectedId,"action")}
+                      onClick={() => addActionOfKind(selectedId, "message")}
                       disabled={!selectedId}
                     >
                       <span>💬</span> Mensaje
                     </button>
                     <button
                       className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2"
-                      onClick={()=>addActionOfKind(selectedId,"buttons")}
+                      onClick={() => addActionOfKind(selectedId, "buttons")}
                       disabled={!selectedId}
                     >
                       <span>🔘</span> Botones
                     </button>
                     <button
                       className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2"
-                      onClick={()=>addActionOfKind(selectedId,"ask")}
-                      disabled={!selectedId}
-                    >
-                      <span>❓</span> Pregunta
-                    </button>
-                    <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2"
-                      onClick={()=>addActionOfKind(selectedId,"attachment")}
+                      onClick={() => addActionOfKind(selectedId, "attachment")}
                       disabled={!selectedId}
                     >
                       <span>📎</span> Adjunto
                     </button>
                   </div>
-                </div>
+                </section>
 
-                {/* Integraciones */}
-                <div className="space-y-2">
-                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Integraciones</h4>
-                  <div className="flex flex-wrap gap-2">
+                <section className="space-y-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Captura</h4>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition flex items-center gap-2"
+                      onClick={() => addActionOfKind(selectedId, "question")}
+                      disabled={!selectedId}
+                    >
+                      <span>❓</span> Preguntar
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition flex items-center gap-2"
+                      onClick={() => addChildTo(selectedId, "menu")}
+                      disabled={!selectedId}
+                    >
+                      <span>📋</span> Menú
+                    </button>
+                  </div>
+                </section>
+
+                <section className="space-y-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Lógica</h4>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition flex items-center gap-2"
+                      onClick={() => addActionOfKind(selectedId, "validation")}
+                      disabled={!selectedId}
+                    >
+                      <span>🛡️</span> Validación
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition flex items-center gap-2"
+                      onClick={() => addActionOfKind(selectedId, "scheduler")}
+                      disabled={!selectedId}
+                    >
+                      <span>⏰</span> Scheduler
+                    </button>
+                  </div>
+                </section>
+
+                <section className="space-y-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Integraciones</h4>
+                  <div className="flex flex-col gap-2">
                     <button
                       className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2"
-                      onClick={()=>addActionOfKind(selectedId,"webhook_out")}
+                      onClick={() => addActionOfKind(selectedId, "webhook_out")}
                       disabled={!selectedId}
                     >
                       <span>🔗</span> Webhook OUT
                     </button>
                     <button
                       className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2"
-                      onClick={()=>addActionOfKind(selectedId,"webhook_in")}
+                      onClick={() => addActionOfKind(selectedId, "webhook_in")}
                       disabled={!selectedId}
                     >
-                      <span>📥</span> Webhook IN
-                    </button>
-                    <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2"
-                      onClick={()=>addActionOfKind(selectedId,"transfer")}
-                      disabled={!selectedId}
-                    >
-                      <span>👤</span> Transferir
-                    </button>
-                    <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2"
-                      onClick={()=>addActionOfKind(selectedId,"scheduler")}
-                      disabled={!selectedId}
-                    >
-                      <span>⏰</span> Scheduler
+                      <span>🔍</span> Bitrix24 Lookup
                     </button>
                   </div>
-                </div>
+                </section>
 
-                {/* Control */}
-                <div className="space-y-2">
-                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Control</h4>
-                  <div className="flex flex-wrap gap-2">
+                <section className="space-y-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Control</h4>
+                  <div className="flex flex-col gap-2">
                     <button
                       className="px-3 py-2 text-xs font-medium rounded-lg bg-slate-500 text-white hover:bg-slate-600 transition flex items-center gap-2"
-                      onClick={()=>addActionOfKind(selectedId,"end")}
+                      onClick={() => addActionOfKind(selectedId, "end")}
                       disabled={!selectedId}
                     >
-                      <span>🛑</span> Finalizar
+                      <span>🛑</span> Finalizar flujo
                     </button>
                     <button
                       className="px-3 py-2 text-xs font-medium rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition flex items-center gap-2"
@@ -1857,7 +2514,7 @@ export default function App(): JSX.Element {
                       <span>⚡</span> Demo rápido
                     </button>
                   </div>
-                </div>
+                </section>
               </div>
             </div>
           </div>
@@ -1992,7 +2649,40 @@ export default function App(): JSX.Element {
                 {selected.type==="action" && (
                   <div className="mt-2 space-y-3">
                     <label className="block text-xs mb-1">Tipo de acción</label>
-                    <select className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300" value={selected.action?.kind ?? "message"} onChange={(e)=>updateSelected({ action:{ kind:e.target.value as any, data:selected.action?.data ?? {} } })}>
+                    <select
+                      className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                      value={selected.action?.kind ?? "message"}
+                      onChange={(e) => {
+                        const nextKind = e.target.value as ActionKind;
+                        if (nextKind === 'ask') {
+                          updateSelectedAction('ask', {
+                            questionText: '¿Cuál es tu respuesta?',
+                            varName: 'respuesta',
+                            varType: 'text',
+                            validation: { type: 'none' },
+                            retryMessage: 'Lo siento, ¿puedes intentarlo de nuevo?',
+                            answerTargetId: null,
+                            invalidTargetId: null,
+                          });
+                        } else if (nextKind === 'condition') {
+                          updateSelectedAction('condition', {
+                            rules: [],
+                            matchMode: 'any',
+                            defaultTargetId: null,
+                            bitrixConfig: { entityType: 'lead', identifierField: 'PHONE', fieldsToCheck: ['NAME', 'LAST_NAME'] },
+                            keywordGroups: [{ id: createId('kw'), label: 'Grupo 1', mode: 'contains', keywords: ['keyword'] }],
+                            keywordGroupLogic: 'or',
+                            matchTargetId: null,
+                            noMatchTargetId: null,
+                            errorTargetId: null,
+                          });
+                        } else if (nextKind === 'scheduler') {
+                          updateSelectedAction('scheduler', normalizeSchedulerData(undefined));
+                        } else {
+                          updateSelectedAction(nextKind, selected.action?.data ?? {});
+                        }
+                      }}
+                    >
                       <option value="message">Mensaje</option>
                       <option value="buttons">Botones</option>
                       <option value="attachment">Adjunto</option>
@@ -2003,6 +2693,8 @@ export default function App(): JSX.Element {
                       <option value="ia_rag">IA · RAG</option>
                       <option value="tool">Tool/Acción externa</option>
                       <option value="ask">Pregunta al cliente</option>
+                      <option value="condition">Validación Bitrix</option>
+                      <option value="scheduler">Scheduler</option>
                       <option value="end">Finalizar flujo</option>
                     </select>
 
@@ -2268,7 +2960,294 @@ export default function App(): JSX.Element {
                       </div>
                     )}
 
-                    {selected.action?.kind==="attachment" && (
+                    {selected.action?.kind === "condition" && validationDataForSelected && (
+                      <div className="space-y-3 text-xs">
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[11px] text-slate-500 font-semibold">Entidad de Bitrix</label>
+                            {bitrixFieldsLoading && <span className="text-[10px] text-slate-400">Cargando campos…</span>}
+                          </div>
+                          <select
+                            className="w-full border rounded px-2 py-1"
+                            value={validationDataForSelected.bitrixConfig?.entityType ?? 'lead'}
+                            onChange={(e) =>
+                              handleValidationUpdate((prev) => ({
+                                ...prev,
+                                bitrixConfig: {
+                                  entityType: e.target.value as 'lead' | 'deal' | 'contact' | 'company',
+                                  identifierField: prev.bitrixConfig?.identifierField ?? 'PHONE',
+                                  fieldsToCheck: prev.bitrixConfig?.fieldsToCheck ?? ['NAME', 'LAST_NAME'],
+                                },
+                              }))
+                            }
+                          >
+                            <option value="lead">Lead</option>
+                            <option value="deal">Deal</option>
+                            <option value="contact">Contacto</option>
+                            <option value="company">Empresa</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[11px] text-slate-500 font-semibold">Campo identificador</label>
+                          <input
+                            className="w-full border rounded px-2 py-1"
+                            value={validationDataForSelected.bitrixConfig?.identifierField ?? 'PHONE'}
+                            onChange={(e) =>
+                              handleValidationUpdate((prev) => ({
+                                ...prev,
+                                bitrixConfig: {
+                                  entityType: prev.bitrixConfig?.entityType ?? 'lead',
+                                  identifierField: e.target.value || 'PHONE',
+                                  fieldsToCheck: prev.bitrixConfig?.fieldsToCheck ?? ['NAME', 'LAST_NAME'],
+                                },
+                              }))
+                            }
+                          />
+                        </div>
+                        {bitrixFieldsError && (
+                          <div className="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] text-rose-700">
+                            {bitrixFieldsError}
+                          </div>
+                        )}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] text-slate-500 font-semibold">Campos a revisar</span>
+                            <div className="flex items-center gap-2">
+                              <select
+                                className="border rounded px-2 py-1 text-[10px]"
+                                defaultValue=""
+                                onChange={(e) => {
+                                  const field = e.target.value;
+                                  if (!field) return;
+                                  handleValidationUpdate((prev) => ({
+                                    ...prev,
+                                    bitrixConfig: {
+                                      entityType: prev.bitrixConfig?.entityType ?? 'lead',
+                                      identifierField: prev.bitrixConfig?.identifierField ?? 'PHONE',
+                                      fieldsToCheck: Array.from(new Set([...(prev.bitrixConfig?.fieldsToCheck ?? []), field])),
+                                    },
+                                  }));
+                                  e.target.value = '';
+                                }}
+                              >
+                                <option value="">Agregar campo…</option>
+                                {bitrixFieldOptions.map((field) => (
+                                  <option key={field} value={field}>
+                                    {field}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                className="px-2 py-0.5 text-[10px] border rounded"
+                                onClick={() =>
+                                  handleValidationUpdate((prev) => ({
+                                    ...prev,
+                                    bitrixConfig: {
+                                      entityType: prev.bitrixConfig?.entityType ?? 'lead',
+                                      identifierField: prev.bitrixConfig?.identifierField ?? 'PHONE',
+                                      fieldsToCheck: Array.from(new Set([...(prev.bitrixConfig?.fieldsToCheck ?? []), 'EMAIL'])),
+                                    },
+                                  }))
+                                }
+                              >
+                                + EMAIL
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {(validationDataForSelected.bitrixConfig?.fieldsToCheck ?? []).map((field) => (
+                              <span key={field} className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-[10px] text-slate-600 border border-slate-200">
+                                {field}
+                                <button
+                                  className="text-[10px] text-rose-500"
+                                  onClick={() =>
+                                    handleValidationUpdate((prev) => ({
+                                      ...prev,
+                                      bitrixConfig: {
+                                        entityType: prev.bitrixConfig?.entityType ?? 'lead',
+                                        identifierField: prev.bitrixConfig?.identifierField ?? 'PHONE',
+                                        fieldsToCheck: (prev.bitrixConfig?.fieldsToCheck ?? []).filter((item) => item !== field),
+                                      },
+                                    }))
+                                  }
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          {validationDataForSelected.bitrixConfig?.fieldsToCheck?.length === 0 && (
+                            <span className="text-[11px] text-slate-400">Sin campos seleccionados</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="space-y-1">
+                          <label className="text-[11px] text-slate-500 font-semibold">Modo de coincidencia</label>
+                          <select
+                            className="w-full border rounded px-2 py-1"
+                            value={validationDataForSelected.matchMode ?? 'any'}
+                            onChange={(event) =>
+                              handleValidationUpdate((prev) => ({
+                                ...prev,
+                                matchMode: event.target.value === 'all' ? 'all' : 'any',
+                              }))
+                            }
+                          >
+                            <option value="any">Coincide con cualquiera (OR)</option>
+                            <option value="all">Debe cumplir todas (AND)</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[11px] text-slate-500 font-semibold">Evaluación de grupos de keywords</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              className={`px-2 py-1 text-xs rounded border ${
+                                (validationDataForSelected.keywordGroupLogic ?? 'or') === 'or'
+                                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                  : 'border-slate-200 text-slate-500'
+                              }`}
+                              onClick={() => handleKeywordLogicChange('or')}
+                            >
+                              Cualquiera (OR)
+                            </button>
+                            <button
+                              type="button"
+                              className={`px-2 py-1 text-xs rounded border ${
+                                validationDataForSelected.keywordGroupLogic === 'and'
+                                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                  : 'border-slate-200 text-slate-500'
+                              }`}
+                              onClick={() => handleKeywordLogicChange('and')}
+                            >
+                              Todas (AND)
+                            </button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] text-slate-500 font-semibold">Grupos de palabras clave</span>
+                            <button
+                              type="button"
+                              className="px-2 py-0.5 text-[10px] border rounded"
+                              onClick={handleAddKeywordGroup}
+                            >
+                              + grupo
+                            </button>
+                          </div>
+                          {(validationDataForSelected.keywordGroups ?? []).length === 0 && (
+                            <div className="text-[11px] text-slate-400">Añade grupos para evaluar keywords por temas.</div>
+                          )}
+                          {(validationDataForSelected.keywordGroups ?? []).map((group, idx) => (
+                            <div key={group.id} className="border border-slate-200 rounded-lg p-2 space-y-2 bg-white">
+                              <div className="flex items-center justify-between gap-2">
+                                <input
+                                  className="flex-1 border rounded px-2 py-1 text-[12px]"
+                                  value={group.label ?? `Grupo ${idx + 1}`}
+                                  onChange={(event) =>
+                                    handleKeywordGroupChange(group.id, (current) => ({
+                                      ...current,
+                                      label: event.target.value,
+                                    }))
+                                  }
+                                  placeholder="Nombre interno"
+                                />
+                                <button
+                                  type="button"
+                                  className="px-2 py-0.5 text-[10px] border rounded"
+                                  onClick={() => handleRemoveKeywordGroup(group.id)}
+                                >
+                                  Eliminar
+                                </button>
+                              </div>
+                              <div className="flex items-center gap-2 text-[11px]">
+                                <span className="text-slate-500">Modo</span>
+                                <select
+                                  className="border rounded px-2 py-1 text-[11px]"
+                                  value={group.mode ?? 'contains'}
+                                  onChange={(event) =>
+                                    handleKeywordGroupChange(group.id, (current) => ({
+                                      ...current,
+                                      mode: event.target.value === 'exact' ? 'exact' : 'contains',
+                                    }))
+                                  }
+                                >
+                                  <option value="contains">Contiene</option>
+                                  <option value="exact">Exacto</option>
+                                </select>
+                              </div>
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between text-[11px] text-slate-500">
+                                  <span>Palabras clave ({group.keywords?.length ?? 0})</span>
+                                  <button
+                                    type="button"
+                                    className="px-2 py-0.5 text-[10px] border rounded"
+                                    onClick={() => handleAddKeywordToGroup(group.id)}
+                                  >
+                                    + palabra
+                                  </button>
+                                </div>
+                                {(group.keywords ?? []).length === 0 && (
+                                  <div className="text-[11px] text-slate-400">Aún no hay palabras en este grupo.</div>
+                                )}
+                                {(group.keywords ?? []).map((keyword, keywordIdx) => (
+                                  <div key={`${group.id}-${keywordIdx}`} className="flex items-center gap-2">
+                                    <input
+                                      className="flex-1 border rounded px-2 py-1 text-[12px]"
+                                      value={keyword}
+                                      onChange={(event) =>
+                                        handleKeywordValueChange(group.id, keywordIdx, event.target.value)
+                                      }
+                                      placeholder="Palabra clave"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="px-2 py-0.5 text-[10px] border rounded"
+                                      onClick={() => handleRemoveKeyword(group.id, keywordIdx)}
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {renderConditionTargetSelector({
+                            label: 'Destino si coincide',
+                            helper: 'Se usará cuando las reglas o keywords hagan match',
+                            key: 'matchTargetId',
+                            value: validationDataForSelected.matchTargetId ?? null,
+                            tone: 'success',
+                          })}
+                          {renderConditionTargetSelector({
+                            label: 'Destino sin coincidencia',
+                            helper: 'Se usará cuando no haya ninguna coincidencia',
+                            key: 'noMatchTargetId',
+                            value: validationDataForSelected.noMatchTargetId ?? null,
+                            tone: 'default',
+                          })}
+                          {renderConditionTargetSelector({
+                            label: 'Destino por error',
+                            helper: 'Errores de integración, timeouts u otros fallos',
+                            key: 'errorTargetId',
+                            value: validationDataForSelected.errorTargetId ?? null,
+                            tone: 'danger',
+                          })}
+                          {renderConditionTargetSelector({
+                            label: 'Fallback (sin reglas)',
+                            helper: 'Cuando no hay reglas configuradas se usará este camino',
+                            key: 'defaultTargetId',
+                            value: validationDataForSelected.defaultTargetId ?? null,
+                            tone: 'warning',
+                          })}
+                        </div>
+                      </div>
+                      </div>
+                    )}
+
+                      {selected.action?.kind==="attachment" && (
                       <div className="space-y-3 text-xs">
                         <div className="flex gap-2">
                           <select
@@ -2676,6 +3655,24 @@ export default function App(): JSX.Element {
       {/* Panel de configuración WhatsApp */}
       {showWhatsAppConfig && (
         <WhatsAppConfigPanel onClose={() => setShowWhatsAppConfig(false)} />
+      )}
+
+      {/* Modal de búsqueda de nodos */}
+      {showNodeSearch && (
+        <NodeSearchModal
+          flow={flow}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          onClose={() => setShowNodeSearch(false)}
+        />
+      )}
+
+      {/* Modal de selección de templates */}
+      {showTemplateSelector && (
+        <TemplateSelector
+          onSelect={handleSelectTemplate}
+          onClose={() => setShowTemplateSelector(false)}
+        />
       )}
     </div>
   );

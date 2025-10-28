@@ -108,7 +108,8 @@ function resolveNodeType(node: FlowNode): string {
   if (node.type === 'menu') return 'menu';
   if (node.action?.kind === 'message') return 'message';
   if (node.action?.kind === 'end') return 'end';
-  if (node.action?.kind === 'ask') return 'condition';
+  if (node.action?.kind === 'ask') return 'question';
+  if (node.action?.kind === 'condition') return 'validation';
   return 'action';
 }
 
