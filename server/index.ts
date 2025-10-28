@@ -1,6 +1,7 @@
 import express, { type Request, type Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import { createServer } from "http";
 import { RuntimeEngine } from "../src/runtime/engine";
 import { NodeExecutor } from "../src/runtime/executor";
 import { WhatsAppWebhookHandler } from "../src/api/whatsapp-webhook";
@@ -10,16 +11,18 @@ import { createSessionStore } from "./session-store";
 import { Bitrix24Client } from "../src/integrations/bitrix24";
 import { botLogger, metricsTracker } from "../src/runtime/monitoring";
 import { createApiRoutes } from "./api-routes";
+import { registerCrmModule } from "./crm";
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const server = createServer(app);
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // Initialize Runtime Engine
@@ -46,6 +49,13 @@ const runtimeEngine = new RuntimeEngine({
   flowProvider,
   sessionStore,
   executor,
+});
+
+// Conversational CRM module
+const crmModule = registerCrmModule({
+  app,
+  server,
+  bitrixClient,
 });
 
 // Initialize WhatsApp Webhook Handler
@@ -77,6 +87,9 @@ const whatsappHandler = new WhatsAppWebhookHandler({
     info: (message, meta) => botLogger.info(message, meta),
     warn: (message, meta) => botLogger.warn(message, meta),
     error: (message, meta) => botLogger.error(message, undefined, meta),
+  },
+  onIncomingMessage: async (payload) => {
+    await crmModule.handleIncomingWhatsApp(payload);
   },
 });
 
@@ -155,7 +168,7 @@ app.get("/api/flows", async (req: Request, res: Response) => {
 app.use("/api", createApiRoutes({ flowProvider, sessionStore }));
 
 // Start server
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📱 WhatsApp webhook: http://localhost:${PORT}/webhook/whatsapp`);
   console.log(`🏥 Health check: http://localhost:${PORT}/health`);

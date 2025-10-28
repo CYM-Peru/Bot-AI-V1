@@ -5,7 +5,6 @@
  */
 
 import type { IncomingMessage, OutboundMessage } from "./executor";
-import type { ConversationSession } from "./session";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 

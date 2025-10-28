@@ -5,7 +5,7 @@
  * Soporta Redis y almacenamiento en archivos.
  */
 
-import type { ConversationSession, SessionStore } from "../src/runtime/session";
+import { InMemorySessionStore, type ConversationSession, type SessionStore } from "../src/runtime/session";
 import { promises as fs } from "fs";
 import path from "path";
 
@@ -198,6 +198,7 @@ export class RedisSessionStore implements SessionStore {
   }
 
   async clearExpiredSessions(maxAgeHours: number): Promise<number> {
+    void maxAgeHours;
     // Redis ya maneja expiración automáticamente con TTL
     // Esta función es opcional aquí
     return 0;
@@ -290,7 +291,6 @@ export function createSessionStore(config: {
 
     case "memory":
     default:
-      const { InMemorySessionStore } = require("../src/runtime/session");
       return new InMemorySessionStore();
   }
 }

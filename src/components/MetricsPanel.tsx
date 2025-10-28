@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { API_BASE, apiUrl } from '../lib/apiBase';
 
 interface MetricsStats {
   activeConversations: number;
@@ -23,8 +24,6 @@ interface ConversationMetric {
   status: 'active' | 'ended' | 'error';
 }
 
-const API_BASE_URL = 'http://localhost:3000';
-
 export function MetricsPanel() {
   const [stats, setStats] = useState<MetricsStats | null>(null);
   const [metrics, setMetrics] = useState<ConversationMetric[]>([]);
@@ -34,7 +33,7 @@ export function MetricsPanel() {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/stats`);
+      const response = await fetch(apiUrl('/api/stats'));
       if (!response.ok) throw new Error('Failed to fetch stats');
       const data = await response.json();
       setStats(data);
@@ -46,7 +45,7 @@ export function MetricsPanel() {
 
   const fetchMetrics = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/metrics`);
+      const response = await fetch(apiUrl('/api/metrics'));
       if (!response.ok) throw new Error('Failed to fetch metrics');
       const data = await response.json();
       setMetrics(data.metrics || []);
@@ -57,7 +56,7 @@ export function MetricsPanel() {
 
   const fetchActiveConversations = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/conversations/active`);
+      const response = await fetch(apiUrl('/api/conversations/active'));
       if (!response.ok) throw new Error('Failed to fetch active conversations');
       const data = await response.json();
       setActiveConversations(data.conversations || []);
@@ -114,7 +113,8 @@ export function MetricsPanel() {
           <div className="text-rose-800 font-semibold">Error al cargar métricas</div>
           <div className="text-rose-600 text-sm mt-1">{error}</div>
           <div className="text-slate-600 text-sm mt-2">
-            Asegúrate de que el servidor esté corriendo en <code className="bg-rose-100 px-1 rounded">http://localhost:3000</code>
+            Asegúrate de que el servidor esté disponible en{' '}
+            <code className="bg-rose-100 px-1 rounded">{API_BASE}</code>
           </div>
         </div>
       </div>
