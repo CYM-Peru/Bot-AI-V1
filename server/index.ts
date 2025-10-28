@@ -13,10 +13,13 @@ import { botLogger, metricsTracker } from "../src/runtime/monitoring";
 import { createApiRoutes } from "./api-routes";
 import { registerCrmModule } from "./crm";
 import { initCrmWSS } from "./crm/ws";
+import { ensureStorageSetup } from "./utils/storage";
 import { getWhatsAppEnv, getWhatsAppVerifyToken } from "./utils/env";
 
 // Load environment variables
 dotenv.config();
+
+ensureStorageSetup();
 
 const app = express();
 const PORT = process.env.PORT || 3000;

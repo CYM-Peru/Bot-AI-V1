@@ -19,6 +19,7 @@ export interface WhatsAppSendResult {
 export interface WhatsAppCheckResult {
   ok: boolean;
   phoneNumberId?: string | null;
+  displayNumber?: string | null;
   displayPhoneNumber?: string | null;
   verifiedName?: string | null;
   reason?: string;
@@ -82,20 +83,35 @@ export async function checkWhatsAppConnection(): Promise<WhatsAppCheckResult> {
   } as WhatsAppCheckResult["details"];
 
   if (!config.phoneNumberId || !config.accessToken) {
-    return { ok: false, reason: "not_configured", phoneNumberId: config.phoneNumberId ?? null, details };
+    return {
+      ok: false,
+      reason: "not_configured",
+      phoneNumberId: config.phoneNumberId ?? null,
+      displayNumber: config.displayNumber ?? null,
+      details,
+    };
   }
 
   const url = `${config.baseUrl.replace(/\/$/, "")}/${config.apiVersion}/${config.phoneNumberId}`;
   const response = await httpRequest<{ display_phone_number?: string; verified_name?: string }>(url, {
     headers: { Authorization: `Bearer ${config.accessToken}` },
+    retries: 2,
+    retryDelayMs: 600,
   });
 
   if (!response.ok) {
+    const reason =
+      response.status === 401
+        ? "invalid_token"
+        : response.status === 400
+          ? "missing_phone_id"
+          : "provider_error";
     return {
       ok: false,
-      reason: response.status === 401 ? "invalid_token" : "provider_error",
+      reason,
       status: response.status,
       phoneNumberId: config.phoneNumberId,
+      displayNumber: config.displayNumber ?? null,
       details,
     };
   }
@@ -103,6 +119,7 @@ export async function checkWhatsAppConnection(): Promise<WhatsAppCheckResult> {
   return {
     ok: true,
     phoneNumberId: config.phoneNumberId,
+    displayNumber: config.displayNumber ?? null,
     displayPhoneNumber: response.body?.display_phone_number ?? null,
     verifiedName: response.body?.verified_name ?? null,
     details,

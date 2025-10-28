@@ -14,6 +14,7 @@ import type { SessionStore } from "../src/runtime/session";
 import { Bitrix24Client } from "../src/integrations/bitrix24";
 import { sendWspTestMessage } from "./services/wsp";
 import { createConnectionsRouter } from "./routes/connections";
+import { createBitrixRouter } from "./routes/bitrix";
 
 export interface ApiRoutesOptions {
   flowProvider: FlowProvider;
@@ -194,6 +195,7 @@ export function createApiRoutes(options: ApiRoutesOptions): Router {
   });
 
   router.use("/connections", createConnectionsRouter());
+  router.use("/bitrix", createBitrixRouter());
 
   router.post("/wsp/test", async (req, res) => {
     try {

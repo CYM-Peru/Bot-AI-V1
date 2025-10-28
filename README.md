@@ -313,3 +313,19 @@ Este proyecto es privado y confidencial.
 **Última actualización**: 2025-10-28
 **Versión**: 1.0.0
 **Estado**: ✅ Listo para Producción
+
+## 🔐 Conexiones reales (WhatsApp/Bitrix)
+
+La sección **Conexiones** del panel permite configurar credenciales reales sin exponer secretos en el frontend:
+
+- **WhatsApp Cloud API**
+  - Guarda el *Phone Number ID*, número mostrado, *Access Token* y *Verify Token* mediante `POST /api/connections/whatsapp/save`.
+  - Las credenciales se almacenan en `server/.secrets/whatsapp.json` (permisos `0600`).
+  - El botón **Revisar estado** consulta Meta Graph (`GET /api/connections/whatsapp/check`) y solo muestra éxito si Meta responde `200`.
+  - **Probar mensaje** envía un WhatsApp real con `POST /api/connections/whatsapp/test` reutilizando las credenciales guardadas.
+
+- **Bitrix24**
+  - `GET /api/bitrix/validate` usa los tokens guardados en `server/.secrets/bitrix-tokens.json` para llamar a `user.current` de Bitrix.
+  - Si la sesión expira, la UI muestra el botón para obtener `GET /api/bitrix/oauth/url` y completar el flujo OAuth.
+
+Además, el CRM expone métricas y conversaciones con rutas reales (`/api/crm/*`) y habilita el WebSocket seguro `wss:///api/crm/ws` protegido con `x-crm-key`.
