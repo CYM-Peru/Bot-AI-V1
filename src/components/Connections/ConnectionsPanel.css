@@ -1,0 +1,219 @@
+:root {
+  --connections-panel-width: clamp(420px, 32vw, 520px);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.65rem 1.1rem;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  color: #1f2937;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.1;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 180ms ease, transform 180ms ease, background 180ms ease, border-color 180ms ease;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.btn:not(:disabled):hover {
+  box-shadow: 0 3px 6px rgba(15, 23, 42, 0.12);
+  transform: translateY(-1px);
+}
+
+.btn--primary {
+  background: #d7f3ea;
+  color: #0e3b2e;
+  border-color: rgba(14, 59, 46, 0.24);
+}
+
+.btn--primary:not(:disabled):hover {
+  box-shadow: 0 4px 10px rgba(14, 59, 46, 0.18);
+}
+
+.btn--secondary {
+  background: #f5f5f5;
+  color: #1f2937;
+  border-color: rgba(31, 41, 55, 0.18);
+}
+
+.btn--secondary:not(:disabled):hover {
+  background: #ebebeb;
+}
+
+.btn--ghost {
+  background: #ffffff;
+  border-color: rgba(148, 163, 184, 0.4);
+  color: #1f2937;
+}
+
+.btn--ghost:not(:disabled):hover {
+  background: #f8fafc;
+}
+
+.topbar-tab {
+  min-width: 110px;
+  justify-content: flex-start;
+  font-size: 0.85rem;
+}
+
+.topbar-tab.is-active {
+  background: #0d9488;
+  border-color: #0f766e;
+  color: #ffffff;
+  box-shadow: 0 6px 14px rgba(13, 148, 136, 0.22);
+}
+
+.connections-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.28);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 60;
+}
+
+.connections-panel {
+  position: relative;
+  width: var(--connections-panel-width);
+  max-width: 100%;
+  height: 100%;
+  background: #ffffff;
+  box-shadow: -4px 0 24px rgba(15, 23, 42, 0.22);
+  display: flex;
+  flex-direction: column;
+}
+
+.connections-panel__header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.connections-panel__header h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0;
+  color: #0f172a;
+}
+
+.connections-panel__body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.connections-tabs {
+  width: clamp(140px, 20vw, 160px);
+  border-right: 1px solid rgba(148, 163, 184, 0.25);
+  background: #f8fafc;
+  padding: 1rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.connections-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #1e293b;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 180ms ease, color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.connections-tab:focus-visible {
+  outline: 2px solid #0ea5e9;
+  outline-offset: 2px;
+}
+
+.connections-tab:hover {
+  background: rgba(45, 212, 191, 0.12);
+}
+
+.connections-tab.is-active {
+  background: rgba(45, 212, 191, 0.2);
+  border-color: rgba(13, 148, 136, 0.35);
+  color: #0f766e;
+  box-shadow: inset 0 0 0 1px rgba(13, 148, 136, 0.2);
+}
+
+.connections-panel__content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  background: #f1f5f9;
+}
+
+.connections-panel__scroll {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 1.25rem;
+}
+
+.connections-panel__close {
+  border: none;
+  background: transparent;
+  font-size: 1.75rem;
+  line-height: 1;
+  color: #64748b;
+  cursor: pointer;
+  transition: color 180ms ease, transform 180ms ease;
+}
+
+.connections-panel__close:hover {
+  color: #0f172a;
+  transform: rotate(8deg);
+}
+
+.connections-panel__close:focus-visible {
+  outline: 2px solid #0ea5e9;
+  outline-offset: 2px;
+}
+
+.connections-panel__content .whatsapp-panel,
+.connections-panel__content .bitrix-panel {
+  height: 100%;
+  max-height: none;
+  box-shadow: none;
+  border-radius: 14px;
+}
+
+.connections-panel__content .whatsapp-panel > .sticky,
+.connections-panel__content .bitrix-panel > .sticky {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+@media (max-width: 768px) {
+  .connections-panel {
+    width: min(100%, 420px);
+  }
+
+  .connections-tabs {
+    width: 120px;
+  }
+}

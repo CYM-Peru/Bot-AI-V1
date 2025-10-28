@@ -38,7 +38,13 @@ function saveConfig(config: WhatsAppConfig): void {
   }
 }
 
-export function WhatsAppConfigPanel({ onClose }: WhatsAppConfigPanelProps) {
+interface WhatsAppConfigContentProps {
+  onClose?: () => void;
+  headingId?: string;
+  className?: string;
+}
+
+export function WhatsAppConfigContent({ onClose, headingId, className }: WhatsAppConfigContentProps) {
   const [config, setConfig] = useState<WhatsAppConfig>(loadConfig);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -63,7 +69,6 @@ export function WhatsAppConfigPanel({ onClose }: WhatsAppConfigPanelProps) {
     setTestResult(null);
 
     try {
-      // Probar conectividad con la API de WhatsApp
       const response = await fetch(
         `https://graph.facebook.com/v18.0/${config.phoneNumberId}`,
         {
@@ -97,160 +102,201 @@ export function WhatsAppConfigPanel({ onClose }: WhatsAppConfigPanelProps) {
   }, [config]);
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-      <div
-        className="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">📱 Configuración WhatsApp API</h2>
-            <p className="text-sm text-gray-500">Integración con Meta Business Platform</p>
-          </div>
+    <div className={`bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-auto max-h-full overflow-hidden flex flex-col ${className ?? ''}`}>
+      <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between">
+        <div>
+          <h2 id={headingId} className="text-xl font-bold text-gray-900">
+            📱 Configuración WhatsApp API
+          </h2>
+          <p className="text-sm text-gray-500">Integración con Meta Business Platform</p>
+        </div>
+        {onClose && (
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+            aria-label="Cerrar configuración de WhatsApp"
           >
             ×
           </button>
+        )}
+      </div>
+
+      <div className="p-6 space-y-6 overflow-y-auto">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Phone Number ID <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="123456789012345"
+            value={config.phoneNumberId}
+            onChange={(e) => setConfig((prev) => ({ ...prev, phoneNumberId: e.target.value }))}
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            Obtenido de Meta Business Manager → WhatsApp → Números de teléfono
+          </p>
         </div>
 
-        {/* Body */}
-        <div className="p-6 space-y-6">
-          {/* Phone Number ID */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Phone Number ID <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="123456789012345"
-              value={config.phoneNumberId}
-              onChange={(e) => setConfig((prev) => ({ ...prev, phoneNumberId: e.target.value }))}
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              Obtenido de Meta Business Manager → WhatsApp → Números de teléfono
-            </p>
-          </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Business Account ID
+          </label>
+          <input
+            type="text"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="987654321098765"
+            value={config.businessAccountId}
+            onChange={(e) =>
+              setConfig((prev) => ({ ...prev, businessAccountId: e.target.value }))
+            }
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            Obtenido de Meta Business Manager → Configuración de la cuenta empresarial
+          </p>
+        </div>
 
-          {/* Business Account ID */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Business Account ID
-            </label>
-            <input
-              type="text"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="987654321098765"
-              value={config.businessAccountId}
-              onChange={(e) =>
-                setConfig((prev) => ({ ...prev, businessAccountId: e.target.value }))
-              }
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              Obtenido de Meta Business Manager → Configuración de la cuenta empresarial
-            </p>
-          </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Access Token (Permanente) <span className="text-red-500">*</span>
+          </label>
+          <textarea
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-xs"
+            rows={3}
+            placeholder="EAAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            value={config.accessToken}
+            onChange={(e) => setConfig((prev) => ({ ...prev, accessToken: e.target.value }))}
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            Token permanente de acceso de Meta. Nunca lo compartas.
+          </p>
+        </div>
 
-          {/* Access Token */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Access Token (Permanente) <span className="text-red-500">*</span>
-            </label>
-            <textarea
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-xs"
-              rows={3}
-              placeholder="EAAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-              value={config.accessToken}
-              onChange={(e) => setConfig((prev) => ({ ...prev, accessToken: e.target.value }))}
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              Token permanente de acceso de Meta. Nunca lo compartas.
-            </p>
-          </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Webhook Verify Token
+          </label>
+          <input
+            type="text"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="mi_token_secreto_123"
+            value={config.verifyToken}
+            onChange={(e) => setConfig((prev) => ({ ...prev, verifyToken: e.target.value }))}
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            Token para verificar webhooks de WhatsApp. Debe coincidir con el configurado en Meta.
+          </p>
+        </div>
 
-          {/* Verify Token */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Webhook Verify Token
-            </label>
-            <input
-              type="text"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="mi_token_secreto_123"
-              value={config.verifyToken}
-              onChange={(e) => setConfig((prev) => ({ ...prev, verifyToken: e.target.value }))}
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              Token para verificar webhooks de WhatsApp. Debe coincidir con el configurado en Meta.
-            </p>
-          </div>
-
-          {/* Test Result */}
-          {testResult && (
-            <div
-              className={`p-4 rounded-lg ${
-                testResult.success
-                  ? 'bg-green-50 border border-green-200'
-                  : 'bg-red-50 border border-red-200'
+        {testResult && (
+          <div
+            className={`p-4 rounded-lg ${
+              testResult.success
+                ? 'bg-green-50 border border-green-200'
+                : 'bg-red-50 border border-red-200'
+            }`}
+          >
+            <p
+              className={`text-sm font-medium ${
+                testResult.success ? 'text-green-800' : 'text-red-800'
               }`}
             >
-              <p
-                className={`text-sm ${
-                  testResult.success ? 'text-green-700' : 'text-red-700'
-                }`}
-              >
-                {testResult.message}
-              </p>
-            </div>
-          )}
-
-          {/* Info Box */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h3 className="text-sm font-semibold text-blue-900 mb-2">ℹ️ Cómo obtener tus credenciales</h3>
-            <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
-              <li>Ve a Meta Business Manager → Configuración</li>
-              <li>Selecciona tu app de WhatsApp Business API</li>
-              <li>Copia el Phone Number ID desde la sección de Números</li>
-              <li>Genera un Access Token permanente desde Herramientas</li>
-              <li>Configura el Webhook Verify Token en la configuración de webhooks</li>
-            </ul>
+              {testResult.message}
+            </p>
           </div>
+        )}
+
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-blue-900 mb-2">ℹ️ Cómo obtener tus credenciales</h3>
+          <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
+            <li>Ve a Meta Business Manager → Configuración</li>
+            <li>Selecciona tu app de WhatsApp Business API</li>
+            <li>Copia el Phone Number ID desde la sección de Números</li>
+            <li>Genera un Access Token permanente desde Herramientas</li>
+            <li>Configura el Webhook Verify Token en la configuración de webhooks</li>
+          </ul>
         </div>
 
-        {/* Footer */}
-        <div className="sticky bottom-0 bg-gray-50 border-t px-6 py-4 flex items-center justify-between">
-          <button
-            onClick={handleTest}
-            disabled={testing}
-            className="px-4 py-2 text-sm font-medium text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition disabled:opacity-50"
-          >
-            {testing ? '⏳ Probando...' : '🧪 Probar Conexión'}
-          </button>
+        <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 space-y-2 text-sm text-blue-800">
+          <p className="font-semibold">📬 Webhooks</p>
+          <p>
+            Configura tu webhook en Meta Developers → WhatsApp → Webhooks. Usa el Verify Token definido arriba.
+          </p>
+          <p>
+            Asegúrate de exponer un endpoint en tu servidor que procese los mensajes entrantes y responda al reto de verificación.
+          </p>
+        </div>
 
-          <div className="flex gap-3">
+        <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+          <div className="font-semibold text-gray-800">Recursos útiles</div>
+          <ul className="list-disc list-inside space-y-2 text-sm text-gray-600">
+            <li>
+              <a
+                href="https://developers.facebook.com/docs/whatsapp/cloud-api"
+                target="_blank"
+                rel="noreferrer"
+                className="text-blue-600 hover:underline"
+              >
+                Documentación oficial WhatsApp Cloud API
+              </a>
+            </li>
+            <li>
+              <a
+                href="https://developers.facebook.com/docs/graph-api/webhooks/getting-started"
+                target="_blank"
+                rel="noreferrer"
+                className="text-blue-600 hover:underline"
+              >
+                Guía de Webhooks de Meta
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div className="sticky bottom-0 bg-gray-50 border-t px-6 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <button
+          onClick={handleTest}
+          disabled={testing}
+          className="px-4 py-2 text-sm font-medium text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition disabled:opacity-50"
+        >
+          {testing ? '⏳ Probando...' : '🧪 Probar Conexión'}
+        </button>
+
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+          {onClose && (
             <button
               onClick={onClose}
               className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
             >
               Cancelar
             </button>
-            <button
-              onClick={handleSave}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
-            >
-              {saved ? '✓ Guardado' : 'Guardar'}
-            </button>
-          </div>
+          )}
+          <button
+            onClick={handleSave}
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
+          >
+            {saved ? '✓ Guardado' : 'Guardar'}
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-// Hook para usar la config en otros componentes
+export function WhatsAppConfigPanel({ onClose }: WhatsAppConfigPanelProps) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div
+        className="max-w-2xl w-full mx-4 max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <WhatsAppConfigContent onClose={onClose} />
+      </div>
+    </div>
+  );
+}
+
 export function useWhatsAppConfig(): WhatsAppConfig {
   const [config, setConfig] = useState<WhatsAppConfig>(loadConfig);
 
