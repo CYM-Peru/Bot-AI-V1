@@ -1,6 +1,7 @@
-export type NodeType = "menu" | "action";
+export type NodeType = "start" | "menu" | "action";
 
 export type ActionKind =
+  | "start"
   | "message"
   | "buttons"
   | "attachment"

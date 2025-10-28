@@ -3,7 +3,20 @@
 @tailwind utilities;
 
 :root{
+  --ink:#1E293B;
+  --surface:#F7F8FA;
+  --pastel-mint:#D6F5E5;
+  --pastel-blue:#DDEBFF;
+  --pastel-lilac:#ECE3FF;
+  --pastel-peach:#FFE2D6;
+  --pastel-yellow:#FFF5CC;
+  --pastel-teal:#DFF7F5;
   --grid-dot: #e2e8f0;
+}
+
+body{
+  color: var(--ink);
+  background-color: var(--surface);
 }
 
 .react-flow__edge.flow-edge path {
