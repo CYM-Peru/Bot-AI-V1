@@ -18,6 +18,7 @@ import type { FlowTemplate } from "./templates/flowTemplates";
 import { toPng } from './utils/htmlToImage';
 import { ConnectionsButton } from "./components/Connections/ConnectionsButton";
 import { ConnectionsPanel } from "./components/Connections/ConnectionsPanel";
+const CRMWorkspace = React.lazy(() => import("./crm"));
 import {
   ConnectionCreationKind,
   STRICTEST_LIMIT,
@@ -302,7 +303,7 @@ export default function App(): JSX.Element {
   const [toast, setToast] = useState<Toast | null>(null);
   const [webhookTestResult, setWebhookTestResult] = useState<WebhookResponse | null>(null);
   const [webhookTesting, setWebhookTesting] = useState(false);
-  const [mainTab, setMainTab] = useState<'canvas' | 'metrics'>('canvas');
+  const [mainTab, setMainTab] = useState<'canvas' | 'crm' | 'metrics'>('canvas');
   const [connectionsOpen, setConnectionsOpen] = useState(false);
 
   const [bitrixFieldOptions, setBitrixFieldOptions] = useState<string[]>([]);
@@ -2266,6 +2267,13 @@ export default function App(): JSX.Element {
               onToggle={() => setConnectionsOpen((open) => !open)}
             />
             <button
+              className={`btn btn--ghost topbar-tab${mainTab === 'crm' ? ' is-active' : ''}`}
+              onClick={() => setMainTab('crm')}
+              type="button"
+            >
+              🗂️ CRM
+            </button>
+            <button
               className={`btn btn--ghost topbar-tab${mainTab === 'metrics' ? ' is-active' : ''}`}
               onClick={() => setMainTab('metrics')}
               type="button"
@@ -3601,6 +3609,20 @@ export default function App(): JSX.Element {
           </div>
         </div>
       </div>
+      )}
+
+      {mainTab === 'crm' && (
+        <div className="mt-2">
+          <React.Suspense
+            fallback={
+              <div className="flex h-[calc(100vh-160px)] items-center justify-center rounded-3xl border border-slate-200 bg-white text-sm text-slate-500 shadow-xl">
+                Cargando CRM…
+              </div>
+            }
+          >
+            <CRMWorkspace />
+          </React.Suspense>
+        </div>
       )}
 
       {/* Metrics Tab */}

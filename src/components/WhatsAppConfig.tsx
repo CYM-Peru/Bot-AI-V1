@@ -1,315 +1,356 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { apiUrl } from '../lib/apiBase';
 
-export interface WhatsAppConfig {
-  phoneNumberId: string;
-  businessAccountId: string;
-  accessToken: string;
-  verifyToken: string;
+interface WhatsAppCheckResponse {
+  ok: boolean;
+  phoneNumberId?: string | null;
+  displayNumber?: string | null;
+  displayPhoneNumber?: string | null;
+  verifiedName?: string | null;
+  reason?: string | null;
+  status?: number | null;
+  details?: {
+    baseUrl: string;
+    apiVersion: string;
+    hasAccessToken: boolean;
+    hasVerifyToken: boolean;
+  } | null;
 }
 
-interface WhatsAppConfigPanelProps {
-  onClose: () => void;
-}
-
-const STORAGE_KEY = 'whatsapp_config';
-
-function loadConfig(): WhatsAppConfig {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      return JSON.parse(stored);
-    }
-  } catch (error) {
-    console.error('Error loading WhatsApp config:', error);
-  }
-  return {
-    phoneNumberId: '',
-    businessAccountId: '',
-    accessToken: '',
-    verifyToken: '',
-  };
-}
-
-function saveConfig(config: WhatsAppConfig): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-  } catch (error) {
-    console.error('Error saving WhatsApp config:', error);
-  }
+interface TestResult {
+  ok: boolean;
+  status: number;
+  id?: string | null;
+  reason?: string;
 }
 
 interface WhatsAppConfigContentProps {
-  onClose?: () => void;
   headingId?: string;
   className?: string;
 }
 
-export function WhatsAppConfigContent({ onClose, headingId, className }: WhatsAppConfigContentProps) {
-  const [config, setConfig] = useState<WhatsAppConfig>(loadConfig);
+const DEFAULT_TEST_NUMBER = '51918131082';
+
+interface FormState {
+  phoneNumberId: string;
+  displayNumber: string;
+  accessToken: string;
+  verifyToken: string;
+}
+
+const INITIAL_FORM: FormState = {
+  phoneNumberId: '',
+  displayNumber: '',
+  accessToken: '',
+  verifyToken: '',
+};
+
+export function WhatsAppConfigContent({ headingId, className }: WhatsAppConfigContentProps) {
+  const [status, setStatus] = useState<WhatsAppCheckResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState<FormState>(INITIAL_FORM);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [testOutcome, setTestOutcome] = useState<TestResult | null>(null);
+  const [showAccessToken, setShowAccessToken] = useState(false);
+  const [syncedStatus, setSyncedStatus] = useState(false);
+  const [testMessage, setTestMessage] = useState('Hola desde Builder');
 
-  const handleSave = useCallback(() => {
-    saveConfig(config);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }, [config]);
+  const loadStatus = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(apiUrl('/api/connections/whatsapp/check'));
+      const data = (await response.json()) as WhatsAppCheckResponse;
+      setStatus(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error desconocido');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const handleTest = useCallback(async () => {
-    if (!config.phoneNumberId || !config.accessToken) {
-      setTestResult({
-        success: false,
-        message: 'Por favor completa Phone Number ID y Access Token',
-      });
+  useEffect(() => {
+    void loadStatus();
+  }, [loadStatus]);
+
+  useEffect(() => {
+    if (!status || syncedStatus) {
       return;
     }
 
-    setTesting(true);
-    setTestResult(null);
+    setForm((current) => ({
+      ...current,
+      phoneNumberId: current.phoneNumberId || status.phoneNumberId?.toString() || '',
+      displayNumber:
+        current.displayNumber || status.displayNumber || status.displayPhoneNumber?.toString() || '',
+    }));
+    setSyncedStatus(true);
+  }, [status, syncedStatus]);
+
+  const handleSave = useCallback(async () => {
+    const payload = {
+      phoneNumberId: form.phoneNumberId.trim(),
+      displayNumber: form.displayNumber.trim() || undefined,
+      accessToken: form.accessToken.trim(),
+      verifyToken: form.verifyToken.trim() || undefined,
+    };
+
+    if (!payload.phoneNumberId || !payload.accessToken) {
+      setSaveError('Ingresa Phone Number ID y Access Token.');
+      setSaveSuccess(false);
+      return;
+    }
+
+    setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(false);
 
     try {
-      const response = await fetch(
-        `https://graph.facebook.com/v18.0/${config.phoneNumberId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${config.accessToken}`,
-          },
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        setTestResult({
-          success: true,
-          message: `✅ Conectado exitosamente - ${data.display_phone_number || 'Número verificado'}`,
-        });
-      } else {
-        const error = await response.json();
-        setTestResult({
-          success: false,
-          message: `❌ Error: ${error.error?.message || response.statusText}`,
-        });
-      }
-    } catch (error: any) {
-      setTestResult({
-        success: false,
-        message: `❌ Error de conexión: ${error.message}`,
+      const response = await fetch(apiUrl('/api/connections/whatsapp/save'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { reason?: string };
+        throw new Error(body.reason ?? 'unknown_error');
+      }
+      setSaveSuccess(true);
+      setForm((current) => ({ ...current, accessToken: '', verifyToken: '' }));
+      setSyncedStatus(false);
+      await loadStatus();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'network_error');
+    } finally {
+      setSaving(false);
+    }
+  }, [form, loadStatus]);
+
+  const handleTestMessage = useCallback(async () => {
+    setTesting(true);
+    setTestOutcome(null);
+    try {
+      const response = await fetch(apiUrl('/api/connections/whatsapp/test'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: DEFAULT_TEST_NUMBER, text: testMessage.trim() || 'Hola desde Builder' }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { ok?: boolean; id?: string; reason?: string };
+      if (!response.ok || !body.ok) {
+        setTestOutcome({ ok: false, status: response.status, reason: body.reason ?? 'provider_error' });
+      } else {
+        setTestOutcome({ ok: true, status: response.status, id: body.id ?? null });
+      }
+    } catch (err) {
+      setTestOutcome({ ok: false, status: 0, reason: err instanceof Error ? err.message : 'network_error' });
     } finally {
       setTesting(false);
     }
-  }, [config]);
-
-  return (
-    <div className={`bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-auto max-h-full overflow-hidden flex flex-col ${className ?? ''}`}>
-      <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between">
-        <div>
-          <h2 id={headingId} className="text-xl font-bold text-gray-900">
-            📱 Configuración WhatsApp API
-          </h2>
-          <p className="text-sm text-gray-500">Integración con Meta Business Platform</p>
-        </div>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
-            aria-label="Cerrar configuración de WhatsApp"
-          >
-            ×
-          </button>
-        )}
-      </div>
-
-      <div className="p-6 space-y-6 overflow-y-auto">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Phone Number ID <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="123456789012345"
-            value={config.phoneNumberId}
-            onChange={(e) => setConfig((prev) => ({ ...prev, phoneNumberId: e.target.value }))}
-          />
-          <p className="mt-1 text-xs text-gray-500">
-            Obtenido de Meta Business Manager → WhatsApp → Números de teléfono
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Business Account ID
-          </label>
-          <input
-            type="text"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="987654321098765"
-            value={config.businessAccountId}
-            onChange={(e) =>
-              setConfig((prev) => ({ ...prev, businessAccountId: e.target.value }))
-            }
-          />
-          <p className="mt-1 text-xs text-gray-500">
-            Obtenido de Meta Business Manager → Configuración de la cuenta empresarial
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Access Token (Permanente) <span className="text-red-500">*</span>
-          </label>
-          <textarea
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-xs"
-            rows={3}
-            placeholder="EAAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-            value={config.accessToken}
-            onChange={(e) => setConfig((prev) => ({ ...prev, accessToken: e.target.value }))}
-          />
-          <p className="mt-1 text-xs text-gray-500">
-            Token permanente de acceso de Meta. Nunca lo compartas.
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Webhook Verify Token
-          </label>
-          <input
-            type="text"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="mi_token_secreto_123"
-            value={config.verifyToken}
-            onChange={(e) => setConfig((prev) => ({ ...prev, verifyToken: e.target.value }))}
-          />
-          <p className="mt-1 text-xs text-gray-500">
-            Token para verificar webhooks de WhatsApp. Debe coincidir con el configurado en Meta.
-          </p>
-        </div>
-
-        {testResult && (
-          <div
-            className={`p-4 rounded-lg ${
-              testResult.success
-                ? 'bg-green-50 border border-green-200'
-                : 'bg-red-50 border border-red-200'
-            }`}
-          >
-            <p
-              className={`text-sm font-medium ${
-                testResult.success ? 'text-green-800' : 'text-red-800'
-              }`}
-            >
-              {testResult.message}
-            </p>
-          </div>
-        )}
-
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-blue-900 mb-2">ℹ️ Cómo obtener tus credenciales</h3>
-          <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
-            <li>Ve a Meta Business Manager → Configuración</li>
-            <li>Selecciona tu app de WhatsApp Business API</li>
-            <li>Copia el Phone Number ID desde la sección de Números</li>
-            <li>Genera un Access Token permanente desde Herramientas</li>
-            <li>Configura el Webhook Verify Token en la configuración de webhooks</li>
-          </ul>
-        </div>
-
-        <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 space-y-2 text-sm text-blue-800">
-          <p className="font-semibold">📬 Webhooks</p>
-          <p>
-            Configura tu webhook en Meta Developers → WhatsApp → Webhooks. Usa el Verify Token definido arriba.
-          </p>
-          <p>
-            Asegúrate de exponer un endpoint en tu servidor que procese los mensajes entrantes y responda al reto de verificación.
-          </p>
-        </div>
-
-        <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
-          <div className="font-semibold text-gray-800">Recursos útiles</div>
-          <ul className="list-disc list-inside space-y-2 text-sm text-gray-600">
-            <li>
-              <a
-                href="https://developers.facebook.com/docs/whatsapp/cloud-api"
-                target="_blank"
-                rel="noreferrer"
-                className="text-blue-600 hover:underline"
-              >
-                Documentación oficial WhatsApp Cloud API
-              </a>
-            </li>
-            <li>
-              <a
-                href="https://developers.facebook.com/docs/graph-api/webhooks/getting-started"
-                target="_blank"
-                rel="noreferrer"
-                className="text-blue-600 hover:underline"
-              >
-                Guía de Webhooks de Meta
-              </a>
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      <div className="sticky bottom-0 bg-gray-50 border-t px-6 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <button
-          onClick={handleTest}
-          disabled={testing}
-          className="px-4 py-2 text-sm font-medium text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition disabled:opacity-50"
-        >
-          {testing ? '⏳ Probando...' : '🧪 Probar Conexión'}
-        </button>
-
-        <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-            >
-              Cancelar
-            </button>
-          )}
-          <button
-            onClick={handleSave}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
-          >
-            {saved ? '✓ Guardado' : 'Guardar'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export function WhatsAppConfigPanel({ onClose }: WhatsAppConfigPanelProps) {
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-      <div
-        className="max-w-2xl w-full mx-4 max-h-[90vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <WhatsAppConfigContent onClose={onClose} />
-      </div>
-    </div>
-  );
-}
-
-export function useWhatsAppConfig(): WhatsAppConfig {
-  const [config, setConfig] = useState<WhatsAppConfig>(loadConfig);
+  }, [testMessage]);
 
   useEffect(() => {
-    const handleStorage = () => {
-      setConfig(loadConfig());
+    if (!saveSuccess) return;
+    const timer = window.setTimeout(() => setSaveSuccess(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [saveSuccess]);
+
+  const badgeInfo = useMemo(() => {
+    if (status?.ok) {
+      return { className: 'bg-emerald-100 text-emerald-700', label: 'Conectado' };
+    }
+
+    const reason = status?.reason ?? 'not_configured';
+    const map: Record<string, string> = {
+      not_configured: 'Sin conexión',
+      invalid_token: 'Token inválido',
+      missing_phone_id: 'Phone ID inválido',
+      provider_error: 'Error proveedor',
+      network_error: 'Error de red',
+      not_authorized: 'No autorizado',
+      unknown_error: 'Error desconocido',
     };
 
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, []);
+    const label = map[reason] ?? `Sin conexión (${reason})`;
 
-  return config;
+    return { className: 'bg-rose-100 text-rose-700', label };
+  }, [status]);
+
+  return (
+    <div className={`flex h-full flex-col overflow-hidden rounded-xl bg-white shadow ${className ?? ''}`}>
+      <header className="border-b border-slate-200 px-6 py-4">
+        <h2 id={headingId} className="text-xl font-semibold text-slate-900">
+          📱 Configuración WhatsApp Cloud API
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Las credenciales se guardan únicamente en el servidor. Desde aquí solo verificamos contra Meta Graph.
+        </p>
+      </header>
+
+      <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
+        <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-700">Estado del conector</p>
+              {status?.details && (
+                <p className="text-xs text-slate-500">
+                  {status.details.baseUrl} · v{status.details.apiVersion}
+                </p>
+              )}
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeInfo.className}`}>
+              {badgeInfo.label}
+            </span>
+          </div>
+
+          <div className="mt-3 grid gap-3 text-sm text-slate-700 md:grid-cols-2">
+            <div className="rounded-lg bg-white p-3">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Phone Number ID</p>
+              <p className="font-mono text-sm">{status?.phoneNumberId ?? '—'}</p>
+            </div>
+            <div className="rounded-lg bg-white p-3">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Número mostrado</p>
+              <p className="font-medium">{status?.displayNumber ?? status?.displayPhoneNumber ?? '—'}</p>
+            </div>
+            <div className="rounded-lg bg-white p-3">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Nombre verificado</p>
+              <p>{status?.verifiedName ?? '—'}</p>
+            </div>
+            <div className="rounded-lg bg-white p-3">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Tokens</p>
+              <p>
+                {status?.details?.hasAccessToken ? '🔐 Access token cargado' : '⚠️ Falta Access token'} ·{' '}
+                {status?.details?.hasVerifyToken ? '🔑 Verify token' : '⚠️ Falta Verify token'}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button type="button" onClick={() => void loadStatus()} disabled={loading} className="btn btn--ghost">
+              {loading ? 'Verificando…' : 'Revisar estado'}
+            </button>
+            {error && <span className="text-sm text-rose-600">{error}</span>}
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 className="text-sm font-semibold text-slate-700">Credenciales (se guardan solo en backend)</h3>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Phone Number ID</span>
+              <input
+                type="text"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                value={form.phoneNumberId}
+                onChange={(event) => setForm((current) => ({ ...current, phoneNumberId: event.target.value }))}
+                placeholder="Ej. 123456789012345"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Número mostrado</span>
+              <input
+                type="text"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                value={form.displayNumber}
+                onChange={(event) => setForm((current) => ({ ...current, displayNumber: event.target.value }))}
+                placeholder="+51 1 6193638"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm md:col-span-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Access Token</span>
+              <div className="flex gap-2">
+                <input
+                  type={showAccessToken ? 'text' : 'password'}
+                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                  value={form.accessToken}
+                  onChange={(event) => setForm((current) => ({ ...current, accessToken: event.target.value }))}
+                  placeholder="EAAG..."
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => setShowAccessToken((value) => !value)}
+                >
+                  {showAccessToken ? 'Ocultar' : 'Mostrar'}
+                </button>
+              </div>
+            </label>
+            <label className="flex flex-col gap-1 text-sm md:col-span-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Webhook Verify Token</span>
+              <input
+                type="text"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                value={form.verifyToken}
+                onChange={(event) => setForm((current) => ({ ...current, verifyToken: event.target.value }))}
+                placeholder="Token de verificación"
+              />
+            </label>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button type="button" className="btn btn--secondary" onClick={() => void handleSave()} disabled={saving}>
+              {saving ? 'Guardando…' : 'Guardar'}
+            </button>
+            {saveSuccess && <span className="text-sm text-emerald-600">Credenciales guardadas correctamente.</span>}
+            {saveError && <span className="text-sm text-rose-600">{saveError}</span>}
+          </div>
+          <p className="mt-3 text-xs text-slate-500">
+            El access token no se vuelve a mostrar después de guardarlo. Si lo necesitas, genera uno nuevo desde Meta.
+          </p>
+        </section>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 className="text-sm font-semibold text-slate-700">Enviar mensaje de prueba</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Se envía al número de verificación {DEFAULT_TEST_NUMBER}. Solo funciona si el Phone Number ID y el Access Token son válidos.
+          </p>
+          <div className="mt-3 flex flex-col gap-3 md:flex-row">
+            <input
+              type="text"
+              className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+              value={testMessage}
+              onChange={(event) => setTestMessage(event.target.value)}
+              placeholder="Hola desde Builder"
+            />
+            <button
+              type="button"
+              onClick={() => void handleTestMessage()}
+              disabled={testing}
+              className="btn btn--secondary"
+            >
+              {testing ? 'Enviando…' : 'Probar mensaje'}
+            </button>
+          </div>
+          {testOutcome && (
+            <div
+              className={`mt-3 rounded-lg border p-3 text-sm ${
+                testOutcome.ok
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : 'border-rose-200 bg-rose-50 text-rose-700'
+              }`}
+            >
+              {testOutcome.ok
+                ? `Mensaje aceptado (status ${testOutcome.status})${
+                    testOutcome.id ? ` · wamid ${testOutcome.id}` : ''
+                  }`
+                : `Fallo en proveedor (status ${testOutcome.status})${
+                    testOutcome.reason ? ` · ${testOutcome.reason}` : ''
+                  }`}
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+          <h3 className="text-sm font-semibold text-slate-700">Ayuda rápida</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li>Coloca aquí las credenciales de la app en Meta Developers. Solo se almacenan en el backend.</li>
+            <li>Usa el Verify Token configurado también en la suscripción del webhook de Meta.</li>
+            <li>El botón “Revisar estado” consulta directamente al endpoint oficial de Meta Graph.</li>
+          </ul>
+        </section>
+      </div>
+    </div>
+  );
 }
-
-export { loadConfig, saveConfig };

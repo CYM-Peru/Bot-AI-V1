@@ -12,6 +12,7 @@
     "preview": "vite preview --port 5173",
     "test": "vitest run",
     "test:ci": "vitest run --coverage",
+    "test:integration": "vitest run --dir tests/integration",
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",
     "format": "prettier --write .",
@@ -26,7 +27,8 @@
     "express": "^4.18.2",
     "html-to-image": "^1.11.13",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -34,6 +36,7 @@
     "@types/node": "^20.10.0",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
     "autoprefixer": "^10.4.20",

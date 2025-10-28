@@ -24,6 +24,7 @@
   },
   "include": [
     "server/**/*.ts",
+    "server/**/*.d.ts",
     "src/runtime/**/*.ts",
     "src/api/**/*.ts",
     "src/flow/**/*.ts",
