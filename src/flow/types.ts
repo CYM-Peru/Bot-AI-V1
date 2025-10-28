@@ -12,7 +12,9 @@ export type ActionKind =
   | "ia_rag"
   | "tool"
   | "ask"
+  | "question"
   | "condition"
+  | "validation"
   | "scheduler"
   | "end";
 

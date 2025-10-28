@@ -13,6 +13,10 @@ import { testWebhookOut, generateWebhookInUrl, type WebhookResponse } from "./fl
 import { WhatsAppConfigPanel } from "./components/WhatsAppConfig";
 import { MetricsPanel } from "./components/MetricsPanel";
 import { Bitrix24Panel } from "./components/Bitrix24Panel";
+import { NodeSearchModal } from "./components/NodeSearchModal";
+import { TemplateSelector } from "./components/TemplateSelector";
+import { useUndoRedo } from "./hooks/useUndoRedo";
+import type { FlowTemplate } from "./templates/flowTemplates";
 import {
   ConnectionCreationKind,
   STRICTEST_LIMIT,
@@ -309,6 +313,29 @@ export default function App(): JSX.Element {
     setCenterCanvas(() => fn ?? null);
   }, []);
 
+  // Undo/Redo system
+  type EditorState = {
+    flow: Flow;
+    positions: Record<string, { x: number; y: number }>;
+  };
+
+  const [editorState, undoRedoActions] = useUndoRedo<EditorState>({
+    flow: demoFlow,
+    positions: {},
+  });
+
+  // Track if we're applying undo/redo to prevent infinite loops
+  const isApplyingHistory = useRef(false);
+
+  // Copy/Paste system
+  const [clipboard, setClipboard] = useState<FlowNode | null>(null);
+
+  // Node Search system
+  const [showNodeSearch, setShowNodeSearch] = useState(false);
+
+  // Template selector
+  const [showTemplateSelector, setShowTemplateSelector] = useState(false);
+
   useEffect(() => {
     return () => {
       setCenterCanvas(null);
@@ -372,6 +399,115 @@ export default function App(): JSX.Element {
     []
   );
 
+  // Sync flow and positions changes to undo/redo history
+  useEffect(() => {
+    if (!isApplyingHistory.current) {
+      const timeoutId = setTimeout(() => {
+        undoRedoActions.set({ flow, positions: positionsState });
+      }, 300); // Debounce to avoid too many history entries
+      return () => clearTimeout(timeoutId);
+    }
+  }, [flow, positionsState, undoRedoActions]);
+
+  // Apply undo/redo state changes
+  useEffect(() => {
+    if (editorState.flow !== flow || JSON.stringify(editorState.positions) !== JSON.stringify(positionsState)) {
+      isApplyingHistory.current = true;
+      suppressDirtyRef.current = true;
+
+      setFlowState(editorState.flow);
+      setPositionsState(editorState.positions);
+
+      suppressDirtyRef.current = false;
+      isApplyingHistory.current = false;
+    }
+  }, [editorState]);
+
+  // Keyboard shortcuts for undo/redo and copy/paste
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in an input/textarea
+      const target = e.target as HTMLElement;
+      const isTyping = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+
+      // Undo: Ctrl+Z or Cmd+Z
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey && !isTyping) {
+        e.preventDefault();
+        if (undoRedoActions.canUndo) {
+          undoRedoActions.undo();
+          showToast('Deshecho', 'success');
+        }
+      }
+      // Redo: Ctrl+Y or Cmd+Shift+Z
+      if (((e.ctrlKey || e.metaKey) && e.key === 'y') || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z')) {
+        if (!isTyping) {
+          e.preventDefault();
+          if (undoRedoActions.canRedo) {
+            undoRedoActions.redo();
+            showToast('Rehecho', 'success');
+          }
+        }
+      }
+
+      // Copy: Ctrl+C or Cmd+C
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !isTyping) {
+        e.preventDefault();
+        const selected = flow.nodes[selectedId];
+        if (selected && selected.id !== flow.rootId) {
+          // Deep clone the node
+          const cloned: FlowNode = JSON.parse(JSON.stringify(selected));
+          setClipboard(cloned);
+          showToast(`Copiado: ${selected.label}`, 'success');
+        }
+      }
+
+      // Paste: Ctrl+V or Cmd+V
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v' && !isTyping) {
+        e.preventDefault();
+        if (clipboard) {
+          // Create a duplicate of the clipboard node
+          const newId = createId(`${clipboard.id}-copy`);
+          const newNode: FlowNode = {
+            ...JSON.parse(JSON.stringify(clipboard)),
+            id: newId,
+            label: `${clipboard.label} (Copia)`,
+            children: [], // Reset children
+          };
+
+          // Add the new node to the flow
+          setFlow((prev) => {
+            const nextNodes = { ...prev.nodes, [newId]: newNode };
+            return { ...prev, nodes: nextNodes };
+          });
+
+          // Position it near the original if we have position data
+          const originalPosition = positionsState[clipboard.id];
+          if (originalPosition) {
+            setPositions((prev) => ({
+              ...prev,
+              [newId]: {
+                x: originalPosition.x + 50,
+                y: originalPosition.y + 50,
+              },
+            }));
+          }
+
+          setSelectedId(newId);
+          showToast(`Pegado: ${newNode.label}`, 'success');
+        }
+      }
+
+      // Search: Ctrl+F or Cmd+F
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        setShowNodeSearch(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undoRedoActions, showToast, selectedId, flow, clipboard, positionsState, setFlow, setPositions]);
+
   const replaceFlow = useCallback((nextFlow: Flow, nextPositions: Record<string, { x: number; y: number }> = {}) => {
     suppressDirtyRef.current = true;
     const normalized = ensureStartNode(normalizeFlow(nextFlow));
@@ -382,6 +518,12 @@ export default function App(): JSX.Element {
     setWorkspaceId(normalized.id);
     setDirty(false);
   }, []);
+
+  const handleSelectTemplate = useCallback((template: FlowTemplate) => {
+    replaceFlow(template.flow, {});
+    setDirty(true);
+    showToast(`Template "${template.name}" cargado`, 'success');
+  }, [replaceFlow, showToast]);
 
   const selected = flow.nodes[selectedId] ?? flow.nodes[flow.rootId];
   const emptyMessageNodes = useMemo(() => {
@@ -2140,6 +2282,28 @@ export default function App(): JSX.Element {
             📱 WhatsApp API
           </button>
           <button
+            className="px-3 py-1.5 text-sm border border-purple-500 rounded bg-white hover:bg-purple-50 text-purple-600 font-medium"
+            onClick={() => setShowTemplateSelector(true)}
+          >
+            📋 Templates
+          </button>
+          <button
+            className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={undoRedoActions.undo}
+            disabled={!undoRedoActions.canUndo}
+            title="Deshacer (Ctrl+Z)"
+          >
+            ↶ Deshacer
+          </button>
+          <button
+            className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={undoRedoActions.redo}
+            disabled={!undoRedoActions.canRedo}
+            title="Rehacer (Ctrl+Y)"
+          >
+            ↷ Rehacer
+          </button>
+          <button
             className={`px-3 py-1.5 text-sm border rounded ${
               hasBlockingErrors
                 ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
@@ -3464,6 +3628,24 @@ export default function App(): JSX.Element {
       {/* Panel de configuración WhatsApp */}
       {showWhatsAppConfig && (
         <WhatsAppConfigPanel onClose={() => setShowWhatsAppConfig(false)} />
+      )}
+
+      {/* Modal de búsqueda de nodos */}
+      {showNodeSearch && (
+        <NodeSearchModal
+          flow={flow}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          onClose={() => setShowNodeSearch(false)}
+        />
+      )}
+
+      {/* Modal de selección de templates */}
+      {showTemplateSelector && (
+        <TemplateSelector
+          onSelect={handleSelectTemplate}
+          onClose={() => setShowTemplateSelector(false)}
+        />
       )}
     </div>
   );
