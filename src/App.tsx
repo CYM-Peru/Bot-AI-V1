@@ -17,6 +17,7 @@ import { NodeSearchModal } from "./components/NodeSearchModal";
 import { TemplateSelector } from "./components/TemplateSelector";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import type { FlowTemplate } from "./templates/flowTemplates";
+import { toPng } from 'html-to-image';
 import {
   ConnectionCreationKind,
   STRICTEST_LIMIT,
@@ -524,6 +525,31 @@ export default function App(): JSX.Element {
     setDirty(true);
     showToast(`Template "${template.name}" cargado`, 'success');
   }, [replaceFlow, showToast]);
+
+  const handleExportPNG = useCallback(async () => {
+    const canvasElement = document.querySelector('.react-flow__viewport');
+    if (!canvasElement) {
+      showToast('No se pudo encontrar el canvas', 'error');
+      return;
+    }
+
+    try {
+      const dataUrl = await toPng(canvasElement as HTMLElement, {
+        cacheBust: true,
+        backgroundColor: '#f8fafc',
+      });
+
+      const link = document.createElement('a');
+      link.download = `${flow.name.replace(/\s+/g, '-').toLowerCase()}-${Date.now()}.png`;
+      link.href = dataUrl;
+      link.click();
+
+      showToast('Flujo exportado como PNG', 'success');
+    } catch (error) {
+      console.error('Error exporting PNG:', error);
+      showToast('Error al exportar PNG', 'error');
+    }
+  }, [flow.name, showToast]);
 
   const selected = flow.nodes[selectedId] ?? flow.nodes[flow.rootId];
   const emptyMessageNodes = useMemo(() => {
@@ -2316,6 +2342,7 @@ export default function App(): JSX.Element {
           </button>
           <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleLoad}>Cargar</button>
           <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleExport}>Exportar JSON</button>
+          <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleExportPNG}>📸 Exportar PNG</button>
           <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleImportClick}>Importar JSON</button>
           <button
             className={`px-3 py-1.5 text-sm rounded ${
