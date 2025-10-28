@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { crmDb } from "../db";
-import type { CrmRealtimeManager } from "../../ws/crmGateway";
+import type { CrmRealtimeManager } from "../ws";
 import type { BitrixService } from "../services/bitrix";
 
 export function createConversationsRouter(socketManager: CrmRealtimeManager, bitrixService: BitrixService) {
@@ -8,7 +8,29 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
 
   router.get("/", (_req, res) => {
     const conversations = crmDb.listConversations();
-    res.json({ conversations });
+    res.json(
+      conversations.map((conversation) => ({
+        id: conversation.id,
+        phone: conversation.phone,
+        contactName: conversation.contactName ?? null,
+        lastMessageAt: conversation.lastMessageAt,
+        lastMessagePreview: conversation.lastMessagePreview ?? null,
+        unread: conversation.unread,
+        status: conversation.status,
+        bitrixId: conversation.bitrixId ?? null,
+      })),
+    );
+  });
+
+  router.get("/:id/messages", (req, res) => {
+    const conversation = crmDb.getConversationById(req.params.id);
+    if (!conversation) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    const messages = crmDb.listMessages(conversation.id);
+    const attachments = crmDb.listAttachmentsByMessageIds(messages.map((message) => message.id));
+    res.json({ messages, attachments });
   });
 
   router.get("/:id/bitrix", async (req, res) => {

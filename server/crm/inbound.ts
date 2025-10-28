@@ -1,6 +1,6 @@
 import type { ChangeValue, WhatsAppMessage } from "../../src/api/whatsapp-webhook";
 import { crmDb } from "./db";
-import type { CrmRealtimeManager } from "../ws/crmGateway";
+import type { CrmRealtimeManager } from "./ws";
 import type { BitrixService } from "./services/bitrix";
 import { attachmentStorage } from "./storage";
 import type { Attachment, MessageType } from "./models";

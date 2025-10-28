@@ -6,12 +6,12 @@ export async function fetchConversations(): Promise<Conversation[]> {
   if (!response.ok) {
     throw new Error("No se pudieron cargar las conversaciones");
   }
-  const data = (await response.json()) as { conversations: Conversation[] };
-  return data.conversations;
+  const data = (await response.json()) as Conversation[];
+  return data;
 }
 
 export async function fetchMessages(convId: string): Promise<{ messages: Message[]; attachments: Attachment[] }> {
-  const response = await fetch(apiUrl(`/api/crm/messages/conversations/${convId}/messages`));
+  const response = await fetch(apiUrl(`/api/crm/conversations/${convId}/messages`));
   if (!response.ok) {
     throw new Error("No se pudieron cargar los mensajes");
   }
@@ -27,7 +27,16 @@ export interface SendMessagePayload {
   type?: Message["type"];
 }
 
-export async function sendMessage(payload: SendMessagePayload) {
+export interface SendMessageResult {
+  ok: boolean;
+  providerStatus: number;
+  echo: { convId: string; phone: string; text: string | null };
+  message: Message;
+  attachment: Attachment | null;
+  error: string | null;
+}
+
+export async function sendMessage(payload: SendMessagePayload): Promise<SendMessageResult> {
   const response = await fetch(apiUrl("/api/crm/messages/send"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -37,7 +46,11 @@ export async function sendMessage(payload: SendMessagePayload) {
     const body = await response.json().catch(() => ({ error: "unknown" }));
     throw new Error(body.error ?? "Error enviando mensaje");
   }
-  return (await response.json()) as { message: Message; attachment?: Attachment | null };
+  const data = (await response.json()) as SendMessageResult;
+  return {
+    ...data,
+    attachment: data.attachment ?? null,
+  };
 }
 
 export async function uploadAttachment(file: File) {

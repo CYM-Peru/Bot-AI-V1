@@ -7,7 +7,7 @@ import { createMessagesRouter } from "./routes/messages";
 import { createConversationsRouter } from "./routes/conversations";
 import { createBitrixService } from "./services/bitrix";
 import { handleIncomingWhatsAppMessage } from "./inbound";
-import type { CrmRealtimeManager } from "../ws/crmGateway";
+import type { CrmRealtimeManager } from "./ws";
 
 export interface RegisterCrmOptions {
   app: Application;
@@ -19,6 +19,11 @@ export function registerCrmModule(options: RegisterCrmOptions) {
   const router = Router();
   const realtime = options.socketManager;
   const bitrixService = createBitrixService(options.bitrixClient);
+
+  router.get("/health", (_req, res) => {
+    const status = realtime.getStatus();
+    res.json({ ok: true, ws: status.clients >= 0, clients: status.clients });
+  });
 
   router.use("/attachments", createAttachmentsRouter());
   router.use("/messages", createMessagesRouter(realtime, bitrixService));

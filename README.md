@@ -158,26 +158,30 @@ La pasarela WebSocket del CRM se expone en `wss://<tu-dominio>/api/crm/ws` y fun
 ### Eventos soportados
 - `welcome`: enviado por el servidor al conectar, incluye `clientId` y `serverTime`.
 - `event`: notificaciones de negocio (`crm:msg:new`, `crm:msg:update`, `crm:conv:update`, `crm:typing`).
-- `ack`: confirmaciones para comandos `message` y `read` enviados por el cliente.
-- `error`: payload inválido o tipo desconocido.
+- `ack`: confirmaciones de lectura de eventos como `message` o `read`.
+- `error`: respuesta cuando el payload no es válido.
 
-### Comandos del cliente
-- `{"type":"hello"}` para solicitar un `welcome` adicional.
-- `{"type":"message","payload":{"text":"hola"}}` para enviar un ping y recibir `ack`.
-- `{"type":"typing","payload":{"convId":"<id>"}}` propaga el estado de escritura.
-- `{"type":"read","payload":{"convId":"<id>"}}` marca la conversación como leída.
+### QA rápido — CRM + WebSocket + WSP
 
-### QA rápido
 ```bash
-# Health check backend
-curl -fsS https://wsp.azaleia.com.pe/api/healthz
+# Ejecuta todos los checks contra producción (usa BASE_URL opcional)
+scripts/qa_wsp.sh
 
-# WebSocket con wscat
+# Conectar por WebSocket manualmente
 wscat -c wss://wsp.azaleia.com.pe/api/crm/ws
-# Enviar comandos de prueba
 > {"type":"hello"}
-> {"type":"message","payload":{"text":"ping"}}
+< {"type":"welcome", ... }
+
+# Enviar prueba WSP directa desde la UI del CRM (botón "Enviar" en el panel superior)
+# o vía API
+curl -fsS -X POST https://wsp.azaleia.com.pe/api/wsp/test \
+  -H 'Content-Type: application/json' \
+  -d '{"to":"51918131082","text":"Hola desde Builder"}'
 ```
+
+El script reporta el estado de `/api/healthz`, `/api/wsp/test`, `/api/crm/health` y `/api/crm/conversations`, mostrando tanto el código HTTP como el cuerpo de respuesta para facilitar el diagnóstico.
+
+> ℹ️  La configuración de Nginx necesaria para el upgrade del WebSocket se documenta en `ops/nginx/crm-ws-snippet.conf`.
 
 ## 🧪 Testing
 

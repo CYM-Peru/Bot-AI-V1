@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { CrmSocket, type ConnectionState, type WsIncomingFrame } from "../../utils/wsClient";
+import { sendMessage } from "../../crm/crmApi";
 
 const STATUS_LABELS: Record<ConnectionState, string> = {
   idle: "Sin conectar",
@@ -16,6 +17,8 @@ export default function CrmDock() {
   const [lastAck, setLastAck] = useState<string>("");
   const [message, setMessage] = useState<string>("Hola desde el CRM");
   const [frames, setFrames] = useState<WsIncomingFrame[]>([]);
+  const [providerStatus, setProviderStatus] = useState<string>("");
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     const socket = new CrmSocket();
@@ -57,10 +60,25 @@ export default function CrmDock() {
     }
   }, [status]);
 
-  const handleSend = (event: FormEvent<HTMLFormElement>) => {
+  const handleSend = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!message.trim()) return;
-    socketRef.current?.send("message", { text: message.trim() });
+    const text = message.trim();
+    if (!text) return;
+    setSending(true);
+    try {
+      const result = await sendMessage({ phone: "51918131082", text });
+      setProviderStatus(
+        result.ok
+          ? `Proveedor ok · status ${result.providerStatus}`
+          : `Error proveedor (${result.providerStatus})${result.error ? ` · ${result.error}` : ""}`,
+      );
+      socketRef.current?.send("message", { text });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Error desconocido";
+      setProviderStatus(`Fallo al enviar · ${message}`);
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleReconnect = () => {
@@ -96,14 +114,16 @@ export default function CrmDock() {
         />
         <button
           type="submit"
-          className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
+          className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed"
+          disabled={sending}
         >
-          Enviar
+          {sending ? "Enviando…" : "Enviar"}
         </button>
       </form>
       <div className="mt-3 text-xs text-slate-500">
         {lastAck ? `Último ack: ${lastAck}` : "Aún sin confirmaciones"}
       </div>
+      {providerStatus && <div className="mt-2 text-xs text-slate-600">{providerStatus}</div>}
       <div className="mt-3 space-y-1 text-[11px] text-slate-500">
         {frames.slice().reverse().map((frame, index) => (
           <div key={index} className="rounded bg-slate-100 px-2 py-1 font-mono">

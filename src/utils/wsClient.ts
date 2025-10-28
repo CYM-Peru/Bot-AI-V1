@@ -1,3 +1,5 @@
+import { API_BASE } from "../lib/apiBase";
+
 export type ConnectionState = "idle" | "connecting" | "connected" | "reconnecting" | "closed";
 
 type EventHandler<T> = (payload: T) => void;
@@ -25,8 +27,32 @@ const MAX_BACKOFF = 10_000;
 const INITIAL_BACKOFF = 1_000;
 
 function computeWsUrl(): string {
-  const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
-  return `${protocol}${window.location.host}/api/crm/ws`;
+  const rawBase = (API_BASE || (typeof window !== "undefined" ? window.location.origin : "")).trim();
+  const fallbackProtocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
+  try {
+    const url = new URL(rawBase);
+    if (url.protocol === "http:") {
+      url.protocol = "ws:";
+    } else if (url.protocol === "https:") {
+      url.protocol = "wss:";
+    } else if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+      url.protocol = fallbackProtocol;
+    }
+    url.pathname = url.pathname.replace(/\/+$/, "") + "/api/crm/ws";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch (error) {
+    console.warn("[CRM] URL base inválida para WebSocket", error);
+    const protocol = fallbackProtocol === "wss:" ? "wss://" : "ws://";
+    const sanitizedHost = rawBase.replace(/^[^/]*:\/\//, "").replace(/\/+$/, "");
+    const host = sanitizedHost.length > 0
+      ? sanitizedHost
+      : typeof window !== "undefined"
+      ? window.location.host
+      : "127.0.0.1:3000";
+    return `${protocol}${host}/api/crm/ws`;
+  }
 }
 
 export class CrmSocket {

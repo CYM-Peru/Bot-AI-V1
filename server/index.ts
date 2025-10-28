@@ -12,7 +12,7 @@ import { Bitrix24Client } from "../src/integrations/bitrix24";
 import { botLogger, metricsTracker } from "../src/runtime/monitoring";
 import { createApiRoutes } from "./api-routes";
 import { registerCrmModule } from "./crm";
-import { initCrmWSS } from "./ws/crmGateway";
+import { initCrmWSS } from "./crm/ws";
 
 // Load environment variables
 dotenv.config();
@@ -57,7 +57,7 @@ const crmSocketManager = initCrmWSS(server);
 const crmModule = registerCrmModule({
   app,
   socketManager: crmSocketManager,
-  bitrixClient,
+  bitrixClient: bitrix24Client,
 });
 
 // Initialize WhatsApp Webhook Handler

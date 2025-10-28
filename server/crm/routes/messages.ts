@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { crmDb } from "../db";
-import type { CrmRealtimeManager } from "../../ws/crmGateway";
+import type { CrmRealtimeManager } from "../ws";
 import type { BitrixService } from "../services/bitrix";
 import { sendOutboundMessage } from "../services/whatsapp";
+import { sendWspTestMessage, type WspTestResult } from "../../services/wsp";
 import type { MessageType } from "../models";
 
 interface SendPayload {
@@ -16,17 +17,6 @@ interface SendPayload {
 
 export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixService: BitrixService) {
   const router = Router();
-
-  router.get("/conversations/:id/messages", (req, res) => {
-    const conversation = crmDb.getConversationById(req.params.id);
-    if (!conversation) {
-      res.status(404).json({ error: "not_found" });
-      return;
-    }
-    const messages = crmDb.listMessages(conversation.id);
-    const attachments = crmDb.listAttachmentsByMessageIds(messages.map((m) => m.id));
-    res.json({ messages, attachments });
-  });
 
   router.post("/send", async (req, res) => {
     const payload = req.body as SendPayload;
@@ -69,19 +59,35 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
     socketManager.emitNewMessage({ message, attachment: attachments[0] ?? null });
     socketManager.emitConversationUpdate({ conversation: crmDb.getConversationById(conversation.id)! });
 
-    let providerResult = null;
+    let providerResult: WspTestResult | null = null;
     if (conversation.phone) {
-      providerResult = await sendOutboundMessage({
-        phone: conversation.phone,
-        text: payload.text ?? undefined,
-        mediaUrl: attachments[0]?.url ?? undefined,
-        mediaType: attachments[0] ? inferTypeFromMime(attachments[0].mime) : undefined,
-        caption: payload.text ?? undefined,
-      });
+      if (!attachments.length && payload.text) {
+        providerResult = await sendWspTestMessage({ to: conversation.phone, text: payload.text });
+      } else {
+        const outbound = await sendOutboundMessage({
+          phone: conversation.phone,
+          text: payload.text ?? undefined,
+          mediaUrl: attachments[0]?.url ?? undefined,
+          mediaType: attachments[0] ? inferTypeFromMime(attachments[0].mime) : undefined,
+          caption: payload.text ?? undefined,
+        });
+        providerResult = {
+          ok: outbound.ok,
+          providerStatus: outbound.status,
+          body: outbound.body,
+          error: outbound.error,
+        };
+      }
     }
 
     const status = providerResult?.ok ? "sent" : "failed";
-    crmDb.updateMessageStatus(message.id, status, providerResult?.body && typeof providerResult.body === "object" ? providerResult.body as Record<string, unknown> : undefined);
+    crmDb.updateMessageStatus(
+      message.id,
+      status,
+      providerResult?.body && typeof providerResult.body === "object"
+        ? (providerResult.body as Record<string, unknown>)
+        : undefined,
+    );
 
     if (status === "sent") {
       const updatedMsg = { ...message, status };
@@ -105,7 +111,14 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
         });
     }
 
-    res.json({ message: { ...message, status }, attachment: attachments[0] ?? null, providerResult });
+    res.json({
+      ok: providerResult?.ok ?? false,
+      providerStatus: providerResult?.providerStatus ?? 0,
+      echo: { convId: conversation.id, phone: conversation.phone, text: payload.text ?? null },
+      message: { ...message, status },
+      attachment: attachments[0] ?? null,
+      error: providerResult?.error ?? null,
+    });
   });
 
   return router;
