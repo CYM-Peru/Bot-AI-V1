@@ -1,7 +1,6 @@
 import {
   type AskActionData,
   type ButtonOption,
-  type ConditionActionData,
   type ConditionRule,
   type Flow,
   type FlowNode,
