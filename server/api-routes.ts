@@ -13,6 +13,7 @@ import type { FlowProvider } from "../src/runtime/engine";
 import type { SessionStore } from "../src/runtime/session";
 import { Bitrix24Client } from "../src/integrations/bitrix24";
 import { sendWspTestMessage } from "./services/wsp";
+import { createConnectionsRouter } from "./routes/connections";
 
 export interface ApiRoutesOptions {
   flowProvider: FlowProvider;
@@ -191,6 +192,8 @@ export function createApiRoutes(options: ApiRoutesOptions): Router {
       res.status(500).json({ error: "Failed to reset simulation" });
     }
   });
+
+  router.use("/connections", createConnectionsRouter());
 
   router.post("/wsp/test", async (req, res) => {
     try {

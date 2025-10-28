@@ -13,6 +13,7 @@ import { botLogger, metricsTracker } from "../src/runtime/monitoring";
 import { createApiRoutes } from "./api-routes";
 import { registerCrmModule } from "./crm";
 import { initCrmWSS } from "./crm/ws";
+import { getWhatsAppEnv, getWhatsAppVerifyToken } from "./utils/env";
 
 // Load environment variables
 dotenv.config();
@@ -61,13 +62,16 @@ const crmModule = registerCrmModule({
 });
 
 // Initialize WhatsApp Webhook Handler
+const whatsappEnv = getWhatsAppEnv();
+
 const whatsappHandler = new WhatsAppWebhookHandler({
-  verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || "default_verify_token",
+  verifyToken: getWhatsAppVerifyToken() || "default_verify_token",
   engine: runtimeEngine,
   apiConfig: {
-    accessToken: process.env.WHATSAPP_ACCESS_TOKEN || "",
-    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
-    apiVersion: process.env.WHATSAPP_API_VERSION || "v20.0",
+    accessToken: whatsappEnv.accessToken || "",
+    phoneNumberId: whatsappEnv.phoneNumberId || "",
+    apiVersion: whatsappEnv.apiVersion || "v20.0",
+    baseUrl: whatsappEnv.baseUrl,
   },
   resolveFlow: async (context) => {
     const phoneNumber = context.message.from;
@@ -178,9 +182,9 @@ server.listen(PORT, () => {
   console.log(`📱 WhatsApp webhook: http://localhost:${PORT}/webhook/whatsapp`);
   console.log(`🏥 Health check: http://localhost:${PORT}/health`);
   console.log(`\n⚙️  Configuration:`);
-  console.log(`   - Verify Token: ${process.env.WHATSAPP_VERIFY_TOKEN ? "✓" : "✗"}`);
-  console.log(`   - Access Token: ${process.env.WHATSAPP_ACCESS_TOKEN ? "✓" : "✗"}`);
-  console.log(`   - Phone Number ID: ${process.env.WHATSAPP_PHONE_NUMBER_ID ? "✓" : "✗"}`);
+  console.log(`   - Verify Token: ${whatsappEnv.verifyToken ? "✓" : "✗"}`);
+  console.log(`   - Access Token: ${whatsappEnv.accessToken ? "✓" : "✗"}`);
+  console.log(`   - Phone Number ID: ${whatsappEnv.phoneNumberId ? "✓" : "✗"}`);
   console.log(`   - Default Flow ID: ${process.env.DEFAULT_FLOW_ID || "default-flow"}`);
   console.log(`   - Session Storage: ${process.env.SESSION_STORAGE_TYPE || "file"}`);
   console.log(`   - Bitrix24: ${bitrix24Client ? "✓" : "✗"}`);

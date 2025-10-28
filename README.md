@@ -107,10 +107,16 @@ cp .env.example .env
 ### Variables de Entorno
 
 ```env
-# WhatsApp Business API
-WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id
-WHATSAPP_ACCESS_TOKEN=your_access_token
-WHATSAPP_WEBHOOK_VERIFY_TOKEN=your_verify_token
+# WhatsApp Cloud API (preferir WSP_*)
+WSP_BASE_URL=https://graph.facebook.com
+WSP_API_VERSION=v20.0
+WSP_PHONE_NUMBER_ID=your_phone_number_id
+WSP_ACCESS_TOKEN=your_access_token
+WSP_VERIFY_TOKEN=your_verify_token
+# Fallbacks legacy (opcional)
+WHATSAPP_PHONE_NUMBER_ID=
+WHATSAPP_ACCESS_TOKEN=
+WHATSAPP_VERIFY_TOKEN=
 
 # Bitrix24
 BITRIX24_WEBHOOK_URL=https://your-domain.bitrix24.com/rest/1/webhook_code/
@@ -179,7 +185,7 @@ curl -fsS -X POST https://wsp.azaleia.com.pe/api/wsp/test \
   -d '{"to":"51918131082","text":"Hola desde Builder"}'
 ```
 
-El script reporta el estado de `/api/healthz`, `/api/wsp/test`, `/api/crm/health` y `/api/crm/conversations`, mostrando tanto el código HTTP como el cuerpo de respuesta para facilitar el diagnóstico.
+El script reporta el estado de `/api/healthz`, `/api/wsp/test`, `/api/crm/health`, `/api/crm/conversations` y consulta `/api/connections/whatsapp/check` + `/api/connections/bitrix/check` para reflejar el estado que muestra el panel de Conexiones.
 
 > ℹ️  La configuración de Nginx necesaria para el upgrade del WebSocket se documenta en `ops/nginx/crm-ws-snippet.conf`.
 
