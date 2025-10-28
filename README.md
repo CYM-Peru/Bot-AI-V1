@@ -107,10 +107,16 @@ cp .env.example .env
 ### Variables de Entorno
 
 ```env
-# WhatsApp Business API
-WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id
-WHATSAPP_ACCESS_TOKEN=your_access_token
-WHATSAPP_WEBHOOK_VERIFY_TOKEN=your_verify_token
+# WhatsApp Cloud API (preferir WSP_*)
+WSP_BASE_URL=https://graph.facebook.com
+WSP_API_VERSION=v20.0
+WSP_PHONE_NUMBER_ID=your_phone_number_id
+WSP_ACCESS_TOKEN=your_access_token
+WSP_VERIFY_TOKEN=your_verify_token
+# Fallbacks legacy (opcional)
+WHATSAPP_PHONE_NUMBER_ID=
+WHATSAPP_ACCESS_TOKEN=
+WHATSAPP_VERIFY_TOKEN=
 
 # Bitrix24
 BITRIX24_WEBHOOK_URL=https://your-domain.bitrix24.com/rest/1/webhook_code/
@@ -150,6 +156,38 @@ npm run build
 # - Frontend: dist/ (HTML, CSS, JS)
 # - Backend: dist/server/ (Node.js compilado)
 ```
+
+## 🌐 CRM WS
+
+La pasarela WebSocket del CRM se expone en `wss://<tu-dominio>/api/crm/ws` y funciona sobre el mismo servidor Express.
+
+### Eventos soportados
+- `welcome`: enviado por el servidor al conectar, incluye `clientId` y `serverTime`.
+- `event`: notificaciones de negocio (`crm:msg:new`, `crm:msg:update`, `crm:conv:update`, `crm:typing`).
+- `ack`: confirmaciones de lectura de eventos como `message` o `read`.
+- `error`: respuesta cuando el payload no es válido.
+
+### QA rápido — CRM + WebSocket + WSP
+
+```bash
+# Ejecuta todos los checks contra producción (usa BASE_URL opcional)
+scripts/qa_wsp.sh
+
+# Conectar por WebSocket manualmente
+wscat -c wss://wsp.azaleia.com.pe/api/crm/ws
+> {"type":"hello"}
+< {"type":"welcome", ... }
+
+# Enviar prueba WSP directa desde la UI del CRM (botón "Enviar" en el panel superior)
+# o vía API
+curl -fsS -X POST https://wsp.azaleia.com.pe/api/wsp/test \
+  -H 'Content-Type: application/json' \
+  -d '{"to":"51918131082","text":"Hola desde Builder"}'
+```
+
+El script reporta el estado de `/api/healthz`, `/api/wsp/test`, `/api/crm/health`, `/api/crm/conversations` y consulta `/api/connections/whatsapp/check` + `/api/connections/bitrix/check` para reflejar el estado que muestra el panel de Conexiones.
+
+> ℹ️  La configuración de Nginx necesaria para el upgrade del WebSocket se documenta en `ops/nginx/crm-ws-snippet.conf`.
 
 ## 🧪 Testing
 

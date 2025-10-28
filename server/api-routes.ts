@@ -12,6 +12,8 @@ import { botLogger, metricsTracker } from "../src/runtime/monitoring";
 import type { FlowProvider } from "../src/runtime/engine";
 import type { SessionStore } from "../src/runtime/session";
 import { Bitrix24Client } from "../src/integrations/bitrix24";
+import { sendWspTestMessage } from "./services/wsp";
+import { createConnectionsRouter } from "./routes/connections";
 
 export interface ApiRoutesOptions {
   flowProvider: FlowProvider;
@@ -188,6 +190,30 @@ export function createApiRoutes(options: ApiRoutesOptions): Router {
     } catch (error) {
       console.error("[API] Simulation reset error:", error);
       res.status(500).json({ error: "Failed to reset simulation" });
+    }
+  });
+
+  router.use("/connections", createConnectionsRouter());
+
+  router.post("/wsp/test", async (req, res) => {
+    try {
+      const { to, text } = req.body ?? {};
+      if (typeof to !== "string" || typeof text !== "string") {
+        res.status(400).json({ ok: false, reason: "invalid_payload" });
+        return;
+      }
+      const result = await sendWspTestMessage({ to, text });
+      if (!result.ok) {
+        const status = result.providerStatus || 500;
+        res
+          .status(status >= 400 ? status : 502)
+          .json({ ok: false, reason: result.error ?? "provider_error", providerStatus: status, echo: { to, text } });
+        return;
+      }
+      res.json({ ok: true, providerStatus: result.providerStatus, echo: { to, text }, body: result.body });
+    } catch (error) {
+      console.error("[API] WSP test error:", error);
+      res.status(500).json({ ok: false, reason: "unexpected_error" });
     }
   });
 

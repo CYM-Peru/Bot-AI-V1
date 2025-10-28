@@ -38,6 +38,11 @@ export interface WhatsAppWebhookHandlerOptions {
   apiConfig: WhatsAppApiConfig;
   resolveFlow: FlowResolver;
   logger?: Logger;
+  onIncomingMessage?: (payload: {
+    entryId: string;
+    value: ChangeValue;
+    message: WhatsAppMessage;
+  }) => Promise<void> | void;
 }
 
 export class WhatsAppWebhookHandler {
@@ -51,12 +56,15 @@ export class WhatsAppWebhookHandler {
 
   private readonly logger?: Logger;
 
+  private readonly onIncomingMessage?: WhatsAppWebhookHandlerOptions["onIncomingMessage"];
+
   constructor(options: WhatsAppWebhookHandlerOptions) {
     this.verifyToken = options.verifyToken;
     this.engine = options.engine;
     this.apiConfig = options.apiConfig;
     this.resolveFlow = options.resolveFlow;
     this.logger = options.logger;
+    this.onIncomingMessage = options.onIncomingMessage;
   }
 
   async handle(request: Request): Promise<Response> {
@@ -114,6 +122,7 @@ export class WhatsAppWebhookHandler {
       const context: WhatsAppMessageContext = { entryId, value, message };
       const resolution = await this.resolveFlow(context);
       const incoming = convertMessageToRuntime(message);
+      await this.onIncomingMessage?.({ entryId, value, message });
       const result = await this.engine.processMessage({
         sessionId: resolution.sessionId,
         flowId: resolution.flowId,
@@ -313,7 +322,7 @@ interface Change {
   value: ChangeValue;
 }
 
-interface ChangeValue {
+export interface ChangeValue {
   messaging_product?: string;
   metadata?: {
     display_phone_number?: string;
@@ -351,11 +360,11 @@ interface InteractiveButtonMessage extends WhatsAppMessageBase {
 
 interface MediaMessage extends WhatsAppMessageBase {
   type: "image" | "video" | "document" | "audio" | "sticker";
-  image?: { id?: string; link?: string; caption?: string };
-  video?: { id?: string; link?: string; caption?: string };
-  document?: { id?: string; link?: string; caption?: string };
-  audio?: { id?: string; link?: string };
-  sticker?: { id?: string; link?: string };
+  image?: { id?: string; link?: string; caption?: string; mime_type?: string };
+  video?: { id?: string; link?: string; caption?: string; mime_type?: string };
+  document?: { id?: string; link?: string; caption?: string; mime_type?: string };
+  audio?: { id?: string; link?: string; mime_type?: string };
+  sticker?: { id?: string; link?: string; mime_type?: string };
 }
 
-type WhatsAppMessage = TextMessage | ButtonMessage | InteractiveButtonMessage | MediaMessage;
+export type WhatsAppMessage = TextMessage | ButtonMessage | InteractiveButtonMessage | MediaMessage;
