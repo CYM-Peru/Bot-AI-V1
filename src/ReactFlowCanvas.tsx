@@ -292,7 +292,19 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
   );
 
   const quickCreateOptions = useMemo<ConnectionCreationKind[]>(
-    () => ['menu', 'message', 'buttons', 'ask', 'scheduler', 'end'],
+    () => [
+      'menu',
+      'message',
+      'buttons',
+      'ask',
+      'attachment',
+      'webhook_out',
+      'webhook_in',
+      'transfer',
+      'scheduler',
+      'condition',
+      'end',
+    ],
     [],
   );
 
@@ -431,25 +443,100 @@ function QuickCreatePopover({ position, options, onSelect, onDismiss }: QuickCre
     return () => window.removeEventListener('keydown', onKey);
   }, [onDismiss]);
 
+  // Organize options by category
+  const categorizedOptions = {
+    estructura: options.filter(opt => opt === 'menu'),
+    mensajes: options.filter(opt => ['message', 'buttons', 'ask', 'attachment'].includes(opt)),
+    integraciones: options.filter(opt => ['webhook_out', 'webhook_in', 'transfer', 'scheduler'].includes(opt)),
+    logica: options.filter(opt => opt === 'condition'),
+    control: options.filter(opt => opt === 'end'),
+  };
+
   return (
     <div
-      className="pointer-events-auto absolute z-20 w-40 rounded-lg border border-slate-200 bg-white shadow-lg"
+      className="pointer-events-auto absolute z-20 w-56 rounded-lg border border-slate-200 bg-white shadow-xl max-h-[500px] overflow-y-auto"
       style={{ left: position.x, top: position.y }}
     >
-      <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600">Crear nuevo nodo</div>
-      <ul className="divide-y divide-slate-100 text-sm">
-        {options.map((option) => (
-          <li key={option}>
-            <button
-              type="button"
-              className="w-full px-3 py-2 text-left text-slate-600 hover:bg-emerald-50"
-              onClick={() => onSelect(option)}
-            >
-              {renderOptionLabel(option)}
-            </button>
-          </li>
-        ))}
-      </ul>
+      <div className="sticky top-0 border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 bg-white">
+        Crear nuevo nodo
+      </div>
+      <div className="divide-y divide-slate-100">
+        {categorizedOptions.estructura.length > 0 && (
+          <div className="p-2">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide px-2 py-1">Estructura</div>
+            {categorizedOptions.estructura.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-emerald-50 rounded"
+                onClick={() => onSelect(option)}
+              >
+                {renderOptionLabel(option)}
+              </button>
+            ))}
+          </div>
+        )}
+        {categorizedOptions.mensajes.length > 0 && (
+          <div className="p-2">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide px-2 py-1">Mensajes</div>
+            {categorizedOptions.mensajes.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-emerald-50 rounded"
+                onClick={() => onSelect(option)}
+              >
+                {renderOptionLabel(option)}
+              </button>
+            ))}
+          </div>
+        )}
+        {categorizedOptions.integraciones.length > 0 && (
+          <div className="p-2">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide px-2 py-1">Integraciones</div>
+            {categorizedOptions.integraciones.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 rounded"
+                onClick={() => onSelect(option)}
+              >
+                {renderOptionLabel(option)}
+              </button>
+            ))}
+          </div>
+        )}
+        {categorizedOptions.logica.length > 0 && (
+          <div className="p-2">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide px-2 py-1">Lógica</div>
+            {categorizedOptions.logica.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-sky-50 rounded"
+                onClick={() => onSelect(option)}
+              >
+                {renderOptionLabel(option)}
+              </button>
+            ))}
+          </div>
+        )}
+        {categorizedOptions.control.length > 0 && (
+          <div className="p-2">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide px-2 py-1">Control</div>
+            {categorizedOptions.control.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 rounded"
+                onClick={() => onSelect(option)}
+              >
+                {renderOptionLabel(option)}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -457,17 +544,27 @@ function QuickCreatePopover({ position, options, onSelect, onDismiss }: QuickCre
 function renderOptionLabel(option: ConnectionCreationKind): string {
   switch (option) {
     case 'menu':
-      return 'Menú';
+      return '📋 Menú';
     case 'message':
-      return 'Mensaje';
+      return '💬 Mensaje';
     case 'buttons':
-      return 'Botones';
+      return '🔘 Botones';
     case 'ask':
-      return 'Pregunta';
+      return '❓ Pregunta';
+    case 'attachment':
+      return '📎 Adjunto';
+    case 'webhook_out':
+      return '🔗 Webhook OUT';
+    case 'webhook_in':
+      return '📥 Webhook IN';
+    case 'transfer':
+      return '👤 Transferir';
     case 'scheduler':
-      return 'Scheduler';
+      return '⏰ Scheduler';
+    case 'condition':
+      return '🔀 Condición';
     case 'end':
-      return 'Fin del flujo';
+      return '🛑 Fin del flujo';
     default:
       return option;
   }

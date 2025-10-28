@@ -632,7 +632,12 @@ export type ConnectionCreationKind =
   | 'message'
   | 'buttons'
   | 'ask'
+  | 'attachment'
+  | 'webhook_out'
+  | 'webhook_in'
+  | 'transfer'
   | 'scheduler'
+  | 'condition'
   | 'end';
 
 export const STRICTEST_LIMIT = CHANNEL_BUTTON_LIMITS.reduce(
