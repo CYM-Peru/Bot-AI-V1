@@ -10,14 +10,15 @@ import { debounce } from "./utils/debounce";
 import { DEFAULT_BUTTON_LIMIT } from "./flow/channelLimits";
 import { ReactFlowCanvas } from "./ReactFlowCanvas";
 import { testWebhookOut, generateWebhookInUrl, type WebhookResponse } from "./flow/webhooks";
-import { WhatsAppConfigPanel } from "./components/WhatsAppConfig";
 import { MetricsPanel } from "./components/MetricsPanel";
-import { Bitrix24Panel } from "./components/Bitrix24Panel";
 import { NodeSearchModal } from "./components/NodeSearchModal";
 import { TemplateSelector } from "./components/TemplateSelector";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import type { FlowTemplate } from "./templates/flowTemplates";
-import { toPng } from 'html-to-image';
+import { toPng } from './utils/htmlToImage';
+import { ConnectionsButton } from "./components/Connections/ConnectionsButton";
+import { ConnectionsPanel } from "./components/Connections/ConnectionsPanel";
+const CRMWorkspace = React.lazy(() => import("./crm"));
 import {
   ConnectionCreationKind,
   STRICTEST_LIMIT,
@@ -302,8 +303,8 @@ export default function App(): JSX.Element {
   const [toast, setToast] = useState<Toast | null>(null);
   const [webhookTestResult, setWebhookTestResult] = useState<WebhookResponse | null>(null);
   const [webhookTesting, setWebhookTesting] = useState(false);
-  const [showWhatsAppConfig, setShowWhatsAppConfig] = useState(false);
-  const [mainTab, setMainTab] = useState<'canvas' | 'metrics' | 'bitrix'>('canvas');
+  const [mainTab, setMainTab] = useState<'canvas' | 'crm' | 'metrics'>('canvas');
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
 
   const [bitrixFieldOptions, setBitrixFieldOptions] = useState<string[]>([]);
   const [bitrixFieldsLoading, setBitrixFieldsLoading] = useState(false);
@@ -1317,20 +1318,6 @@ export default function App(): JSX.Element {
     debouncedManualSave();
   }, [debouncedManualSave]);
 
-  const handleLoad = useCallback(async () => {
-    try {
-      const stored = await loadFlow<PersistedState>(workspaceIdRef.current);
-      if (!stored || !stored.flow) {
-        showToast("No se encontró un flujo guardado", "error");
-        return;
-      }
-      replaceFlow(stored.flow, stored.positions ?? {});
-      showToast("Flujo cargado", "success");
-    } catch (error) {
-      showToast("Error al cargar", "error");
-    }
-  }, [replaceFlow, showToast]);
-
   const handleExport = useCallback(() => {
     if (typeof window === "undefined") {
       showToast("Exportación no disponible", "error");
@@ -2262,97 +2249,81 @@ export default function App(): JSX.Element {
         </div>
       )}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs px-3 py-1 rounded-full border bg-slate-50">Builder · Beta</span>
           <h1 className="text-lg md:text-2xl font-semibold truncate">{flow.name}</h1>
 
           {/* Tab Navigation */}
-          <div className="flex gap-1 ml-4">
+          <div className="flex gap-2 md:ml-4 flex-wrap">
             <button
-              className={`px-4 py-1.5 text-sm font-medium rounded-lg transition ${
-                mainTab === 'canvas'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-              }`}
+              className={`btn btn--ghost topbar-tab${mainTab === 'canvas' ? ' is-active' : ''}`}
               onClick={() => setMainTab('canvas')}
+              type="button"
             >
               📐 Canvas
             </button>
+            <ConnectionsButton
+              isOpen={connectionsOpen}
+              onToggle={() => setConnectionsOpen((open) => !open)}
+            />
             <button
-              className={`px-4 py-1.5 text-sm font-medium rounded-lg transition ${
-                mainTab === 'metrics'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-              }`}
+              className={`btn btn--ghost topbar-tab${mainTab === 'crm' ? ' is-active' : ''}`}
+              onClick={() => setMainTab('crm')}
+              type="button"
+            >
+              🗂️ CRM
+            </button>
+            <button
+              className={`btn btn--ghost topbar-tab${mainTab === 'metrics' ? ' is-active' : ''}`}
               onClick={() => setMainTab('metrics')}
+              type="button"
             >
               📊 Métricas
             </button>
-            <button
-              className={`px-4 py-1.5 text-sm font-medium rounded-lg transition ${
-                mainTab === 'bitrix'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-              }`}
-              onClick={() => setMainTab('bitrix')}
-            >
-              🔗 Bitrix24
-            </button>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <button
-            className="px-3 py-1.5 text-sm border border-blue-500 rounded bg-white hover:bg-blue-50 text-blue-600 font-medium"
-            onClick={() => setShowWhatsAppConfig(true)}
-          >
-            📱 WhatsApp API
-          </button>
-          <button
-            className="px-3 py-1.5 text-sm border border-purple-500 rounded bg-white hover:bg-purple-50 text-purple-600 font-medium"
-            onClick={() => setShowTemplateSelector(true)}
-          >
-            📋 Templates
-          </button>
-          <button
-            className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn btn--ghost"
             onClick={undoRedoActions.undo}
             disabled={!undoRedoActions.canUndo}
             title="Deshacer (Ctrl+Z)"
+            type="button"
           >
             ↶ Deshacer
           </button>
           <button
-            className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn btn--ghost"
             onClick={undoRedoActions.redo}
             disabled={!undoRedoActions.canRedo}
             title="Rehacer (Ctrl+Y)"
+            type="button"
           >
             ↷ Rehacer
           </button>
           <button
-            className={`px-3 py-1.5 text-sm border rounded ${
-              hasBlockingErrors
-                ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
-                : "bg-white hover:bg-emerald-50 border-emerald-200"
-            }`}
+            className="btn btn--secondary"
             onClick={handleSaveClick}
             disabled={hasBlockingErrors}
+            type="button"
           >
             Guardar
           </button>
-          <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleLoad}>Cargar</button>
-          <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleExport}>Exportar JSON</button>
-          <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleExportPNG}>📸 Exportar PNG</button>
-          <button className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-100" onClick={handleImportClick}>Importar JSON</button>
           <button
-            className={`px-3 py-1.5 text-sm rounded ${
-              hasBlockingErrors
-                ? "bg-slate-300 text-slate-500 cursor-not-allowed"
-                : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-            }`}
+            className="btn btn--primary"
             disabled={hasBlockingErrors}
+            type="button"
           >
             Publicar
+          </button>
+          <button className="btn btn--ghost" onClick={handleExportPNG} type="button">
+            📸 Exportar PNG
+          </button>
+          <button className="btn btn--ghost" onClick={handleImportClick} type="button">
+            Importar JSON
+          </button>
+          <button className="btn btn--ghost" onClick={handleExport} type="button">
+            Exportar JSON
           </button>
         </div>
         {hasBlockingErrors && (
@@ -2362,6 +2333,8 @@ export default function App(): JSX.Element {
           </div>
         )}
       </div>
+
+      <ConnectionsPanel open={connectionsOpen} onClose={() => setConnectionsOpen(false)} />
 
       <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
 
@@ -3638,23 +3611,25 @@ export default function App(): JSX.Element {
       </div>
       )}
 
+      {mainTab === 'crm' && (
+        <div className="mt-2">
+          <React.Suspense
+            fallback={
+              <div className="flex h-[calc(100vh-160px)] items-center justify-center rounded-3xl border border-slate-200 bg-white text-sm text-slate-500 shadow-xl">
+                Cargando CRM…
+              </div>
+            }
+          >
+            <CRMWorkspace />
+          </React.Suspense>
+        </div>
+      )}
+
       {/* Metrics Tab */}
       {mainTab === 'metrics' && (
         <div style={{ height: "calc(100vh - 120px)" }}>
           <MetricsPanel />
         </div>
-      )}
-
-      {/* Bitrix24 Tab */}
-      {mainTab === 'bitrix' && (
-        <div style={{ height: "calc(100vh - 120px)" }}>
-          <Bitrix24Panel />
-        </div>
-      )}
-
-      {/* Panel de configuración WhatsApp */}
-      {showWhatsAppConfig && (
-        <WhatsAppConfigPanel onClose={() => setShowWhatsAppConfig(false)} />
       )}
 
       {/* Modal de búsqueda de nodos */}

@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-
-const API_BASE_URL = 'http://localhost:3000';
+import { apiUrl } from '../lib/apiBase';
 
 interface Bitrix24Contact {
   ID: string;
@@ -33,7 +32,7 @@ export function Bitrix24Panel() {
 
     try {
       // Test by trying to list contacts (simplest API call)
-      const response = await fetch(`${API_BASE_URL}/api/bitrix/search`, {
+      const response = await fetch(apiUrl('/api/bitrix/search'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -82,7 +81,7 @@ export function Bitrix24Panel() {
     setSearchResult(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/bitrix/search`, {
+      const response = await fetch(apiUrl('/api/bitrix/search'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

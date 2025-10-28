@@ -1,6 +1,7 @@
 import express, { type Request, type Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import { createServer } from "http";
 import { RuntimeEngine } from "../src/runtime/engine";
 import { NodeExecutor } from "../src/runtime/executor";
 import { WhatsAppWebhookHandler } from "../src/api/whatsapp-webhook";
@@ -10,16 +11,19 @@ import { createSessionStore } from "./session-store";
 import { Bitrix24Client } from "../src/integrations/bitrix24";
 import { botLogger, metricsTracker } from "../src/runtime/monitoring";
 import { createApiRoutes } from "./api-routes";
+import { registerCrmModule } from "./crm";
+import { initCrmWSS } from "./ws/crmGateway";
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const server = createServer(app);
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // Initialize Runtime Engine
@@ -46,6 +50,14 @@ const runtimeEngine = new RuntimeEngine({
   flowProvider,
   sessionStore,
   executor,
+});
+
+// Conversational CRM module
+const crmSocketManager = initCrmWSS(server);
+const crmModule = registerCrmModule({
+  app,
+  socketManager: crmSocketManager,
+  bitrixClient,
 });
 
 // Initialize WhatsApp Webhook Handler
@@ -78,12 +90,18 @@ const whatsappHandler = new WhatsAppWebhookHandler({
     warn: (message, meta) => botLogger.warn(message, meta),
     error: (message, meta) => botLogger.error(message, undefined, meta),
   },
+  onIncomingMessage: async (payload) => {
+    await crmModule.handleIncomingWhatsApp(payload);
+  },
 });
 
-// Health check endpoint
-app.get("/health", (_req: Request, res: Response) => {
+const healthHandler = (_req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
+};
+
+// Health check endpoints
+app.get("/health", healthHandler);
+app.get("/api/healthz", healthHandler);
 
 // WhatsApp webhook endpoint
 app.all("/webhook/whatsapp", async (req: Request, res: Response) => {
@@ -155,7 +173,7 @@ app.get("/api/flows", async (req: Request, res: Response) => {
 app.use("/api", createApiRoutes({ flowProvider, sessionStore }));
 
 // Start server
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📱 WhatsApp webhook: http://localhost:${PORT}/webhook/whatsapp`);
   console.log(`🏥 Health check: http://localhost:${PORT}/health`);
@@ -175,6 +193,8 @@ app.listen(PORT, () => {
   console.log(`   - Simulate Start: POST http://localhost:${PORT}/api/simulate/start`);
   console.log(`   - Simulate Message: POST http://localhost:${PORT}/api/simulate/message`);
 });
+
+export { server };
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
