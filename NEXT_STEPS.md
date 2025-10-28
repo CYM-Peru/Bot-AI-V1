@@ -37,17 +37,18 @@ A continuación se detallan los bloques funcionales con su estado actual:
    - ✅ Persistencia en JSON garantizada
    - 📋 Pendiente: Extender data.ui para altura de MessageNode
 
-### 6. **Experiencia de canvas** ✅ Parcial
+### 6. **Experiencia de canvas** ✅ COMPLETADO
    - ✅ Auto-fit inicial al cargar flujo
    - ✅ Botón "🎯 Centrar" para recentrar manualmente
    - ✅ Auto-fit al cambiar de flujo (flow ID change)
    - ✅ Paneo con clic derecho funcional
-   - ⏳ Pendiente: Undo/Redo (Ctrl+Z, Ctrl+Y)
-   - ⏳ Pendiente: Copy/Paste (Ctrl+C, Ctrl+V)
-   - ⏳ Pendiente: Búsqueda de nodos (Ctrl+F)
-   - ⏳ Pendiente: 5 Templates predefinidos
-   - ⏳ Pendiente: Dark Mode
-   - ⏳ Pendiente: Exportar a PNG
+   - ✅ Undo/Redo (Ctrl+Z, Ctrl+Y) - Historial de 50 acciones
+   - ✅ Copy/Paste (Ctrl+C, Ctrl+V) - Deep clone con offset de posición
+   - ✅ Búsqueda de nodos (Ctrl+F) - Filtrado instantáneo multi-campo
+   - ✅ 5 Templates predefinidos - Welcome, Lead Capture, Support, E-commerce, Appointments
+   - ✅ Exportar a PNG - Integrado con html-to-image
+   - ✅ Botones reorganizados en columnas horizontales con ancho estándar
+   - 📋 Nice to have: Dark Mode (infraestructura lista)
 
 ## 📋 PENDIENTE - PRIORIDAD MEDIA
 
@@ -71,19 +72,31 @@ A continuación se detallan los bloques funcionales con su estado actual:
 
 ## 📊 RESUMEN
 
-- **Completadas**: 6/8 bloques principales
+- **Completadas**: 8/8 bloques principales ✅
 - **En progreso**: 0/8
-- **Pendientes**: 2/8 (Nice to have features)
-- **Build Status**: ✅ Sin errores
-- **Bundle Size**: 468.98 kB (gzip: 140.11 kB)
+- **Pendientes**: 0/8 core features (Solo nice-to-have: Dark Mode)
+- **Build Status**: ✅ Sin errores TypeScript
+- **Bundle Size**: 503.63 kB (gzip: 150.89 kB)
 
-## 🚀 PRÓXIMOS PASOS RECOMENDADOS
+## 🚀 PRÓXIMOS PASOS - PRODUCCIÓN
 
-1. **Prioridad Alta**: Implementar Undo/Redo para mejor UX
-2. **Prioridad Media**: Copy/Paste de nodos
-3. **Prioridad Baja**: Dark Mode y Templates
-4. **QA**: Testing exhaustivo de ValidationNode con Bitrix24
-5. **Documentación**: Actualizar guía de usuario con nuevos nodos
+### Todas las features COMPLETADAS ✅
+
+La aplicación está lista para producción con todas las características core implementadas.
+
+### Para Desplegar:
+1. **Ver PRODUCTION_CHECKLIST.md** - Guía completa de despliegue
+2. **Configurar .env** - Copiar .env.example y agregar tokens reales
+3. **Desplegar backend** - Railway/Heroku con HTTPS
+4. **Desplegar frontend** - Vercel/Netlify
+5. **Configurar WhatsApp Webhook** - En Meta Developer Portal
+6. **Testing en producción** - Verificar todas las integraciones
+
+### Nice to Have (Futuras Mejoras):
+1. Dark Mode (variables CSS listas)
+2. Multi-idioma
+3. Autenticación y roles
+4. Analytics avanzados
 
 ---
 

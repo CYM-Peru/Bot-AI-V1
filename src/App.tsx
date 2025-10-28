@@ -2407,28 +2407,28 @@ export default function App(): JSX.Element {
               </div>
             </div>
 
-            {/* Toolbar de acciones debajo del canvas - VERTICAL */}
-            <div className="border-t bg-white shadow-lg flex-shrink-0 overflow-y-auto max-h-48">
-              <div className="px-4 py-3 space-y-4">
-                <section className="space-y-2">
+            {/* Toolbar de acciones debajo del canvas - GRID COLUMNAS */}
+            <div className="border-t bg-white shadow-lg flex-shrink-0 overflow-x-auto">
+              <div className="px-4 py-3 flex gap-6">
+                <section className="space-y-2 min-w-[160px]">
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mensajería</h4>
                   <div className="flex flex-col gap-2">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "message")}
                       disabled={!selectedId}
                     >
                       <span>💬</span> Mensaje
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "buttons")}
                       disabled={!selectedId}
                     >
                       <span>🔘</span> Botones
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "attachment")}
                       disabled={!selectedId}
                     >
@@ -2437,18 +2437,18 @@ export default function App(): JSX.Element {
                   </div>
                 </section>
 
-                <section className="space-y-2">
+                <section className="space-y-2 min-w-[160px]">
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Captura</h4>
                   <div className="flex flex-col gap-2">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition flex items-center gap-2"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition flex items-center gap-2 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "question")}
                       disabled={!selectedId}
                     >
                       <span>❓</span> Preguntar
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition flex items-center gap-2"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition flex items-center gap-2 whitespace-nowrap"
                       onClick={() => addChildTo(selectedId, "menu")}
                       disabled={!selectedId}
                     >
@@ -2457,18 +2457,18 @@ export default function App(): JSX.Element {
                   </div>
                 </section>
 
-                <section className="space-y-2">
+                <section className="space-y-2 min-w-[160px]">
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Lógica</h4>
                   <div className="flex flex-col gap-2">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition flex items-center gap-2"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition flex items-center gap-2 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "validation")}
                       disabled={!selectedId}
                     >
                       <span>🛡️</span> Validación
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition flex items-center gap-2"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition flex items-center gap-2 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "scheduler")}
                       disabled={!selectedId}
                     >
@@ -2477,18 +2477,18 @@ export default function App(): JSX.Element {
                   </div>
                 </section>
 
-                <section className="space-y-2">
+                <section className="space-y-2 min-w-[160px]">
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Integraciones</h4>
                   <div className="flex flex-col gap-2">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "webhook_out")}
                       disabled={!selectedId}
                     >
                       <span>🔗</span> Webhook OUT
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "webhook_in")}
                       disabled={!selectedId}
                     >
@@ -2497,18 +2497,18 @@ export default function App(): JSX.Element {
                   </div>
                 </section>
 
-                <section className="space-y-2">
+                <section className="space-y-2 min-w-[160px]">
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Control</h4>
                   <div className="flex flex-col gap-2">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-slate-500 text-white hover:bg-slate-600 transition flex items-center gap-2"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-slate-500 text-white hover:bg-slate-600 transition flex items-center gap-2 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "end")}
                       disabled={!selectedId}
                     >
                       <span>🛑</span> Finalizar flujo
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition flex items-center gap-2"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition flex items-center gap-2 whitespace-nowrap"
                       onClick={seedDemo}
                     >
                       <span>⚡</span> Demo rápido
