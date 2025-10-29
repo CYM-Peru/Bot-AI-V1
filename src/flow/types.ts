@@ -158,12 +158,28 @@ export type FlowNode = {
   delay?: number; // Delay in seconds before executing next node
 };
 
+export type ChannelType = 'whatsapp' | 'facebook' | 'instagram' | 'telegram';
+
+export type WhatsAppNumberAssignment = {
+  numberId: string;        // Unique ID for the WhatsApp number
+  displayName: string;     // Friendly name (e.g., "Ventas", "Soporte")
+  phoneNumber: string;     // Actual WhatsApp number
+};
+
+export type FlowChannelAssignment = {
+  channelType: ChannelType;
+  whatsappNumbers?: string[];  // Array of numberId values
+  enabled: boolean;
+};
+
 export type Flow = {
   version: number;
   id: string;
   name: string;
   rootId: string;
   nodes: Record<string, FlowNode>;
+  // Bot/Channel assignment (optional for backward compatibility)
+  channelAssignments?: FlowChannelAssignment[];
 };
 
 export type OutputHandle = {
