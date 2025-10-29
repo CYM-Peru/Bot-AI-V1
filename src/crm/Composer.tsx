@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { Attachment, Message } from "./types";
 import AttachmentPreview from "./AttachmentPreview";
+import QuickReplies from "./QuickReplies";
 
 interface ComposerProps {
   disabled?: boolean;
@@ -52,7 +53,8 @@ export default function Composer({ disabled, onSend, replyingTo, onCancelReply }
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
+    // Send on Enter (without Shift) or Ctrl+Enter / Cmd+Enter
+    if (event.key === "Enter" && (!event.shiftKey || event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       handleSend();
     }
@@ -123,13 +125,16 @@ export default function Composer({ disabled, onSend, replyingTo, onCancelReply }
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
             </svg>
           </button>
+          <div className="flex h-11 items-center">
+            <QuickReplies onSelectReply={(message) => setText(message)} />
+          </div>
           <textarea
             ref={textareaRef}
             value={text}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={handleKeyDown}
             className="h-11 flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm leading-6 focus:border-emerald-400 focus:outline-none focus:ring focus:ring-emerald-100"
-            placeholder="Escribe un mensaje (Enter para enviar, Shift+Enter para salto de línea)"
+            placeholder="Escribe un mensaje (Enter o Ctrl+Enter para enviar, Shift+Enter para salto de línea)"
             rows={1}
             disabled={disabled || sending}
           />

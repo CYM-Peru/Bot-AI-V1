@@ -72,5 +72,43 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
     res.json({ success: true });
   });
 
+  router.post("/:id/transfer", (req, res) => {
+    const conversation = crmDb.getConversationById(req.params.id);
+    if (!conversation) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    const { type, targetId } = req.body;
+
+    if (!type || !targetId) {
+      res.status(400).json({ error: "missing_parameters" });
+      return;
+    }
+
+    if (type !== "advisor" && type !== "bot") {
+      res.status(400).json({ error: "invalid_type" });
+      return;
+    }
+
+    // Update conversation metadata with transfer info
+    const metadata = conversation.metadata || {};
+    metadata.transferredTo = targetId;
+    metadata.transferType = type;
+    metadata.transferredAt = Date.now();
+
+    crmDb.updateConversationMeta(conversation.id, { metadata });
+
+    // Optionally archive the conversation after transfer
+    // crmDb.archiveConversation(conversation.id);
+
+    const updated = crmDb.getConversationById(conversation.id);
+    if (updated) {
+      socketManager.emitConversationUpdate({ conversation: updated });
+    }
+
+    res.json({ success: true, transferred: { type, targetId } });
+  });
+
   return router;
 }
