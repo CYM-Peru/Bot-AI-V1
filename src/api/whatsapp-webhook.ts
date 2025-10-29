@@ -249,6 +249,7 @@ function convertMessageToRuntime(message: WhatsAppMessage): IncomingMessage {
         type: "media",
         mediaUrl: message.image?.id ?? message.image?.link,
         mediaType: "image",
+        caption: message.image?.caption,
         raw,
       };
     case "video":
@@ -256,6 +257,7 @@ function convertMessageToRuntime(message: WhatsAppMessage): IncomingMessage {
         type: "media",
         mediaUrl: message.video?.id ?? message.video?.link,
         mediaType: "video",
+        caption: message.video?.caption,
         raw,
       };
     case "document":
@@ -263,6 +265,8 @@ function convertMessageToRuntime(message: WhatsAppMessage): IncomingMessage {
         type: "media",
         mediaUrl: message.document?.id ?? message.document?.link,
         mediaType: "document",
+        caption: message.document?.caption,
+        filename: message.document?.filename,
         raw,
       };
     case "audio":
@@ -362,7 +366,7 @@ interface MediaMessage extends WhatsAppMessageBase {
   type: "image" | "video" | "document" | "audio" | "sticker";
   image?: { id?: string; link?: string; caption?: string; mime_type?: string };
   video?: { id?: string; link?: string; caption?: string; mime_type?: string };
-  document?: { id?: string; link?: string; caption?: string; mime_type?: string };
+  document?: { id?: string; link?: string; caption?: string; mime_type?: string; filename?: string };
   audio?: { id?: string; link?: string; mime_type?: string };
   sticker?: { id?: string; link?: string; mime_type?: string };
 }

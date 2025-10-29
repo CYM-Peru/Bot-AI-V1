@@ -20,6 +20,8 @@ export interface IncomingMessage {
   payload?: string;
   mediaUrl?: string;
   mediaType?: string;
+  caption?: string;
+  filename?: string;
   raw?: Record<string, unknown>;
 }
 
