@@ -4,6 +4,7 @@ import type { CrmRealtimeManager } from "./ws";
 import type { BitrixService } from "./services/bitrix";
 import { attachmentStorage } from "./storage";
 import type { Attachment, MessageType } from "./models";
+import { logDebug, logError } from "../utils/file-logger";
 
 interface HandleIncomingArgs {
   entryId: string;
@@ -104,26 +105,26 @@ async function translateMessage(message: WhatsAppMessage): Promise<{
     case "sticker": {
       const mediaInfo = getMediaInfo(message);
       if (!mediaInfo) {
-        console.error(`[CRM][Media] No se pudo extraer info de media del mensaje tipo ${message.type}`);
+        logError(`[CRM][Media] No se pudo extraer info de media del mensaje tipo ${message.type}`);
         return { type: "document", text: null, attachment: null };
       }
-      console.log(`[CRM][Media] Descargando ${message.type} con ID: ${mediaInfo.id}`);
+      logDebug(`[CRM][Media] Descargando ${message.type} con ID: ${mediaInfo.id}`);
       const downloaded = await downloadMedia(mediaInfo.id, mediaInfo.mimeType ?? undefined);
       if (!downloaded) {
-        console.error(`[CRM][Media] Falló descarga de ${message.type} con ID: ${mediaInfo.id}`);
+        logError(`[CRM][Media] Falló descarga de ${message.type} con ID: ${mediaInfo.id}`);
         return {
           type: mapType(message.type),
           text: mediaInfo.caption ?? null,
           attachment: null,
         };
       }
-      console.log(`[CRM][Media] Descarga exitosa: ${downloaded.filename} (${downloaded.mime}, ${downloaded.buffer.length} bytes)`);
+      logDebug(`[CRM][Media] Descarga exitosa: ${downloaded.filename} (${downloaded.mime}, ${downloaded.buffer.length} bytes)`);
       const stored = await attachmentStorage.saveBuffer({
         buffer: downloaded.buffer,
         filename: downloaded.filename,
         mime: downloaded.mime,
       });
-      console.log(`[CRM][Media] Guardado en storage: ${stored.url}`);
+      logDebug(`[CRM][Media] Guardado en storage: ${stored.url}`);
       return {
         type: mapType(message.type),
         text: mediaInfo.caption ?? null,
@@ -182,37 +183,39 @@ function getMediaInfo(message: WhatsAppMessage):
 
 async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buffer: Buffer; filename: string; mime: string } | null> {
   if (!mediaId) {
-    console.error("[CRM][Media] downloadMedia: mediaId vacío");
+    logError("[CRM][Media] downloadMedia: mediaId vacío");
     return null;
   }
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
   if (!accessToken) {
-    console.error("[CRM][Media] downloadMedia: WHATSAPP_ACCESS_TOKEN no configurado");
+    logError("[CRM][Media] downloadMedia: WHATSAPP_ACCESS_TOKEN no configurado");
     return null;
   }
   const baseUrl = process.env.WHATSAPP_API_BASE_URL ?? "https://graph.facebook.com";
   const version = process.env.WHATSAPP_API_VERSION ?? "v20.0";
   try {
     const metaUrl = `${baseUrl}/${version}/${mediaId}`;
-    console.log(`[CRM][Media] Obteniendo metadata de: ${metaUrl}`);
+    logDebug(`[CRM][Media] Obteniendo metadata de: ${metaUrl}`);
     const metaResponse = await fetch(metaUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!metaResponse.ok) {
-      console.error(`[CRM][Media] Error obteniendo metadata: HTTP ${metaResponse.status}`);
+      logError(`[CRM][Media] Error obteniendo metadata: HTTP ${metaResponse.status}`);
+      const errorText = await metaResponse.text();
+      logError(`[CRM][Media] Respuesta de error:`, errorText);
       return null;
     }
     const meta = (await metaResponse.json()) as { url?: string; mime_type?: string; file_size?: number; id?: string }; // eslint-disable-line @typescript-eslint/consistent-type-assertions
     if (!meta.url) {
-      console.error("[CRM][Media] Metadata no contiene URL del archivo");
+      logError("[CRM][Media] Metadata no contiene URL del archivo");
       return null;
     }
-    console.log(`[CRM][Media] Descargando archivo desde: ${meta.url.substring(0, 50)}...`);
+    logDebug(`[CRM][Media] Descargando archivo desde: ${meta.url.substring(0, 50)}...`);
     const mediaResponse = await fetch(meta.url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!mediaResponse.ok) {
-      console.error(`[CRM][Media] Error descargando archivo: HTTP ${mediaResponse.status}`);
+      logError(`[CRM][Media] Error descargando archivo: HTTP ${mediaResponse.status}`);
       return null;
     }
     const arrayBuffer = await mediaResponse.arrayBuffer();
@@ -220,7 +223,7 @@ async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buff
     const filename = `${mediaId}`;
     return { buffer: Buffer.from(arrayBuffer), filename, mime };
   } catch (error) {
-    console.warn("[CRM] Unable to download WhatsApp media", error);
+    logError("[CRM] Unable to download WhatsApp media", error);
     return null;
   }
 }

@@ -21,6 +21,7 @@ import { registerReloadCallback } from "./whatsapp-handler-manager";
 import { createAdminRouter } from "./routes/admin";
 import { createAuthRouter } from "./routes/auth";
 import { requireAuth } from "./auth/middleware";
+import { logDebug, logError } from "./utils/file-logger";
 
 // Load environment variables
 dotenv.config();
@@ -109,12 +110,12 @@ function createWhatsAppHandler() {
       error: (message, meta) => botLogger.error(message, undefined, meta),
     },
     onIncomingMessage: async (payload) => {
-      console.log(`[WEBHOOK] onIncomingMessage llamado - Mensaje tipo: ${payload.message.type}, From: ${payload.message.from}`);
+      logDebug(`[WEBHOOK] onIncomingMessage llamado - Mensaje tipo: ${payload.message.type}, From: ${payload.message.from}`);
       try {
         await crmModule.handleIncomingWhatsApp(payload);
-        console.log(`[WEBHOOK] CRM procesó mensaje exitosamente`);
+        logDebug(`[WEBHOOK] CRM procesó mensaje exitosamente`);
       } catch (error) {
-        console.error(`[WEBHOOK] Error en CRM handleIncomingWhatsApp:`, error);
+        logError(`[WEBHOOK] Error en CRM handleIncomingWhatsApp:`, error);
       }
     },
   });
@@ -140,7 +141,10 @@ app.get("/api/healthz", healthHandler);
 // WhatsApp webhook endpoint (Meta for Developers configured URL)
 app.all("/api/meta/webhook", async (req: Request, res: Response) => {
   try {
-    console.log(`[WEBHOOK] ${req.method} /api/meta/webhook - Body keys:`, Object.keys(req.body || {}));
+    logDebug(`[WEBHOOK] ${req.method} /api/meta/webhook - Body keys:`, Object.keys(req.body || {}));
+    if (req.body) {
+      logDebug(`[WEBHOOK] Full body:`, req.body);
+    }
 
     const request = new Request(
       `${req.protocol}://${req.get("host")}${req.originalUrl}`,
@@ -154,10 +158,10 @@ app.all("/api/meta/webhook", async (req: Request, res: Response) => {
     const response = await whatsappHandler.handle(request);
     const body = await response.text();
 
-    console.log(`[WEBHOOK] Response status: ${response.status}`);
+    logDebug(`[WEBHOOK] Response status: ${response.status}`);
     res.status(response.status).send(body);
   } catch (error) {
-    console.error("[ERROR] Failed to handle webhook:", error);
+    logError("[ERROR] Failed to handle webhook:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -239,6 +243,11 @@ app.get(/^\/(?!api).*/, (_req: Request, res: Response) => {
 server.listen(PORT, () => {
   const whatsappEnv = getWhatsAppEnv();
   const verifyToken = getWhatsAppVerifyToken();
+
+  logDebug(`🚀 Server iniciado en puerto ${PORT}`);
+  logDebug(`📱 WhatsApp webhook: http://localhost:${PORT}/api/meta/webhook`);
+  logDebug(`⚙️  Access Token configurado: ${whatsappEnv.accessToken ? "SI" : "NO"}`);
+  logDebug(`⚙️  Phone Number ID: ${whatsappEnv.phoneNumberId ? whatsappEnv.phoneNumberId : "NO CONFIGURADO"}`);
 
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📱 WhatsApp webhook: http://localhost:${PORT}/api/meta/webhook`);
