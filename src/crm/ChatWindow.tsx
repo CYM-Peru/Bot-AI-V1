@@ -14,6 +14,7 @@ interface ChatWindowProps {
 
 export default function ChatWindow({ conversation, messages, attachments, onSend }: ChatWindowProps) {
   const [replyTo, setReplyTo] = useState<{ message: Message; attachments: Attachment[] } | null>(null);
+  const [showInfoModal, setShowInfoModal] = useState(false);
 
   const sortedMessages = useMemo(() => {
     return [...messages].sort((a, b) => a.createdAt - b.createdAt);
@@ -93,6 +94,16 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
                   Bot
                 </button>
                 <button
+                  onClick={() => setShowInfoModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-cyan-600 bg-white border border-cyan-200 rounded-lg hover:bg-cyan-50 hover:border-cyan-300 transition"
+                  title="Ver información del cliente"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Info
+                </button>
+                <button
                   onClick={handleArchive}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition"
                   title="Archivar conversación"
@@ -106,7 +117,6 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
             )}
           </div>
         </div>
-        <BitrixContactCard conversation={conversation} />
       </header>
       <div className="flex-1 overflow-y-auto">
         <MessageList
@@ -121,6 +131,34 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
       <div className="flex-shrink-0">
         <Composer replyingTo={replyTo} onCancelReply={() => setReplyTo(null)} onSend={handleSend} />
       </div>
+
+      {/* Modal Info Cliente */}
+      {showInfoModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={() => setShowInfoModal(false)}
+        >
+          <div
+            className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl m-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-cyan-50 to-white px-6 py-4">
+              <h3 className="text-xl font-bold text-slate-900">ℹ️ Información del Cliente</h3>
+              <button
+                onClick={() => setShowInfoModal(false)}
+                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-6">
+              <BitrixContactCard conversation={conversation} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

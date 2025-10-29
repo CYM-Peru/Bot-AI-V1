@@ -18,6 +18,7 @@ import type { FlowTemplate } from "./templates/flowTemplates";
 import { toPng } from './utils/htmlToImage';
 import { ConnectionsButton } from "./components/Connections/ConnectionsButton";
 import { ConnectionsPanel } from "./components/Connections/ConnectionsPanel";
+import { ConfigurationPanel } from "./components/ConfigurationPanel";
 const CRMWorkspace = React.lazy(() => import("./crm"));
 import {
   ConnectionCreationKind,
@@ -303,7 +304,7 @@ export default function App(): JSX.Element {
   const [toast, setToast] = useState<Toast | null>(null);
   const [webhookTestResult, setWebhookTestResult] = useState<WebhookResponse | null>(null);
   const [webhookTesting, setWebhookTesting] = useState(false);
-  const [mainTab, setMainTab] = useState<'canvas' | 'crm' | 'metrics'>('canvas');
+  const [mainTab, setMainTab] = useState<'canvas' | 'crm' | 'metrics' | 'config'>('canvas');
   const [connectionsOpen, setConnectionsOpen] = useState(false);
 
   const [bitrixFieldOptions, setBitrixFieldOptions] = useState<string[]>([]);
@@ -2305,6 +2306,13 @@ export default function App(): JSX.Element {
             >
               📊 Métricas
             </button>
+            <button
+              className={`btn btn--ghost topbar-tab${mainTab === 'config' ? ' is-active' : ''}`}
+              onClick={() => setMainTab('config')}
+              type="button"
+            >
+              ⚙️ Configuración
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -3654,6 +3662,13 @@ export default function App(): JSX.Element {
       {mainTab === 'metrics' && (
         <div style={{ height: "calc(100vh - 120px)" }}>
           <MetricsPanel />
+        </div>
+      )}
+
+      {/* Configuration Tab */}
+      {mainTab === 'config' && (
+        <div className="mt-2 h-[calc(100vh-160px)]">
+          <ConfigurationPanel />
         </div>
       )}
 
