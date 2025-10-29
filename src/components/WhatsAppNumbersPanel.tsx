@@ -8,6 +8,7 @@ interface WhatsAppNumbersPanelProps {
 
 export function WhatsAppNumbersPanel({ numbers, onUpdate }: WhatsAppNumbersPanelProps) {
   const [editing, setEditing] = useState<string | null>(null);
+  const [editingData, setEditingData] = useState<WhatsAppNumberAssignment | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [newNumber, setNewNumber] = useState({
     displayName: '',
@@ -35,9 +36,22 @@ export function WhatsAppNumbersPanel({ numbers, onUpdate }: WhatsAppNumbersPanel
     }
   };
 
-  const handleEdit = (number: WhatsAppNumberAssignment) => {
-    onUpdate(numbers.map((n) => (n.numberId === number.numberId ? number : n)));
+  const startEditing = (number: WhatsAppNumberAssignment) => {
+    setEditing(number.numberId);
+    setEditingData({ ...number });
+  };
+
+  const saveEdit = () => {
+    if (editingData) {
+      onUpdate(numbers.map((n) => (n.numberId === editingData.numberId ? editingData : n)));
+    }
     setEditing(null);
+    setEditingData(null);
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setEditingData(null);
   };
 
   return (
@@ -111,24 +125,48 @@ export function WhatsAppNumbersPanel({ numbers, onUpdate }: WhatsAppNumbersPanel
             key={number.numberId}
             className="p-3 bg-white border border-slate-200 rounded-lg hover:border-slate-300 transition"
           >
-            {editing === number.numberId ? (
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  value={number.displayName}
-                  onChange={(e) =>
-                    handleEdit({ ...number, displayName: e.target.value })
-                  }
-                  className="w-full px-2 py-1 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <input
-                  type="tel"
-                  value={number.phoneNumber}
-                  onChange={(e) =>
-                    handleEdit({ ...number, phoneNumber: e.target.value })
-                  }
-                  className="w-full px-2 py-1 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+            {editing === number.numberId && editingData ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Nombre
+                  </label>
+                  <input
+                    type="text"
+                    value={editingData.displayName}
+                    onChange={(e) =>
+                      setEditingData({ ...editingData, displayName: e.target.value })
+                    }
+                    className="w-full px-2 py-1 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Número
+                  </label>
+                  <input
+                    type="tel"
+                    value={editingData.phoneNumber}
+                    onChange={(e) =>
+                      setEditingData({ ...editingData, phoneNumber: e.target.value })
+                    }
+                    className="w-full px-2 py-1 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveEdit}
+                    className="px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition"
+                  >
+                    Guardar
+                  </button>
+                  <button
+                    onClick={cancelEdit}
+                    className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition"
+                  >
+                    Cancelar
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="flex items-center justify-between">
@@ -140,7 +178,7 @@ export function WhatsAppNumbersPanel({ numbers, onUpdate }: WhatsAppNumbersPanel
                 </div>
                 <div className="flex gap-1">
                   <button
-                    onClick={() => setEditing(number.numberId)}
+                    onClick={() => startEditing(number)}
                     className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded transition"
                   >
                     Editar
