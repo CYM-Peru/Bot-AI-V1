@@ -50,9 +50,9 @@ export function createAdminRouter(): Router {
    * POST /api/admin/users
    * Create new user
    */
-  router.post("/users", (req, res) => {
+  router.post("/users", async (req, res) => {
     try {
-      const { username, email, password, role, status } = req.body;
+      const { username, email, password, name, role, status } = req.body;
 
       if (!username || !email || !password) {
         res.status(400).json({ error: "Username, email, and password are required" });
@@ -66,10 +66,11 @@ export function createAdminRouter(): Router {
         return;
       }
 
-      const user = adminDb.createUser({
+      const user = await adminDb.createUser({
         username,
         email,
         password,
+        name,
         role: role || "asesor",
         status: status || "active",
       });
@@ -85,15 +86,16 @@ export function createAdminRouter(): Router {
    * PUT /api/admin/users/:id
    * Update user
    */
-  router.put("/users/:id", (req, res) => {
+  router.put("/users/:id", async (req, res) => {
     try {
       const { id } = req.params;
-      const { username, email, password, role, status } = req.body;
+      const { username, email, password, name, role, status } = req.body;
 
-      const user = adminDb.updateUser(id, {
+      const user = await adminDb.updateUser(id, {
         username,
         email,
         password,
+        name,
         role,
         status,
       });

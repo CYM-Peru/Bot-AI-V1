@@ -5,7 +5,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import * as crypto from "crypto";
+import { hashPassword as bcryptHash } from "./auth/password";
 
 const DATA_DIR = path.join(process.cwd(), "data", "admin");
 
@@ -22,7 +22,8 @@ export interface User {
   id: string;
   username: string;
   email: string;
-  passwordHash: string;
+  password: string; // Ahora se llama password en vez de passwordHash para consistencia con auth routes
+  name?: string; // Nombre completo del usuario
   role: "admin" | "asesor" | "supervisor";
   status: "active" | "inactive";
   createdAt: string;
@@ -140,18 +141,8 @@ const DEFAULT_ROLES: Role[] = [
   },
 ];
 
-const DEFAULT_USERS: User[] = [
-  {
-    id: "user-1",
-    username: "admin",
-    email: "admin@empresa.com",
-    passwordHash: hashPassword("admin123"),
-    role: "admin",
-    status: "active",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
+// Default users will be initialized with hashed passwords
+let DEFAULT_USERS: User[] = [];
 
 const DEFAULT_CRM_FIELDS: CRMFieldConfig = {
   enabledFields: [
@@ -262,9 +253,9 @@ function saveToFile<T>(filename: string, data: T): void {
 // PASSWORD HASHING
 // ============================================
 
-function hashPassword(password: string): string {
-  return crypto.createHash("sha256").update(password).digest("hex");
-}
+// Password hashing is now handled by bcrypt in auth/password.ts
+// This function is kept for backwards compatibility but should not be used
+// All new code should use bcryptHash from auth/password.ts
 
 // ============================================
 // IN-MEMORY STORAGE
@@ -287,6 +278,26 @@ class AdminDatabase {
     this.settings = DEFAULT_SETTINGS;
     this.advisorStatuses = new Map();
     this.statusAssignments = new Map();
+    this.initializeDefaultUsers();
+  }
+
+  private async initializeDefaultUsers() {
+    // Initialize default admin user with bcrypt hashed password
+    if (DEFAULT_USERS.length === 0) {
+      DEFAULT_USERS = [
+        {
+          id: "user-1",
+          username: "admin",
+          email: "admin@empresa.com",
+          password: await bcryptHash("admin123"),
+          name: "Administrador",
+          role: "admin",
+          status: "active",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+    }
     this.loadAll();
   }
 
@@ -343,14 +354,18 @@ class AdminDatabase {
   getAllUsers(): User[] {
     return Array.from(this.users.values()).map((user) => ({
       ...user,
-      passwordHash: "[REDACTED]", // Don't expose password hash
+      password: "[REDACTED]", // Don't expose password hash
     })) as User[];
+  }
+
+  getUser(id: string): User | undefined {
+    return this.users.get(id);
   }
 
   getUserById(id: string): User | undefined {
     const user = this.users.get(id);
     if (user) {
-      return { ...user, passwordHash: "[REDACTED]" } as User;
+      return { ...user, password: "[REDACTED]" } as User;
     }
     return undefined;
   }
@@ -359,19 +374,21 @@ class AdminDatabase {
     return Array.from(this.users.values()).find((u) => u.username === username);
   }
 
-  createUser(data: {
+  async createUser(data: {
     username: string;
     email: string;
     password: string;
+    name?: string;
     role: "admin" | "asesor" | "supervisor";
     status: "active" | "inactive";
-  }): User {
+  }): Promise<User> {
     const id = `user-${Date.now()}`;
     const user: User = {
       id,
       username: data.username,
       email: data.email,
-      passwordHash: hashPassword(data.password),
+      password: await bcryptHash(data.password),
+      name: data.name,
       role: data.role,
       status: data.status,
       createdAt: new Date().toISOString(),
@@ -379,32 +396,34 @@ class AdminDatabase {
     };
     this.users.set(id, user);
     this.saveAll();
-    return { ...user, passwordHash: "[REDACTED]" } as User;
+    return { ...user, password: "[REDACTED]" } as User;
   }
 
-  updateUser(
+  async updateUser(
     id: string,
     data: {
       username?: string;
       email?: string;
       password?: string;
+      name?: string;
       role?: "admin" | "asesor" | "supervisor";
       status?: "active" | "inactive";
     }
-  ): User | null {
+  ): Promise<User | null> {
     const user = this.users.get(id);
     if (!user) return null;
 
     if (data.username) user.username = data.username;
     if (data.email) user.email = data.email;
-    if (data.password) user.passwordHash = hashPassword(data.password);
+    if (data.password) user.password = await bcryptHash(data.password);
+    if (data.name) user.name = data.name;
     if (data.role) user.role = data.role;
     if (data.status) user.status = data.status;
     user.updatedAt = new Date().toISOString();
 
     this.users.set(id, user);
     this.saveAll();
-    return { ...user, passwordHash: "[REDACTED]" } as User;
+    return { ...user, password: "[REDACTED]" } as User;
   }
 
   deleteUser(id: string): boolean {

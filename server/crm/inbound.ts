@@ -55,20 +55,26 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
     args.socketManager.emitConversationUpdate({ conversation: refreshed });
   }
 
-  if (!conversation.bitrixId) {
+  // NO CREAR AUTOMÁTICAMENTE - Solo buscar contacto existente en Bitrix24
+  if (!conversation.bitrixId && args.bitrixService.isAvailable) {
     args.bitrixService
-      .upsertContactByPhone(phone)
-      .then((result) => {
-        if (result.contactId) {
-          args.bitrixService.attachConversation(conversation!, result.contactId);
+      .lookupByPhone(phone)
+      .then((contact) => {
+        if (contact?.ID) {
+          // Encontró contacto existente, asociarlo
+          args.bitrixService.attachConversation(conversation!, contact.ID.toString());
           const updated = crmDb.getConversationById(conversation.id);
           if (updated) {
             args.socketManager.emitConversationUpdate({ conversation: updated });
           }
+          console.log(`[CRM][Bitrix] Contacto existente encontrado: ${contact.ID} para ${phone}`);
+        } else {
+          // No hay contacto en Bitrix, se mostrará solo con datos de Meta (phone + profileName)
+          console.log(`[CRM][Bitrix] No se encontró contacto para ${phone}. Mostrando solo datos de Meta.`);
         }
       })
       .catch((error) => {
-        console.warn("[CRM] Bitrix sync incoming failed", error);
+        console.warn("[CRM][Bitrix] lookup failed", error);
       });
   }
 }

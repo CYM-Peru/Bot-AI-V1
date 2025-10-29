@@ -58,6 +58,40 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
     }
   });
 
+  /**
+   * POST /:id/bitrix/create
+   * Crea manualmente un contacto/lead en Bitrix24 desde el CRM
+   */
+  router.post("/:id/bitrix/create", async (req, res) => {
+    const conversation = crmDb.getConversationById(req.params.id);
+    if (!conversation) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    if (!bitrixService.isAvailable) {
+      res.status(503).json({ error: "bitrix_not_configured" });
+      return;
+    }
+    try {
+      const { phone, name } = req.body;
+      const result = await bitrixService.createContactWithCustomFields({
+        phone: phone || conversation.phone,
+        profileName: name || conversation.contactName || undefined,
+      });
+
+      if (result.contactId) {
+        bitrixService.attachConversation(conversation, result.contactId);
+        const contact = await bitrixService.fetchContact(result.contactId);
+        res.json({ success: true, contact, bitrixId: result.contactId, entityType: result.entityType });
+      } else {
+        res.status(500).json({ error: "create_failed", reason: result.reason });
+      }
+    } catch (error) {
+      console.error("[CRM] bitrix create error", error);
+      res.status(500).json({ error: "bitrix_create_failed" });
+    }
+  });
+
   router.post("/:id/archive", (req, res) => {
     const conversation = crmDb.getConversationById(req.params.id);
     if (!conversation) {
