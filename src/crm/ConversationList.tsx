@@ -7,7 +7,7 @@ interface ConversationListProps {
   onSelect: (conversation: Conversation) => void;
 }
 
-type FilterType = "all" | "unread" | "archived";
+type FilterType = "all" | "unread" | "attending" | "archived";
 type SortType = "recent" | "unread" | "name";
 
 export default function ConversationList({ conversations, selectedId, onSelect }: ConversationListProps) {
@@ -20,12 +20,14 @@ export default function ConversationList({ conversations, selectedId, onSelect }
 
     // Apply filter
     if (filter === "unread") {
-      result = result.filter((item) => item.unread > 0);
+      result = result.filter((item) => item.unread > 0 && item.status !== "archived");
+    } else if (filter === "attending") {
+      result = result.filter((item) => item.status === "attending");
     } else if (filter === "archived") {
       result = result.filter((item) => item.status === "archived");
     } else {
-      // "all" - only active conversations
-      result = result.filter((item) => item.status === "active");
+      // "all" - active and attending conversations
+      result = result.filter((item) => item.status === "active" || item.status === "attending");
     }
 
     // Apply search
@@ -53,7 +55,8 @@ export default function ConversationList({ conversations, selectedId, onSelect }
     return result;
   }, [conversations, search, filter, sort]);
 
-  const unreadCount = conversations.filter((c) => c.unread > 0 && c.status === "active").length;
+  const unreadCount = conversations.filter((c) => c.unread > 0 && c.status !== "archived").length;
+  const attendingCount = conversations.filter((c) => c.status === "attending").length;
   const archivedCount = conversations.filter((c) => c.status === "archived").length;
 
   return (
@@ -84,7 +87,7 @@ export default function ConversationList({ conversations, selectedId, onSelect }
       <div className="flex border-b border-slate-200 bg-slate-50">
         <button
           onClick={() => setFilter("all")}
-          className={`flex-1 px-3 py-2 text-xs font-semibold transition ${
+          className={`flex-1 px-2 py-2 text-xs font-semibold transition ${
             filter === "all"
               ? "border-b-2 border-emerald-500 bg-white text-emerald-700"
               : "text-slate-600 hover:bg-slate-100"
@@ -94,7 +97,7 @@ export default function ConversationList({ conversations, selectedId, onSelect }
         </button>
         <button
           onClick={() => setFilter("unread")}
-          className={`flex-1 px-3 py-2 text-xs font-semibold transition ${
+          className={`flex-1 px-2 py-2 text-xs font-semibold transition ${
             filter === "unread"
               ? "border-b-2 border-emerald-500 bg-white text-emerald-700"
               : "text-slate-600 hover:bg-slate-100"
@@ -103,8 +106,18 @@ export default function ConversationList({ conversations, selectedId, onSelect }
           No leídas {unreadCount > 0 && `(${unreadCount})`}
         </button>
         <button
+          onClick={() => setFilter("attending")}
+          className={`flex-1 px-2 py-2 text-xs font-semibold transition ${
+            filter === "attending"
+              ? "border-b-2 border-blue-500 bg-white text-blue-700"
+              : "text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          Atendiendo {attendingCount > 0 && `(${attendingCount})`}
+        </button>
+        <button
           onClick={() => setFilter("archived")}
-          className={`flex-1 px-3 py-2 text-xs font-semibold transition ${
+          className={`flex-1 px-2 py-2 text-xs font-semibold transition ${
             filter === "archived"
               ? "border-b-2 border-emerald-500 bg-white text-emerald-700"
               : "text-slate-600 hover:bg-slate-100"
