@@ -2296,7 +2296,7 @@ export default function App(): JSX.Element {
               onClick={() => setMainTab('crm')}
               type="button"
             >
-              🗂️ CRM
+              💬 Chat en vivo
             </button>
             <button
               className={`btn btn--ghost topbar-tab${mainTab === 'metrics' ? ' is-active' : ''}`}

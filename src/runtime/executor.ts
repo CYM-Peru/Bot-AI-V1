@@ -10,6 +10,7 @@ import { getAskData, getButtonsData, getConditionData, getMenuOptions, getSchedu
 import { isInWindow, nextOpening } from "../flow/scheduler";
 import type { ConversationSession } from "./session";
 import type { Bitrix24Client } from "../integrations/bitrix24";
+import { botLogger } from "./monitoring";
 
 export type IncomingMessageType = "text" | "button" | "media" | "unknown";
 
@@ -165,6 +166,19 @@ export class NodeExecutor {
       };
     }
 
+    // Track button click
+    botLogger.log({
+      level: "info",
+      type: "button_clicked",
+      nodeId: node.id,
+      message: `Botón clickeado: ${selected.label}`,
+      metadata: {
+        optionId: selected.id,
+        label: selected.label,
+        value: selected.value,
+      },
+    });
+
     return {
       responses: [],
       nextNodeId: selected.targetId ?? this.nextChild(node),
@@ -262,6 +276,20 @@ export class NodeExecutor {
         awaitingUserInput: true,
       };
     }
+
+    // Track menu option selection
+    botLogger.log({
+      level: "info",
+      type: "menu_option_selected",
+      nodeId: node.id,
+      message: `Opción seleccionada: ${selected.label}`,
+      metadata: {
+        optionId: selected.id,
+        label: selected.label,
+        value: selected.value ?? selected.label,
+      },
+    });
+
     return {
       responses: [],
       nextNodeId: selected.targetId ?? null,
