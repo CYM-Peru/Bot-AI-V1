@@ -75,6 +75,10 @@ router.get('/check', async (req: Request, res: Response) => {
     if (!response.ok) {
       const status = response.status;
       if (status === 401 || status === 403) {
+        // Log the error details from Facebook API
+        const errorBody = await response.json().catch(() => ({}));
+        console.error('[WhatsApp Check] Facebook API Error:', JSON.stringify(errorBody, null, 2));
+
         res.json({
           ok: false,
           reason: 'invalid_token',
@@ -84,6 +88,7 @@ router.get('/check', async (req: Request, res: Response) => {
             apiVersion,
             hasAccessToken: Boolean(accessToken),
             hasVerifyToken: Boolean(verifyToken),
+            error: errorBody,
           },
         } as WhatsAppCheckResponse);
         return;
