@@ -39,6 +39,13 @@ export default function Composer({ disabled, onSend, replyingTo, onCancelReply }
     }
   };
 
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      handleSend();
+    }
+  };
+
   const removeFile = () => {
     setFile(null);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -93,8 +100,9 @@ export default function Composer({ disabled, onSend, replyingTo, onCancelReply }
         <textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
+          onKeyDown={handleKeyDown}
           className="h-11 flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm leading-6 focus:border-emerald-400 focus:outline-none focus:ring focus:ring-emerald-100"
-          placeholder="Escribe un mensaje"
+          placeholder="Escribe un mensaje (Enter para enviar, Shift+Enter para salto de línea)"
           rows={1}
           disabled={disabled || sending}
         />
