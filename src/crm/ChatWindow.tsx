@@ -9,7 +9,7 @@ interface ChatWindowProps {
   conversation: Conversation | null;
   messages: Message[];
   attachments: Attachment[];
-  onSend: (payload: { text: string; file?: File | null; replyToId?: string | null }) => Promise<void>;
+  onSend: (payload: { text: string; file?: File | null; replyToId?: string | null; isInternal?: boolean }) => Promise<void>;
 }
 
 export default function ChatWindow({ conversation, messages, attachments, onSend }: ChatWindowProps) {
@@ -19,7 +19,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
     return [...messages].sort((a, b) => a.createdAt - b.createdAt);
   }, [messages]);
 
-  const handleSend = async (payload: { text: string; file?: File | null; replyToId?: string | null }) => {
+  const handleSend = async (payload: { text: string; file?: File | null; replyToId?: string | null; isInternal?: boolean }) => {
     await onSend(payload);
     setReplyTo(null);
   };

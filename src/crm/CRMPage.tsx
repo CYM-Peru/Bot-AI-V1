@@ -123,7 +123,7 @@ export default function CRMPage() {
   }, []);
 
   const handleSend = useCallback(
-    async (payload: { text: string; file?: File | null; replyToId?: string | null }) => {
+    async (payload: { text: string; file?: File | null; replyToId?: string | null; isInternal?: boolean }) => {
       if (!selectedConversation) return;
       try {
         let attachmentId: string | undefined;
@@ -136,6 +136,7 @@ export default function CRMPage() {
           text: payload.text,
           replyToId: payload.replyToId ?? undefined,
           attachmentId,
+          isInternal: payload.isInternal ?? false,
         });
         setConversationData((prev) => updateConversationData(prev, selectedConversation.id, (state) => ({
           messages: [...state.messages, result.message],
