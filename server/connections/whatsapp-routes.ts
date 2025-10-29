@@ -75,6 +75,10 @@ router.get('/check', async (req: Request, res: Response) => {
     if (!response.ok) {
       const status = response.status;
       if (status === 401 || status === 403) {
+        // Log the error details from Facebook API
+        const errorBody = await response.json().catch(() => ({}));
+        console.error('[WhatsApp Check] Facebook API Error:', JSON.stringify(errorBody, null, 2));
+
         res.json({
           ok: false,
           reason: 'invalid_token',
@@ -84,6 +88,7 @@ router.get('/check', async (req: Request, res: Response) => {
             apiVersion,
             hasAccessToken: Boolean(accessToken),
             hasVerifyToken: Boolean(verifyToken),
+            error: errorBody,
           },
         } as WhatsAppCheckResponse);
         return;
@@ -138,7 +143,7 @@ router.get('/check', async (req: Request, res: Response) => {
  */
 router.post('/save', async (req: Request, res: Response) => {
   try {
-    const { phoneNumberId, displayNumber, accessToken, verifyToken } = req.body as Partial<WhatsAppCredentials>;
+    const { phoneNumberId, displayNumber, accessToken, verifyToken, apiVersion } = req.body as Partial<WhatsAppCredentials> & { apiVersion?: string };
 
     if (!phoneNumberId || !accessToken) {
       res.status(400).json({ ok: false, reason: 'missing_required_fields' });
@@ -173,6 +178,9 @@ router.post('/save', async (req: Request, res: Response) => {
     if (verifyToken) {
       envMap.set('WHATSAPP_VERIFY_TOKEN', verifyToken);
     }
+    if (apiVersion) {
+      envMap.set('WHATSAPP_API_VERSION', apiVersion);
+    }
 
     // Rebuild .env content
     const newEnvContent = Array.from(envMap.entries())
@@ -187,6 +195,9 @@ router.post('/save', async (req: Request, res: Response) => {
     process.env.WHATSAPP_PHONE_NUMBER_ID = phoneNumberId;
     if (verifyToken) {
       process.env.WHATSAPP_VERIFY_TOKEN = verifyToken;
+    }
+    if (apiVersion) {
+      process.env.WHATSAPP_API_VERSION = apiVersion;
     }
 
     console.log('[WhatsApp Save] Credentials updated successfully');
@@ -228,12 +239,17 @@ router.post('/test', async (req: Request, res: Response) => {
 
     // Send message via WhatsApp Cloud API
     const url = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`;
+
+    // Use template message (hello_world) since text messages require active conversation
     const payload = {
       messaging_product: 'whatsapp',
       to: to.replace(/\D/g, ''), // Remove non-digits
-      type: 'text',
-      text: {
-        body: text || 'Hola desde Builder',
+      type: 'template',
+      template: {
+        name: 'hello_world',
+        language: {
+          code: 'en_US',
+        },
       },
     };
 
@@ -249,7 +265,9 @@ router.post('/test', async (req: Request, res: Response) => {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      console.error('[WhatsApp Test] API Error:', errorData);
+      console.error('[WhatsApp Test] API Error:', JSON.stringify(errorData, null, 2));
+      console.error('[WhatsApp Test] Status:', response.status);
+      console.error('[WhatsApp Test] URL:', url);
       res.status(response.status).json({
         ok: false,
         reason: 'provider_error',
