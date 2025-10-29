@@ -109,7 +109,13 @@ function createWhatsAppHandler() {
       error: (message, meta) => botLogger.error(message, undefined, meta),
     },
     onIncomingMessage: async (payload) => {
-      await crmModule.handleIncomingWhatsApp(payload);
+      console.log(`[WEBHOOK] onIncomingMessage llamado - Mensaje tipo: ${payload.message.type}, From: ${payload.message.from}`);
+      try {
+        await crmModule.handleIncomingWhatsApp(payload);
+        console.log(`[WEBHOOK] CRM procesó mensaje exitosamente`);
+      } catch (error) {
+        console.error(`[WEBHOOK] Error en CRM handleIncomingWhatsApp:`, error);
+      }
     },
   });
 }
@@ -134,6 +140,8 @@ app.get("/api/healthz", healthHandler);
 // WhatsApp webhook endpoint (Meta for Developers configured URL)
 app.all("/api/meta/webhook", async (req: Request, res: Response) => {
   try {
+    console.log(`[WEBHOOK] ${req.method} /api/meta/webhook - Body keys:`, Object.keys(req.body || {}));
+
     const request = new Request(
       `${req.protocol}://${req.get("host")}${req.originalUrl}`,
       {
@@ -146,6 +154,7 @@ app.all("/api/meta/webhook", async (req: Request, res: Response) => {
     const response = await whatsappHandler.handle(request);
     const body = await response.text();
 
+    console.log(`[WEBHOOK] Response status: ${response.status}`);
     res.status(response.status).send(body);
   } catch (error) {
     console.error("[ERROR] Failed to handle webhook:", error);
