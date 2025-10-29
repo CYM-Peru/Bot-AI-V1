@@ -59,10 +59,28 @@ export default function ConversationList({ conversations, selectedId, onSelect }
   const attendingCount = conversations.filter((c) => c.status === "attending").length;
   const archivedCount = conversations.filter((c) => c.status === "archived").length;
 
+  const exportToCSV = () => {
+    const headers = ["Teléfono", "Nombre", "Estado", "No leídos", "Último mensaje"];
+    const rows = filtered.map((c) => [
+      c.phone,
+      c.contactName || "-",
+      c.status,
+      c.unread.toString(),
+      new Date(c.lastMessageAt).toLocaleString("es-PE"),
+    ]);
+
+    const csvContent = [headers, ...rows].map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `conversaciones_${new Date().toISOString().split("T")[0]}.csv`;
+    link.click();
+  };
+
   return (
     <div className="flex h-full flex-col border-r border-slate-200 bg-white">
       {/* Search bar */}
-      <div className="px-4 py-3 border-b border-slate-200">
+      <div className="px-4 py-3 border-b border-slate-200 space-y-2">
         <div className="relative">
           <input
             type="search"
@@ -81,6 +99,15 @@ export default function ConversationList({ conversations, selectedId, onSelect }
             </button>
           )}
         </div>
+        <button
+          onClick={exportToCSV}
+          className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Exportar ({filtered.length})
+        </button>
       </div>
 
       {/* Filter tabs */}
