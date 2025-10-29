@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { API_BASE, apiUrl } from '../lib/apiBase';
+import type { WhatsAppNumberAssignment, ChannelType } from '../flow/types';
 
 interface MetricsStats {
   activeConversations: number;
@@ -22,6 +23,8 @@ interface ConversationMetric {
   webhooksCalled: number;
   errors: number;
   status: 'active' | 'ended' | 'error';
+  channelType?: ChannelType;
+  whatsappNumberId?: string;
 }
 
 interface MenuStat {
@@ -31,13 +34,21 @@ interface MenuStat {
   count: number;
 }
 
-export function MetricsPanel() {
+interface MetricsPanelProps {
+  whatsappNumbers?: WhatsAppNumberAssignment[];
+}
+
+export function MetricsPanel({ whatsappNumbers = [] }: MetricsPanelProps) {
   const [stats, setStats] = useState<MetricsStats | null>(null);
   const [metrics, setMetrics] = useState<ConversationMetric[]>([]);
   const [activeConversations, setActiveConversations] = useState<ConversationMetric[]>([]);
   const [menuStats, setMenuStats] = useState<MenuStat[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Filter state
+  const [channelFilter, setChannelFilter] = useState<ChannelType | 'all'>('all');
+  const [numberFilter, setNumberFilter] = useState<string>('all');
 
   const fetchStats = async () => {
     try {
@@ -118,6 +129,35 @@ export function MetricsPanel() {
     return `${minutes}m ${secs}s`;
   };
 
+  // Filter metrics based on selected channel and number
+  const filteredMetrics = useMemo(() => {
+    let filtered = metrics;
+
+    if (channelFilter !== 'all') {
+      filtered = filtered.filter((m) => m.channelType === channelFilter);
+    }
+
+    if (numberFilter !== 'all') {
+      filtered = filtered.filter((m) => m.whatsappNumberId === numberFilter);
+    }
+
+    return filtered;
+  }, [metrics, channelFilter, numberFilter]);
+
+  // Calculate filtered stats
+  const filteredStats = useMemo(() => {
+    if (!stats) return null;
+
+    const active = filteredMetrics.filter((m) => m.status === 'active').length;
+    const total = filteredMetrics.length;
+
+    return {
+      ...stats,
+      activeConversations: active,
+      totalConversations: total,
+    };
+  }, [stats, filteredMetrics]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -153,42 +193,106 @@ export function MetricsPanel() {
           </div>
         </div>
 
+        {/* Filters */}
+        <div className="bg-white rounded-lg shadow p-4 border border-slate-200">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-slate-700">Filtrar por:</span>
+            </div>
+
+            {/* Channel Filter */}
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-600">Canal:</label>
+              <select
+                value={channelFilter}
+                onChange={(e) => setChannelFilter(e.target.value as ChannelType | 'all')}
+                className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">Todos los canales</option>
+                <option value="whatsapp">📱 WhatsApp</option>
+                <option value="facebook">💬 Facebook</option>
+                <option value="instagram">📷 Instagram</option>
+                <option value="telegram">✈️ Telegram</option>
+              </select>
+            </div>
+
+            {/* Number Filter (only for WhatsApp) */}
+            {channelFilter === 'whatsapp' && whatsappNumbers.length > 0 && (
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-slate-600">Número:</label>
+                <select
+                  value={numberFilter}
+                  onChange={(e) => setNumberFilter(e.target.value)}
+                  className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">Todos los números</option>
+                  {whatsappNumbers.map((number) => (
+                    <option key={number.numberId} value={number.numberId}>
+                      {number.displayName} ({number.phoneNumber})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Reset Filter */}
+            {(channelFilter !== 'all' || numberFilter !== 'all') && (
+              <button
+                onClick={() => {
+                  setChannelFilter('all');
+                  setNumberFilter('all');
+                }}
+                className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition"
+              >
+                Limpiar filtros
+              </button>
+            )}
+
+            {/* Filter info */}
+            {(channelFilter !== 'all' || numberFilter !== 'all') && (
+              <div className="text-xs text-slate-500 italic">
+                Mostrando métricas filtradas
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Stats Cards */}
-        {stats && (
+        {filteredStats && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="bg-white rounded-lg shadow p-4 border border-slate-200">
               <div className="text-slate-600 text-sm font-medium">Conversaciones Activas</div>
-              <div className="text-3xl font-bold text-emerald-600 mt-2">{stats.activeConversations}</div>
+              <div className="text-3xl font-bold text-emerald-600 mt-2">{filteredStats.activeConversations}</div>
               <div className="text-slate-500 text-xs mt-1">En este momento</div>
             </div>
 
             <div className="bg-white rounded-lg shadow p-4 border border-slate-200">
               <div className="text-slate-600 text-sm font-medium">Total Conversaciones</div>
-              <div className="text-3xl font-bold text-blue-600 mt-2">{stats.totalConversations}</div>
+              <div className="text-3xl font-bold text-blue-600 mt-2">{filteredStats.totalConversations}</div>
               <div className="text-slate-500 text-xs mt-1">Desde inicio</div>
             </div>
 
             <div className="bg-white rounded-lg shadow p-4 border border-slate-200">
               <div className="text-slate-600 text-sm font-medium">Mensajes/Minuto</div>
-              <div className="text-3xl font-bold text-violet-600 mt-2">{stats.messagesPerMinute}</div>
+              <div className="text-3xl font-bold text-violet-600 mt-2">{filteredStats.messagesPerMinute}</div>
               <div className="text-slate-500 text-xs mt-1">Promedio actual</div>
             </div>
 
             <div className="bg-white rounded-lg shadow p-4 border border-slate-200">
               <div className="text-slate-600 text-sm font-medium">Tiempo de Respuesta</div>
-              <div className="text-3xl font-bold text-amber-600 mt-2">{Math.round(stats.averageResponseTime)}ms</div>
+              <div className="text-3xl font-bold text-amber-600 mt-2">{Math.round(filteredStats.averageResponseTime)}ms</div>
               <div className="text-slate-500 text-xs mt-1">Promedio</div>
             </div>
 
             <div className="bg-white rounded-lg shadow p-4 border border-slate-200">
               <div className="text-slate-600 text-sm font-medium">Tasa de Error</div>
-              <div className="text-3xl font-bold text-rose-600 mt-2">{(stats.errorRate * 100).toFixed(2)}%</div>
+              <div className="text-3xl font-bold text-rose-600 mt-2">{(filteredStats.errorRate * 100).toFixed(2)}%</div>
               <div className="text-slate-500 text-xs mt-1">Últimos mensajes</div>
             </div>
 
             <div className="bg-white rounded-lg shadow p-4 border border-slate-200">
               <div className="text-slate-600 text-sm font-medium">Uptime</div>
-              <div className="text-3xl font-bold text-cyan-600 mt-2">{formatUptime(stats.uptime)}</div>
+              <div className="text-3xl font-bold text-cyan-600 mt-2">{formatUptime(filteredStats.uptime)}</div>
               <div className="text-slate-500 text-xs mt-1">Tiempo activo</div>
             </div>
           </div>

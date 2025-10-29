@@ -3693,7 +3693,7 @@ export default function App(): JSX.Element {
       {/* Metrics Tab */}
       {mainTab === 'metrics' && (
         <div style={{ height: "calc(100vh - 120px)" }}>
-          <MetricsPanel />
+          <MetricsPanel whatsappNumbers={whatsappNumbers} />
         </div>
       )}
 
