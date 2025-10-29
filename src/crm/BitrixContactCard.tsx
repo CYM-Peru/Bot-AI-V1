@@ -24,6 +24,7 @@ export default function BitrixContactCard({ conversation }: BitrixContactCardPro
   const [contact, setContact] = useState<BitrixContact | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
 
   const handleCreateContact = async () => {
     if (!conversation) return;
@@ -110,79 +111,141 @@ export default function BitrixContactCard({ conversation }: BitrixContactCardPro
 
   if (!contact) {
     return (
-      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-        <p className="text-sm text-blue-800">
-          No se encontró un contacto en Bitrix24 para <strong>{conversation.phone}</strong>
-        </p>
-        <button
-          onClick={() => handleCreateContact()}
-          className="mt-2 inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
-        >
-          ➕ Crear contacto en Bitrix24
-        </button>
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-700">Información de Contacto</p>
+            <p className="text-xs text-slate-500 mt-1">Teléfono: {conversation.phone}</p>
+            {conversation.contactName && (
+              <p className="text-xs text-slate-500">Nombre: {conversation.contactName}</p>
+            )}
+          </div>
+          <button
+            onClick={() => handleCreateContact()}
+            className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+            title="Crear contacto en Bitrix24"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Bitrix
+          </button>
+        </div>
+        <p className="text-xs text-slate-400 mt-2">No registrado en Bitrix24</p>
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4">
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <p className="text-xs font-semibold text-emerald-600">CONTACTO BITRIX24</p>
-          <p className="mt-1 text-base font-semibold text-emerald-900">{buildName(contact) || "Sin nombre"}</p>
-          {contact.COMPANY_TITLE && (
-            <p className="text-sm text-emerald-700">🏢 {contact.COMPANY_TITLE}</p>
-          )}
-          {contact.POST && (
-            <p className="text-xs text-emerald-600">{contact.POST}</p>
+    <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white">
+      <div className="px-4 py-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+            <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Bitrix24 Registrado</p>
+          </div>
+          {contact.ID && (
+            <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-mono text-white">
+              #{contact.ID}
+            </span>
           )}
         </div>
-        {contact.ID && (
-          <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-xs text-white">
-            ID: {contact.ID}
-          </span>
-        )}
-      </div>
 
-      <div className="mt-3 space-y-1.5 text-sm text-emerald-800">
-        {contact.PHONE?.[0]?.VALUE && (
-          <div className="flex items-center gap-2">
-            <span className="text-emerald-600">📞</span>
-            <span>{contact.PHONE[0].VALUE}</span>
+        <div className="flex items-center justify-between">
+          <div className="flex-1">
+            <p className="text-base font-bold text-slate-900">{buildName(contact) || "Sin nombre"}</p>
+            {contact.COMPANY_TITLE && (
+              <p className="text-sm text-slate-600 mt-0.5">🏢 {contact.COMPANY_TITLE}</p>
+            )}
           </div>
-        )}
-        {contact.EMAIL?.[0]?.VALUE && (
-          <div className="flex items-center gap-2">
-            <span className="text-emerald-600">✉️</span>
-            <span className="text-xs">{contact.EMAIL[0].VALUE}</span>
-          </div>
-        )}
-      </div>
-
-      {contact.DATE_MODIFY && (
-        <p className="mt-2 text-xs text-emerald-600">
-          Última modificación: {new Date(contact.DATE_MODIFY).toLocaleDateString("es-PE")}
-        </p>
-      )}
-
-      <div className="mt-3 flex gap-2">
-        {conversation.bitrixId && (
-          <a
-            href={`https://www.bitrix24.net/crm/contact/details/${conversation.bitrixId}/`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+          <button
+            onClick={() => setShowDetails(!showDetails)}
+            className="ml-3 inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition"
           >
-            🔗 Abrir en Bitrix24
-          </a>
-        )}
-        <button
-          onClick={() => window.open(`tel:${conversation.phone}`, "_self")}
-          className="inline-flex items-center gap-1 rounded-lg border border-emerald-600 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
-        >
-          📞 Llamar
-        </button>
+            <svg className={`w-4 h-4 transition-transform ${showDetails ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+            {showDetails ? "Ocultar" : "Ver más"}
+          </button>
+        </div>
       </div>
+
+      {showDetails && (
+        <div className="border-t border-emerald-200 px-4 py-3 bg-white/50">
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div>
+              <p className="text-slate-500 font-medium mb-1">Nombre</p>
+              <p className="text-slate-900 font-semibold">{contact.NAME || "—"}</p>
+            </div>
+            <div>
+              <p className="text-slate-500 font-medium mb-1">Apellido</p>
+              <p className="text-slate-900 font-semibold">{contact.LAST_NAME || "—"}</p>
+            </div>
+            <div>
+              <p className="text-slate-500 font-medium mb-1">N° Documento</p>
+              <p className="text-slate-900 font-mono">{(contact.UF_CRM_1234567890 as string) || "—"}</p>
+            </div>
+            <div>
+              <p className="text-slate-500 font-medium mb-1">Tipo de Contacto</p>
+              <p className="text-slate-900">{(contact.TYPE_ID as string) || "—"}</p>
+            </div>
+            <div>
+              <p className="text-slate-500 font-medium mb-1">Stencil</p>
+              <p className="text-slate-900">{(contact.SOURCE_ID as string) || "—"}</p>
+            </div>
+            <div>
+              <p className="text-slate-500 font-medium mb-1">Líder/Asignado</p>
+              <p className="text-slate-900">{contact.ASSIGNED_BY_ID || "—"}</p>
+            </div>
+          </div>
+
+          <div className="mt-3 space-y-2">
+            {contact.PHONE?.[0]?.VALUE && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-emerald-600">📞</span>
+                <span className="text-slate-700 font-mono">{contact.PHONE[0].VALUE}</span>
+              </div>
+            )}
+            {contact.EMAIL?.[0]?.VALUE && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-emerald-600">✉️</span>
+                <span className="text-slate-700">{contact.EMAIL[0].VALUE}</span>
+              </div>
+            )}
+          </div>
+
+          {contact.DATE_MODIFY && (
+            <p className="mt-3 text-xs text-slate-500">
+              Última modificación: {new Date(contact.DATE_MODIFY).toLocaleDateString("es-PE", { dateStyle: "medium" })}
+            </p>
+          )}
+
+          <div className="mt-3 flex gap-2">
+            {conversation.bitrixId && (
+              <a
+                href={`https://www.bitrix24.net/crm/contact/details/${conversation.bitrixId}/`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 transition"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+                Abrir en Bitrix24
+              </a>
+            )}
+            <button
+              onClick={() => window.open(`tel:${conversation.phone}`, "_self")}
+              className="inline-flex items-center gap-1 rounded-lg border-2 border-emerald-600 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 transition"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+              </svg>
+              Llamar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

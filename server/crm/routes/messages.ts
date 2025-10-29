@@ -13,6 +13,7 @@ interface SendPayload {
   attachmentId?: string;
   replyToId?: string;
   type?: MessageType;
+  isInternal?: boolean;
 }
 
 export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixService: BitrixService) {
@@ -37,6 +38,8 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
     const attachments = payload.attachmentId ? [crmDb.getAttachment(payload.attachmentId)].filter(Boolean) : [];
     const type: MessageType = payload.type
       ? payload.type
+      : payload.isInternal
+      ? "system"
       : attachments.length > 0
       ? inferTypeFromMime(attachments[0]!.mime)
       : "text";
@@ -45,11 +48,11 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
       convId: conversation.id,
       direction: "outgoing",
       type,
-      text: payload.text ?? null,
+      text: payload.isInternal ? `🔒 NOTA INTERNA: ${payload.text ?? ""}` : payload.text ?? null,
       mediaUrl: attachments[0]?.url ?? null,
       mediaThumb: attachments[0]?.thumbUrl ?? null,
       repliedToId: payload.replyToId ?? null,
-      status: "pending",
+      status: payload.isInternal ? "sent" : "pending",
     });
 
     if (attachments.length > 0 && payload.attachmentId) {
@@ -60,7 +63,8 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
     socketManager.emitConversationUpdate({ conversation: crmDb.getConversationById(conversation.id)! });
 
     let providerResult: WspTestResult | null = null;
-    if (conversation.phone) {
+    // Solo enviar a WhatsApp si NO es una nota interna
+    if (conversation.phone && !payload.isInternal) {
       if (!attachments.length && payload.text) {
         providerResult = await sendWspTestMessage({ to: conversation.phone, text: payload.text });
       } else {
@@ -80,18 +84,22 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
       }
     }
 
-    const status = providerResult?.ok ? "sent" : "failed";
-    crmDb.updateMessageStatus(
-      message.id,
-      status,
-      providerResult?.body && typeof providerResult.body === "object"
-        ? (providerResult.body as Record<string, unknown>)
-        : undefined,
-    );
+    // Si es nota interna, ya está marcada como "sent", sino actualizar según resultado del proveedor
+    let status = message.status;
+    if (!payload.isInternal) {
+      status = providerResult?.ok ? "sent" : "failed";
+      crmDb.updateMessageStatus(
+        message.id,
+        status,
+        providerResult?.body && typeof providerResult.body === "object"
+          ? (providerResult.body as Record<string, unknown>)
+          : undefined,
+      );
 
-    if (status === "sent") {
-      const updatedMsg = { ...message, status };
-      socketManager.emitMessageUpdate({ message: updatedMsg, attachment: attachments[0] ?? null });
+      if (status === "sent") {
+        const updatedMsg = { ...message, status };
+        socketManager.emitMessageUpdate({ message: updatedMsg, attachment: attachments[0] ?? null });
+      }
     }
 
     if (!conversation.bitrixId && conversation.phone) {
@@ -112,7 +120,7 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
     }
 
     res.json({
-      ok: providerResult?.ok ?? false,
+      ok: payload.isInternal ? true : (providerResult?.ok ?? false),
       providerStatus: providerResult?.providerStatus ?? 0,
       echo: { convId: conversation.id, phone: conversation.phone, text: payload.text ?? null },
       message: { ...message, status },

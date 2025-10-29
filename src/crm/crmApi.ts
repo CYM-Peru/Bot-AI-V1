@@ -25,6 +25,7 @@ export interface SendMessagePayload {
   attachmentId?: string;
   replyToId?: string;
   type?: Message["type"];
+  isInternal?: boolean;
 }
 
 export interface SendMessageResult {
