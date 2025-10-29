@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 interface QuickReply {
   id: string;
@@ -36,6 +36,8 @@ interface QuickRepliesProps {
 export default function QuickReplies({ onSelectReply }: QuickRepliesProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [modalPosition, setModalPosition] = useState<{ bottom: number; right: number }>({ bottom: 0, right: 0 });
 
   const categories = Array.from(new Set(DEFAULT_QUICK_REPLIES.map(r => r.category)));
 
@@ -51,11 +53,23 @@ export default function QuickReplies({ onSelectReply }: QuickRepliesProps) {
     setSearchTerm("");
   };
 
+  const handleToggle = () => {
+    if (!isOpen && buttonRef.current) {
+      // Calculate position when opening
+      const rect = buttonRef.current.getBoundingClientRect();
+      const bottom = window.innerHeight - rect.top + 8; // 8px margin
+      const right = window.innerWidth - rect.right;
+      setModalPosition({ bottom, right });
+    }
+    setIsOpen(!isOpen);
+  };
+
   return (
     <div className="relative">
       <button
+        ref={buttonRef}
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleToggle}
         className="flex items-center justify-center rounded-lg p-2 text-emerald-600 hover:bg-emerald-50 transition"
         title="Respuestas rápidas"
       >
@@ -67,7 +81,10 @@ export default function QuickReplies({ onSelectReply }: QuickRepliesProps) {
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute bottom-full right-0 mb-2 w-96 max-h-96 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl z-50">
+          <div
+            className="fixed w-96 max-h-96 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl z-50"
+            style={{ bottom: `${modalPosition.bottom}px`, right: `${modalPosition.right}px` }}
+          >
             <div className="bg-gradient-to-r from-emerald-50 to-white px-4 py-3 border-b border-slate-200">
               <h4 className="text-sm font-bold text-slate-900">⚡ Respuestas Rápidas</h4>
               <input
