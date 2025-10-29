@@ -5,6 +5,8 @@ export interface Conversation {
   phone: string;
   contactName: string | null;
   bitrixId: string | null;
+  bitrixDocument: string | null;  // Número de documento del contacto en Bitrix
+  avatarUrl: string | null;        // URL de la foto de perfil (WhatsApp o Bitrix)
   lastMessageAt: number;
   unread: number;
   status: ConversationStatus;
