@@ -328,6 +328,11 @@ export class BotLogger {
  */
 export class MetricsTracker {
   private metrics = new Map<string, ConversationMetrics>();
+  private logger: BotLogger;
+
+  constructor(logger: BotLogger) {
+    this.logger = logger;
+  }
 
   /**
    * Iniciar tracking de conversación
@@ -381,7 +386,7 @@ export class MetricsTracker {
    * Obtener estadísticas de opciones de menú seleccionadas
    */
   getMenuStats(): Record<string, { nodeId: string; optionId: string; label: string; count: number }> {
-    const menuLogs = this.logger.getLogs().filter((log) => log.type === "menu_option_selected");
+    const menuLogs = this.logger.getLogs().filter((log: LogEvent) => log.type === "menu_option_selected");
     const stats: Record<string, { nodeId: string; optionId: string; label: string; count: number }> = {};
 
     for (const log of menuLogs) {
@@ -432,4 +437,4 @@ export class MetricsTracker {
  * Singleton para logger y metrics tracker
  */
 export const botLogger = new BotLogger();
-export const metricsTracker = new MetricsTracker();
+export const metricsTracker = new MetricsTracker(botLogger);
