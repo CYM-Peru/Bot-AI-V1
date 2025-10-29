@@ -4,7 +4,6 @@ import ChatWindow from "./ChatWindow";
 import type { Attachment, Conversation, Message } from "./types";
 import { fetchConversations, fetchMessages, sendMessage, uploadAttachment } from "./crmApi";
 import { createCrmSocket, type CrmSocket } from "./socket";
-import CrmDock from "../components/CRM/CrmDock";
 import { useNotifications } from "./useNotifications";
 import { useSoundNotifications } from "./useSoundNotifications";
 import { useDarkMode } from "./DarkModeContext";
@@ -232,7 +231,6 @@ export default function CRMPage() {
 
   return (
     <div className="flex h-full flex-col gap-4">
-      <CrmDock />
       <div className="flex flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl relative">
         <div className="w-[320px] flex-shrink-0 h-full">
           {loadingConversations && conversations.length === 0 ? (
