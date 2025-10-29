@@ -16,6 +16,7 @@ import { initCrmWSS } from "./crm/ws";
 import { ensureStorageSetup } from "./utils/storage";
 import { getWhatsAppEnv, getWhatsAppVerifyToken } from "./utils/env";
 import whatsappConnectionsRouter from "./connections/whatsapp-routes";
+import { registerReloadCallback } from "./whatsapp-handler-manager";
 
 // Load environment variables
 dotenv.config();
@@ -66,41 +67,52 @@ const crmModule = registerCrmModule({
 });
 
 // Initialize WhatsApp Webhook Handler
-const whatsappEnv = getWhatsAppEnv();
+function createWhatsAppHandler() {
+  const whatsappEnv = getWhatsAppEnv();
 
-const whatsappHandler = new WhatsAppWebhookHandler({
-  verifyToken: getWhatsAppVerifyToken() || "default_verify_token",
-  engine: runtimeEngine,
-  apiConfig: {
-    accessToken: whatsappEnv.accessToken || "",
-    phoneNumberId: whatsappEnv.phoneNumberId || "",
-    apiVersion: whatsappEnv.apiVersion || "v20.0",
-    baseUrl: whatsappEnv.baseUrl,
-  },
-  resolveFlow: async (context) => {
-    const phoneNumber = context.message.from;
-    const defaultFlowId = process.env.DEFAULT_FLOW_ID || "default-flow";
+  return new WhatsAppWebhookHandler({
+    verifyToken: getWhatsAppVerifyToken() || "default_verify_token",
+    engine: runtimeEngine,
+    apiConfig: {
+      accessToken: whatsappEnv.accessToken || "",
+      phoneNumberId: whatsappEnv.phoneNumberId || "",
+      apiVersion: whatsappEnv.apiVersion || "v20.0",
+      baseUrl: whatsappEnv.baseUrl,
+    },
+    resolveFlow: async (context) => {
+      const phoneNumber = context.message.from;
+      const defaultFlowId = process.env.DEFAULT_FLOW_ID || "default-flow";
 
-    // Log conversation start
-    const sessionId = `whatsapp_${phoneNumber}`;
-    botLogger.logConversationStarted(sessionId, defaultFlowId);
-    metricsTracker.startConversation(sessionId, defaultFlowId);
+      // Log conversation start
+      const sessionId = `whatsapp_${phoneNumber}`;
+      botLogger.logConversationStarted(sessionId, defaultFlowId);
+      metricsTracker.startConversation(sessionId, defaultFlowId);
 
-    return {
-      sessionId,
-      flowId: defaultFlowId,
-      contactId: phoneNumber,
-      channel: "whatsapp",
-    };
-  },
-  logger: {
-    info: (message, meta) => botLogger.info(message, meta),
-    warn: (message, meta) => botLogger.warn(message, meta),
-    error: (message, meta) => botLogger.error(message, undefined, meta),
-  },
-  onIncomingMessage: async (payload) => {
-    await crmModule.handleIncomingWhatsApp(payload);
-  },
+      return {
+        sessionId,
+        flowId: defaultFlowId,
+        contactId: phoneNumber,
+        channel: "whatsapp",
+      };
+    },
+    logger: {
+      info: (message, meta) => botLogger.info(message, meta),
+      warn: (message, meta) => botLogger.warn(message, meta),
+      error: (message, meta) => botLogger.error(message, undefined, meta),
+    },
+    onIncomingMessage: async (payload) => {
+      await crmModule.handleIncomingWhatsApp(payload);
+    },
+  });
+}
+
+let whatsappHandler = createWhatsAppHandler();
+
+// Register reload callback for dynamic credential updates
+registerReloadCallback(() => {
+  console.log('[WhatsApp] Reloading handler with updated credentials...');
+  whatsappHandler = createWhatsAppHandler();
+  console.log('[WhatsApp] Handler reloaded successfully');
 });
 
 const healthHandler = (_req: Request, res: Response) => {
@@ -185,11 +197,14 @@ app.use("/api", createApiRoutes({ flowProvider, sessionStore }));
 
 // Start server
 server.listen(PORT, () => {
+  const whatsappEnv = getWhatsAppEnv();
+  const verifyToken = getWhatsAppVerifyToken();
+
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📱 WhatsApp webhook: http://localhost:${PORT}/api/meta/webhook`);
   console.log(`🏥 Health check: http://localhost:${PORT}/health`);
   console.log(`\n⚙️  Configuration:`);
-  console.log(`   - Verify Token: ${whatsappEnv.verifyToken ? "✓" : "✗"}`);
+  console.log(`   - Verify Token: ${verifyToken ? "✓" : "✗"}`);
   console.log(`   - Access Token: ${whatsappEnv.accessToken ? "✓" : "✗"}`);
   console.log(`   - Phone Number ID: ${whatsappEnv.phoneNumberId ? "✓" : "✗"}`);
   console.log(`   - Default Flow ID: ${process.env.DEFAULT_FLOW_ID || "default-flow"}`);
