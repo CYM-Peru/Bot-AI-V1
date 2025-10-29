@@ -49,7 +49,7 @@ export function StatusManagement() {
   const loadStatuses = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/advisor-statuses"));
+      const response = await fetch(apiUrl("/api/admin/advisor-statuses"), { credentials: "include" });
       if (response.ok) {
         const data = await response.json();
         setStatuses(data.statuses || []);
@@ -63,7 +63,7 @@ export function StatusManagement() {
 
   const loadQueues = async () => {
     try {
-      const response = await fetch(apiUrl("/api/admin/queues"));
+      const response = await fetch(apiUrl("/api/admin/queues"), { credentials: "include" });
       if (response.ok) {
         const data = await response.json();
         setQueues(data.queues || []);

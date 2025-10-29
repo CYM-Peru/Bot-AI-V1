@@ -49,8 +49,8 @@ export function QueueManagement() {
     setLoading(true);
     try {
       const [queuesRes, advisorsRes] = await Promise.all([
-        fetch(apiUrl("/api/admin/queues")),
-        fetch(apiUrl("/api/admin/advisors")),
+        fetch(apiUrl("/api/admin/queues"), { credentials: "include" }),
+        fetch(apiUrl("/api/admin/advisors"), { credentials: "include" }),
       ]);
 
       if (queuesRes.ok) {

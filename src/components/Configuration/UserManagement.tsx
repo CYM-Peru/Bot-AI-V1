@@ -36,7 +36,9 @@ export function UserManagement() {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/users"));
+      const response = await fetch(apiUrl("/api/admin/users"), {
+        credentials: "include",
+      });
       if (response.ok) {
         const data = await response.json();
         setUsers(data.users || []);
@@ -74,6 +76,7 @@ export function UserManagement() {
       const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
 
@@ -92,6 +95,7 @@ export function UserManagement() {
     try {
       const response = await fetch(apiUrl(`/api/admin/users/${userId}`), {
         method: "DELETE",
+        credentials: "include",
       });
 
       if (response.ok) {

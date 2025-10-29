@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { apiUrl } from "../../lib/apiBase";
+import { ChangePassword } from "./ChangePassword";
 
 interface Settings {
   companyName: string;
@@ -42,7 +43,9 @@ export function GeneralSettings() {
   const loadSettings = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/settings"));
+      const response = await fetch(apiUrl("/api/admin/settings"), {
+        credentials: "include",
+      });
       if (response.ok) {
         const data = await response.json();
         setSettings(data.settings);
@@ -65,6 +68,7 @@ export function GeneralSettings() {
       const response = await fetch(apiUrl("/api/admin/settings"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(settings),
       });
 
@@ -98,6 +102,9 @@ export function GeneralSettings() {
       </div>
 
       <div className="space-y-6">
+        {/* Cambiar Contraseña */}
+        <ChangePassword />
+
         {/* Empresa */}
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="flex items-center gap-2 text-lg font-bold text-slate-900">
