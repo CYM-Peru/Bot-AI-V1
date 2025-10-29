@@ -14,9 +14,7 @@ export default function CrmDock() {
   const socketRef = useRef<CrmSocket | null>(null);
   const [status, setStatus] = useState<ConnectionState>("idle");
   const [clientId, setClientId] = useState<string>("");
-  const [lastAck, setLastAck] = useState<string>("");
   const [message, setMessage] = useState<string>("Hola desde el CRM");
-  const [frames, setFrames] = useState<WsIncomingFrame[]>([]);
   const [providerStatus, setProviderStatus] = useState<string>("");
   const [sending, setSending] = useState(false);
 
@@ -25,12 +23,8 @@ export default function CrmDock() {
     socketRef.current = socket;
 
     const handleFrame = (frame: WsIncomingFrame) => {
-      setFrames((prev) => [...prev.slice(-3), frame]);
       if (frame.type === "welcome") {
         setClientId(frame.clientId);
-      }
-      if (frame.type === "ack" && frame.event === "message") {
-        setLastAck(new Date().toLocaleTimeString());
       }
     };
 
@@ -60,8 +54,8 @@ export default function CrmDock() {
     }
   }, [status]);
 
-  const handleSend = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleSend = async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
     const text = message.trim();
     if (!text) return;
     setSending(true);
@@ -73,11 +67,19 @@ export default function CrmDock() {
           : `Error proveedor (${result.providerStatus})${result.error ? ` · ${result.error}` : ""}`,
       );
       socketRef.current?.send("message", { text });
+      setMessage(""); // Clear message after sending
     } catch (error) {
       const message = error instanceof Error ? error.message : "Error desconocido";
       setProviderStatus(`Fallo al enviar · ${message}`);
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      handleSend();
     }
   };
 
@@ -104,13 +106,14 @@ export default function CrmDock() {
           Reintentar
         </button>
       </div>
-      <form onSubmit={handleSend} className="mt-3 flex items-center gap-2">
-        <input
-          type="text"
+      <form onSubmit={handleSend} className="mt-3 flex items-start gap-2">
+        <textarea
           value={message}
           onChange={(event) => setMessage(event.target.value)}
-          placeholder="Escribe un mensaje de prueba"
-          className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+          onKeyDown={handleKeyDown}
+          placeholder="Escribe un mensaje de prueba (Enter para enviar, Shift+Enter para salto de línea)"
+          rows={2}
+          className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm resize-none focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
         />
         <button
           type="submit"
@@ -120,17 +123,7 @@ export default function CrmDock() {
           {sending ? "Enviando…" : "Enviar"}
         </button>
       </form>
-      <div className="mt-3 text-xs text-slate-500">
-        {lastAck ? `Último ack: ${lastAck}` : "Aún sin confirmaciones"}
-      </div>
-      {providerStatus && <div className="mt-2 text-xs text-slate-600">{providerStatus}</div>}
-      <div className="mt-3 space-y-1 text-[11px] text-slate-500">
-        {frames.slice().reverse().map((frame, index) => (
-          <div key={index} className="rounded bg-slate-100 px-2 py-1 font-mono">
-            {JSON.stringify(frame)}
-          </div>
-        ))}
-      </div>
+      {providerStatus && <div className="mt-3 text-xs text-slate-600">{providerStatus}</div>}
     </div>
   );
 }
