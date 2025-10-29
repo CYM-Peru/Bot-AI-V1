@@ -36,7 +36,7 @@ export default function MessageList({ messages, attachments, onReply }: MessageL
   }, [messages.length]);
 
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-50 px-4 py-6">
+    <div className="h-full overflow-y-auto bg-slate-50 px-4 py-6">
       <div className="mx-auto flex max-w-3xl flex-col gap-3">
         {messages.map((message) => (
           <MessageBubble
