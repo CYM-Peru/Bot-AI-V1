@@ -36,7 +36,28 @@ const MAX_MEDIA_TYPES = new Set(["image", "audio", "video", "document", "sticker
 
 export async function sendWhatsAppMessage(options: WhatsAppSendOptions): Promise<WhatsAppSendResult> {
   const config = getWhatsAppEnv();
+
+  // DEBUG: Log configuration details
+  console.log("[WhatsApp API] sendWhatsAppMessage called with:", {
+    phone: options.phone,
+    hasText: Boolean(options.text),
+    hasMediaUrl: Boolean(options.mediaUrl),
+    mediaType: options.mediaType,
+  });
+  console.log("[WhatsApp API] Config:", {
+    baseUrl: config.baseUrl,
+    apiVersion: config.apiVersion,
+    phoneNumberId: config.phoneNumberId,
+    hasAccessToken: Boolean(config.accessToken),
+    tokenLength: config.accessToken?.length,
+    tokenLast10: config.accessToken ? `...${config.accessToken.slice(-10)}` : "NO_TOKEN",
+  });
+
   if (!config.phoneNumberId || !config.accessToken) {
+    console.error("[WhatsApp API] Missing configuration!", {
+      hasPhoneNumberId: Boolean(config.phoneNumberId),
+      hasAccessToken: Boolean(config.accessToken),
+    });
     return { ok: false, status: 412, body: null, error: "not_configured" };
   }
 
@@ -55,14 +76,29 @@ export async function sendWhatsAppMessage(options: WhatsAppSendOptions): Promise
     payload.type = "text";
     payload.text = { body: options.text, preview_url: false };
   } else {
+    console.error("[WhatsApp API] Missing payload - no text or media");
     return { ok: false, status: 400, body: null, error: "missing_payload" };
   }
 
   const url = `${config.baseUrl.replace(/\/$/, "")}/${config.apiVersion}/${config.phoneNumberId}/messages`;
+
+  console.log("[WhatsApp API] Making request:", {
+    url,
+    method: "POST",
+    payload: JSON.stringify(payload),
+    authHeader: `Bearer ...${config.accessToken.slice(-10)}`,
+  });
+
   const response = await httpRequest(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${config.accessToken}` },
     body: payload,
+  });
+
+  console.log("[WhatsApp API] Response received:", {
+    ok: response.ok,
+    status: response.status,
+    body: JSON.stringify(response.body),
   });
 
   return {
