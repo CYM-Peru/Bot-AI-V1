@@ -163,8 +163,8 @@ export default function CRMPage() {
   return (
     <div className="flex h-full flex-col gap-4">
       <CrmDock />
-      <div className="flex flex-1 min-h-[480px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
-        <div className="w-[320px] flex-shrink-0">
+      <div className="flex flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
+        <div className="w-[320px] flex-shrink-0 flex flex-col overflow-hidden">
           {loadingConversations && conversations.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-500">
               Cargando conversaciones…

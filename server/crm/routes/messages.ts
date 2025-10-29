@@ -60,6 +60,12 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
     }
 
     socketManager.emitNewMessage({ message, attachment: attachments[0] ?? null });
+
+    // Auto-cambiar a "attending" cuando el asesor responde (excepto notas internas)
+    if (!payload.isInternal && conversation.status === "active") {
+      crmDb.updateConversationMeta(conversation.id, { status: "attending" });
+    }
+
     socketManager.emitConversationUpdate({ conversation: crmDb.getConversationById(conversation.id)! });
 
     let providerResult: WspTestResult | null = null;

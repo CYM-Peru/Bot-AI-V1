@@ -1,4 +1,4 @@
-export type ConversationStatus = "active" | "archived";
+export type ConversationStatus = "active" | "attending" | "archived";
 
 export interface Conversation {
   id: string;
