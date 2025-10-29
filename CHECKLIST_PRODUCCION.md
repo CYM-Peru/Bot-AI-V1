@@ -104,7 +104,7 @@ azaleia_meta_token_2025
 
 **A. Enviar mensaje de prueba:**
 
-1. Desde tu WhatsApp personal, envía un mensaje al número de negocio: `+51 741220429081783`
+1. Desde tu WhatsApp personal, envía un mensaje al número de negocio: `+51 5116193636`
 2. El mensaje debe aparecer automáticamente en:
    - Logs del backend
    - Panel CRM en https://wsp.azaleia.com.pe

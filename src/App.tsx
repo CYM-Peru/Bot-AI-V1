@@ -1483,6 +1483,18 @@ export default function App(): JSX.Element {
       return next;
     });
     if (linked) {
+      // Posicionar el nuevo nodo cerca del padre
+      const parentPosition =
+        positionsRef.current[parentId] ?? computeLayout(flowRef.current)[parentId] ?? { x: 0, y: 0 };
+
+      setPositions((prev) => ({
+        ...prev,
+        [nid]: {
+          x: parentPosition.x + NODE_W + 40,
+          y: parentPosition.y,
+        },
+      }));
+
       setSelectedId(nid);
     }
   }
@@ -1654,7 +1666,20 @@ export default function App(): JSX.Element {
     });
 
     if (createdId) {
-      setSelectedId(createdId);
+      // Posicionar el nuevo nodo cerca del padre
+      const nodeId = createdId;
+      const parentPosition =
+        positionsRef.current[parentId] ?? computeLayout(flowRef.current)[parentId] ?? { x: 0, y: 0 };
+
+      setPositions((prev) => ({
+        ...prev,
+        [nodeId]: {
+          x: parentPosition.x + NODE_W + 40,
+          y: parentPosition.y,
+        },
+      }));
+
+      setSelectedId(nodeId);
     } else if (failure) {
       showToast(failure, "error");
     }

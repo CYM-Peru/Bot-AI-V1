@@ -421,6 +421,8 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
         selectionOnDrag
         elevateEdgesOnSelect
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+        minZoom={0.05}
+        maxZoom={4}
       >
         <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} color="#cbd5f5" />
         <Controls position="bottom-left" />

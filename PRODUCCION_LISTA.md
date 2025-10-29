@@ -205,7 +205,7 @@ pm2 logs bot-ai-backend
 
 ## 📱 Información de tu WhatsApp Business
 
-- **Número**: +51 741220429081783
+- **Número**: +51 5116193636
 - **Dominio**: wsp.azaleia.com.pe
 - **Webhook**: https://wsp.azaleia.com.pe/api/meta/webhook
 - **Token**: azaleia_meta_token_2025

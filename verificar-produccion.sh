@@ -40,7 +40,7 @@ if [ -f ".env" ]; then
         warn "WHATSAPP_ACCESS_TOKEN no configurado"
     fi
 
-    if grep -q "WHATSAPP_PHONE_NUMBER_ID=741220429081783" .env; then
+    if grep -q "WHATSAPP_PHONE_NUMBER_ID=5116193636" .env; then
         check "WHATSAPP_PHONE_NUMBER_ID configurado"
     else
         warn "WHATSAPP_PHONE_NUMBER_ID no configurado"
