@@ -211,14 +211,24 @@ async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buff
       return null;
     }
     logDebug(`[CRM][Media] URL completa de descarga: ${meta.url}`);
-    logDebug(`[CRM][Media] Descargando archivo con Authorization header...`);
+
+    // Intentar varias formas de autenticación según la API de WhatsApp
+    logDebug(`[CRM][Media] Intentando descarga (método 1: sin Bearer prefix)...`);
     let mediaResponse = await fetch(meta.url, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { Authorization: accessToken }, // Sin "Bearer"
     });
 
-    // Si falla con Authorization, intentar sin él (URLs firmadas de CDN)
+    // Si falla, intentar con Bearer
+    if (!mediaResponse.ok) {
+      logDebug(`[CRM][Media] Método 1 falló (${mediaResponse.status}), intentando con Bearer prefix...`);
+      mediaResponse = await fetch(meta.url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    }
+
+    // Si aún falla con 404, intentar sin header (URLs firmadas)
     if (!mediaResponse.ok && mediaResponse.status === 404) {
-      logDebug(`[CRM][Media] Falló con Authorization, intentando sin header...`);
+      logDebug(`[CRM][Media] Método 2 falló con 404, intentando sin Authorization header...`);
       mediaResponse = await fetch(meta.url);
     }
 
@@ -226,7 +236,6 @@ async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buff
       logError(`[CRM][Media] Error descargando archivo: HTTP ${mediaResponse.status}`);
       const errorBody = await mediaResponse.text();
       logError(`[CRM][Media] Cuerpo de error: ${errorBody}`);
-      logDebug(`[CRM][Media] Headers de respuesta:`, Object.fromEntries(mediaResponse.headers.entries()));
       return null;
     }
     const arrayBuffer = await mediaResponse.arrayBuffer();
