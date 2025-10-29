@@ -199,7 +199,8 @@ app.use("/api", createApiRoutes({ flowProvider, sessionStore }));
 app.use(express.static("dist"));
 
 // SPA fallback: serve index.html for all non-API routes
-app.get("*", (_req: Request, res: Response) => {
+// Use regex to exclude /api routes, preventing masking of undefined API endpoints
+app.get(/^\/(?!api).*/, (_req: Request, res: Response) => {
   res.sendFile("index.html", { root: "dist" });
 });
 
