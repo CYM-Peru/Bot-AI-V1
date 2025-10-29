@@ -56,10 +56,25 @@ export function UserManagement() {
         : apiUrl("/api/admin/users");
       const method = editingUser ? "PUT" : "POST";
 
+      // Prepare payload - only include password if it's provided
+      const payload: Record<string, unknown> = {
+        username: formData.username,
+        email: formData.email,
+        role: formData.role,
+        status: formData.status,
+      };
+
+      // Only include password if:
+      // 1. Creating a new user (editingUser is null), OR
+      // 2. Editing and user provided a new password (not empty)
+      if (!editingUser || formData.password.trim() !== "") {
+        payload.password = formData.password;
+      }
+
       const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
