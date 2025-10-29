@@ -61,7 +61,7 @@ export class CRMDatabase {
     return this.store.conversations.find((item) => item.phone === phone);
   }
 
-  createConversation(phone: string, contactName?: string | null): Conversation {
+  createConversation(phone: string, contactName?: string | null, avatarUrl?: string | null): Conversation {
     const existing = this.getConversationByPhone(phone);
     if (existing) return existing;
     const now = Date.now();
@@ -70,6 +70,8 @@ export class CRMDatabase {
       phone,
       contactName: contactName ?? null,
       bitrixId: null,
+      bitrixDocument: null,
+      avatarUrl: avatarUrl ?? null,
       lastMessageAt: now,
       unread: 0,
       status: "active",

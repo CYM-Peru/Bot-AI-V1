@@ -48,8 +48,8 @@ export default function CRMPage() {
     showPreview: showNotificationPreview,
   });
 
-  // Use sound notifications hook
-  useSoundNotifications(currentMessages, {
+  // Use sound notifications hook - now monitors ALL conversations except the current one
+  useSoundNotifications(conversationData, selectedConversationId, {
     enabled: soundEnabled,
     volume: soundVolume,
   });

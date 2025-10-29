@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Conversation } from "./types";
+import { Avatar } from "./Avatar";
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -275,30 +276,52 @@ export default function ConversationList({ conversations, selectedId, onSelect }
           <ul className="divide-y divide-slate-100">
             {filtered.map((conversation) => {
               const isActive = conversation.id === selectedId;
+              // Si tiene bitrixId, mostrar nombre + documento; sino, mostrar teléfono
+              const displayName = conversation.bitrixId && conversation.contactName
+                ? conversation.contactName
+                : conversation.contactName || conversation.phone;
+              const displaySubtext = conversation.bitrixId && conversation.bitrixDocument
+                ? `Doc: ${conversation.bitrixDocument}`
+                : conversation.phone;
+
               return (
                 <li key={conversation.id}>
                   <button
                     type="button"
                     onClick={() => onSelect(conversation)}
-                    className={`flex w-full flex-col gap-1 px-4 py-3 text-left transition hover:bg-emerald-50 ${
+                    className={`flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-emerald-50 ${
                       isActive ? "bg-emerald-50" : "bg-white"
                     }`}
                   >
-                    <div className="flex items-center justify-between text-sm font-semibold text-slate-800">
-                      <span>{conversation.contactName || conversation.phone}</span>
-                      <span className="text-xs font-medium text-slate-400">
-                        {formatTimestamp(conversation.lastMessageAt)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-slate-500">
-                      <span className="line-clamp-2 max-w-[220px]">
-                        {conversation.lastMessagePreview || "Sin mensajes"}
-                      </span>
-                      {conversation.unread > 0 && (
-                        <span className="ml-2 inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-emerald-500 px-2 py-0.5 text-xs font-semibold text-white">
-                          {conversation.unread}
+                    {/* Avatar */}
+                    <Avatar
+                      src={conversation.avatarUrl}
+                      alt={displayName}
+                      size="md"
+                      className="flex-shrink-0"
+                    />
+
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between text-sm font-semibold text-slate-800">
+                        <span className="truncate">{displayName}</span>
+                        <span className="text-xs font-medium text-slate-400 ml-2 flex-shrink-0">
+                          {formatTimestamp(conversation.lastMessageAt)}
                         </span>
-                      )}
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-slate-500">
+                        <div className="flex flex-col min-w-0 flex-1">
+                          <span className="text-slate-400 text-[10px] truncate">{displaySubtext}</span>
+                          <span className="line-clamp-1 truncate">
+                            {conversation.lastMessagePreview || "Sin mensajes"}
+                          </span>
+                        </div>
+                        {conversation.unread > 0 && (
+                          <span className="ml-2 inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-emerald-500 px-2 py-0.5 text-xs font-semibold text-white flex-shrink-0">
+                            {conversation.unread}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </button>
                 </li>
