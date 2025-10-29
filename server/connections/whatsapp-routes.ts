@@ -143,7 +143,7 @@ router.get('/check', async (req: Request, res: Response) => {
  */
 router.post('/save', async (req: Request, res: Response) => {
   try {
-    const { phoneNumberId, displayNumber, accessToken, verifyToken } = req.body as Partial<WhatsAppCredentials>;
+    const { phoneNumberId, displayNumber, accessToken, verifyToken, apiVersion } = req.body as Partial<WhatsAppCredentials> & { apiVersion?: string };
 
     if (!phoneNumberId || !accessToken) {
       res.status(400).json({ ok: false, reason: 'missing_required_fields' });
@@ -178,6 +178,9 @@ router.post('/save', async (req: Request, res: Response) => {
     if (verifyToken) {
       envMap.set('WHATSAPP_VERIFY_TOKEN', verifyToken);
     }
+    if (apiVersion) {
+      envMap.set('WHATSAPP_API_VERSION', apiVersion);
+    }
 
     // Rebuild .env content
     const newEnvContent = Array.from(envMap.entries())
@@ -192,6 +195,9 @@ router.post('/save', async (req: Request, res: Response) => {
     process.env.WHATSAPP_PHONE_NUMBER_ID = phoneNumberId;
     if (verifyToken) {
       process.env.WHATSAPP_VERIFY_TOKEN = verifyToken;
+    }
+    if (apiVersion) {
+      process.env.WHATSAPP_API_VERSION = apiVersion;
     }
 
     console.log('[WhatsApp Save] Credentials updated successfully');
