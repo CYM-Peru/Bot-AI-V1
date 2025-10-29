@@ -1,8 +1,6 @@
 import { httpRequest } from "../utils/http";
 import { getWhatsAppEnv, isWhatsAppConfigured } from "../utils/env";
-import FormData from "form-data";
 import type { Readable } from "stream";
-import fetch from "node-fetch";
 
 export interface WhatsAppSendOptions {
   phone: string;
@@ -161,6 +159,18 @@ export interface WhatsAppMediaUploadResult {
 }
 
 /**
+ * Convierte un Readable stream a Buffer
+ */
+async function streamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  return new Promise((resolve, reject) => {
+    stream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(Buffer.concat(chunks)));
+  });
+}
+
+/**
  * Sube un archivo a WhatsApp Media API y devuelve el media_id
  * Este media_id puede ser usado para enviar el archivo a través de WhatsApp
  */
@@ -175,13 +185,16 @@ export async function uploadToWhatsAppMedia(options: {
   }
 
   try {
+    // Convertir stream a buffer
+    const buffer = await streamToBuffer(options.stream);
+
+    // Crear Blob desde buffer (Node.js 18+ tiene Blob nativo)
+    const blob = new Blob([buffer], { type: options.mimeType });
+
+    // Crear FormData (Node.js 18+ tiene FormData nativo)
     const form = new FormData();
-    form.append("file", options.stream, {
-      filename: options.filename,
-      contentType: options.mimeType,
-    });
+    form.append("file", blob, options.filename);
     form.append("messaging_product", "whatsapp");
-    form.append("type", options.mimeType);
 
     const url = `${config.baseUrl.replace(/\/$/, "")}/${config.apiVersion}/${config.phoneNumberId}/media`;
 
@@ -189,7 +202,6 @@ export async function uploadToWhatsAppMedia(options: {
       method: "POST",
       headers: {
         Authorization: `Bearer ${config.accessToken}`,
-        ...form.getHeaders(),
       },
       body: form,
     });
