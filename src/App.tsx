@@ -2276,7 +2276,7 @@ export default function App(): JSX.Element {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs px-3 py-1 rounded-full border bg-slate-50">Builder · Beta</span>
-          <h1 className="text-lg md:text-2xl font-semibold truncate">{flow.name}</h1>
+          <h1 className="text-lg md:text-2xl font-bold truncate bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">{flow.name}</h1>
 
           {/* Tab Navigation */}
           <div className="flex gap-2 md:ml-4 flex-wrap">
@@ -2296,7 +2296,7 @@ export default function App(): JSX.Element {
               onClick={() => setMainTab('crm')}
               type="button"
             >
-              🗂️ CRM
+              💬 Chat en vivo
             </button>
             <button
               className={`btn btn--ghost topbar-tab${mainTab === 'metrics' ? ' is-active' : ''}`}

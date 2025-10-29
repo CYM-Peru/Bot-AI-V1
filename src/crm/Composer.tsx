@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { Paperclip } from "lucide-react";
 import type { Attachment, Message } from "./types";
 import AttachmentPreview from "./AttachmentPreview";
 
@@ -84,11 +85,11 @@ export default function Composer({ disabled, onSend, replyingTo, onCancelReply }
       <div className="flex items-end gap-3">
         <button
           type="button"
-          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-xl text-slate-500 transition hover:border-emerald-300 hover:text-emerald-600"
+          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-emerald-300 hover:text-emerald-600"
           onClick={() => inputRef.current?.click()}
           disabled={disabled || sending}
         >
-          📎
+          <Paperclip className="h-5 w-5" />
         </button>
         <textarea
           value={text}

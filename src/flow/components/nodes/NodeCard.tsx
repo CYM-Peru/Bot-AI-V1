@@ -1,5 +1,6 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import React, { useCallback } from 'react';
+import { Menu, Zap, Copy, Trash2 } from 'lucide-react';
 import type { RuntimeNode } from './types';
 import type { NodeType } from '../../types';
 
@@ -150,9 +151,9 @@ export function NodeCard(props: NodeCardProps) {
 
       {/* Delay indicator badge in top-right corner */}
       {data.flowNode.delay && data.flowNode.delay > 0 && (
-        <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-[10px] font-medium text-blue-700 shadow-sm">
+        <div className="absolute top-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-[10px] text-blue-700 shadow-sm">
           <span>⏱️</span>
-          <span>{data.flowNode.delay}s</span>
+          <span className="font-bold">{data.flowNode.delay}s</span>
         </div>
       )}
 
@@ -179,53 +180,57 @@ export function NodeCard(props: NodeCardProps) {
       </div>
 
       <div className="px-4 pb-4">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
           {allowAddMenu && (
             <button
               type="button"
-              className="rounded-md border border-emerald-200 bg-white px-3 py-1.5 font-medium text-emerald-700 transition hover:bg-emerald-50"
+              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[11px] font-medium text-emerald-700 transition hover:bg-emerald-50"
               onClick={(event) => {
                 event.stopPropagation();
                 handleAddChild('menu');
               }}
             >
-              + menú
+              <Menu className="h-3 w-3" />
+              <span>menú</span>
             </button>
           )}
           {allowAddAction && (
             <button
               type="button"
-              className="rounded-md border border-emerald-200 bg-white px-3 py-1.5 font-medium text-emerald-700 transition hover:bg-emerald-50"
+              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[11px] font-medium text-emerald-700 transition hover:bg-emerald-50"
               onClick={(event) => {
                 event.stopPropagation();
                 handleAddChild('action');
               }}
             >
-              + acción
+              <Zap className="h-3 w-3" />
+              <span>acción</span>
             </button>
           )}
           {allowDuplicate && (
             <button
               type="button"
-              className="rounded-md border border-emerald-200 bg-white px-3 py-1.5 font-medium text-emerald-700 transition hover:bg-emerald-50"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 transition hover:bg-slate-50"
               onClick={(event) => {
                 event.stopPropagation();
                 handleDuplicate();
               }}
             >
-              duplicar
+              <Copy className="h-3 w-3" />
+              <span>duplicar</span>
             </button>
           )}
           {allowDelete && (
             <button
               type="button"
-              className="rounded-md border border-rose-200 bg-white px-3 py-1.5 font-medium text-rose-600 transition hover:bg-rose-50"
+              className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2 py-1 text-[11px] font-medium text-rose-600 transition hover:bg-rose-50"
               onClick={(event) => {
                 event.stopPropagation();
                 handleDelete();
               }}
             >
-              borrar
+              <Trash2 className="h-3 w-3" />
+              <span>borrar</span>
             </button>
           )}
           {extraActions}
