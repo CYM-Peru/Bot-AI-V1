@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { apiUrl } from "../lib/apiBase";
 import BitrixContactCard from "./BitrixContactCard";
 import Composer from "./Composer";
 import MessageList from "./MessageList";
@@ -33,8 +34,19 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
 
   const handleArchive = async () => {
     if (!conversation) return;
-    // TODO: Implementar endpoint de archivo
-    console.log('[CRM] Archivar conversación:', conversation.id);
+    try {
+      const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/archive`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (response.ok) {
+        console.log('[CRM] Conversación archivada exitosamente:', conversation.id);
+      } else {
+        console.error('[CRM] Error al archivar conversación:', response.statusText);
+      }
+    } catch (error) {
+      console.error('[CRM] Error al archivar conversación:', error);
+    }
   };
 
   return (

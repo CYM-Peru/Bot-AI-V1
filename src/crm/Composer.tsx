@@ -14,6 +14,7 @@ export default function Composer({ disabled, onSend, replyingTo, onCancelReply }
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [sending, setSending] = useState(false);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -34,6 +35,10 @@ export default function Composer({ disabled, onSend, replyingTo, onCancelReply }
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
       onCancelReply?.();
+      // Mantener el foco en el textarea para seguir escribiendo
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 0);
     } finally {
       setSending(false);
     }
@@ -101,6 +106,7 @@ export default function Composer({ disabled, onSend, replyingTo, onCancelReply }
           </svg>
         </button>
         <textarea
+          ref={textareaRef}
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={handleKeyDown}
