@@ -1,9 +1,20 @@
 import { Router, type Request, type Response } from 'express';
 import fs from 'fs/promises';
 import path from 'path';
+import { ProxyAgent } from 'undici';
 import { reloadWhatsAppHandler } from '../whatsapp-handler-manager';
 
 const router = Router();
+
+// Helper to get fetch options with proxy if configured
+function getFetchOptions(): RequestInit {
+  const httpsProxy = process.env.https_proxy || process.env.HTTPS_PROXY;
+  if (httpsProxy) {
+    const dispatcher = new ProxyAgent(httpsProxy);
+    return { dispatcher } as RequestInit;
+  }
+  return {};
+}
 
 // Path to store credentials (same as .env but managed through API)
 const ENV_PATH = path.join(process.cwd(), '.env');
@@ -59,7 +70,7 @@ router.get('/check', async (req: Request, res: Response) => {
 
     // Query Meta Graph API to verify phone number
     const url = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}?access_token=${accessToken}`;
-    const response = await fetch(url);
+    const response = await fetch(url, getFetchOptions());
 
     if (!response.ok) {
       const status = response.status;
@@ -227,6 +238,7 @@ router.post('/test', async (req: Request, res: Response) => {
     };
 
     const response = await fetch(url, {
+      ...getFetchOptions(),
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
