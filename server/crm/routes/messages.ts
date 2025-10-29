@@ -5,6 +5,8 @@ import type { BitrixService } from "../services/bitrix";
 import { sendOutboundMessage } from "../services/whatsapp";
 import { sendWspTestMessage, type WspTestResult } from "../../services/wsp";
 import type { MessageType } from "../models";
+import { uploadToWhatsAppMedia } from "../../services/whatsapp";
+import { attachmentStorage } from "../storage";
 
 interface SendPayload {
   convId?: string;
@@ -73,20 +75,54 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
     if (conversation.phone && !payload.isInternal) {
       if (!attachments.length && payload.text) {
         providerResult = await sendWspTestMessage({ to: conversation.phone, text: payload.text });
-      } else {
-        const outbound = await sendOutboundMessage({
-          phone: conversation.phone,
-          text: payload.text ?? undefined,
-          mediaUrl: attachments[0]?.url ?? undefined,
-          mediaType: attachments[0] ? inferTypeFromMime(attachments[0].mime) : undefined,
-          caption: payload.text ?? undefined,
-        });
-        providerResult = {
-          ok: outbound.ok,
-          providerStatus: outbound.status,
-          body: outbound.body,
-          error: outbound.error,
-        };
+      } else if (attachments.length > 0) {
+        // Si hay adjunto, subirlo a WhatsApp Media API primero
+        let mediaId: string | undefined;
+        const attachment = attachments[0]!;
+
+        try {
+          const stream = await attachmentStorage.getStream(attachment.id);
+          if (stream) {
+            const uploadResult = await uploadToWhatsAppMedia({
+              stream,
+              filename: attachment.filename,
+              mimeType: attachment.mime,
+            });
+
+            if (uploadResult.ok && uploadResult.mediaId) {
+              mediaId = uploadResult.mediaId;
+              console.log(`[CRM] Archivo subido a WhatsApp Media API: ${mediaId}`);
+            } else {
+              console.error(`[CRM] Error subiendo archivo a WhatsApp: ${uploadResult.error}`);
+            }
+          }
+        } catch (error) {
+          console.error("[CRM] Error obteniendo stream del archivo:", error);
+        }
+
+        // Enviar mensaje con mediaId o fallar
+        if (mediaId) {
+          const outbound = await sendOutboundMessage({
+            phone: conversation.phone,
+            text: payload.text ?? undefined,
+            mediaId,
+            mediaType: inferTypeFromMime(attachment.mime),
+            caption: payload.text ?? undefined,
+          });
+          providerResult = {
+            ok: outbound.ok,
+            providerStatus: outbound.status,
+            body: outbound.body,
+            error: outbound.error,
+          };
+        } else {
+          providerResult = {
+            ok: false,
+            providerStatus: 500,
+            body: null,
+            error: "Failed to upload media to WhatsApp",
+          };
+        }
       }
     }
 

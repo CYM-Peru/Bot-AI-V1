@@ -1,10 +1,14 @@
 import { httpRequest } from "../utils/http";
 import { getWhatsAppEnv, isWhatsAppConfigured } from "../utils/env";
+import FormData from "form-data";
+import type { Readable } from "stream";
+import fetch from "node-fetch";
 
 export interface WhatsAppSendOptions {
   phone: string;
   text?: string;
   mediaUrl?: string | null;
+  mediaId?: string | null;
   mediaType?: "image" | "audio" | "video" | "document" | "sticker";
   caption?: string | null;
 }
@@ -45,9 +49,15 @@ export async function sendWhatsAppMessage(options: WhatsAppSendOptions): Promise
     to: options.phone,
   };
 
-  if (options.mediaUrl && options.mediaType && MAX_MEDIA_TYPES.has(options.mediaType)) {
+  if (options.mediaType && MAX_MEDIA_TYPES.has(options.mediaType) && (options.mediaUrl || options.mediaId)) {
     payload.type = options.mediaType;
-    payload[options.mediaType] = { link: options.mediaUrl };
+    if (options.mediaId) {
+      // Usar media_id de WhatsApp (archivos ya subidos a WhatsApp Media API)
+      payload[options.mediaType] = { id: options.mediaId };
+    } else if (options.mediaUrl) {
+      // Usar link público (debe ser HTTPS y accesible públicamente)
+      payload[options.mediaType] = { link: options.mediaUrl };
+    }
     if (options.caption && (options.mediaType === "image" || options.mediaType === "video" || options.mediaType === "document")) {
       (payload[options.mediaType] as Record<string, unknown>).caption = options.caption;
     }
@@ -142,4 +152,64 @@ function inferError(status: number, body: unknown): string | undefined {
     if (error?.message) return error.message;
   }
   return undefined;
+}
+
+export interface WhatsAppMediaUploadResult {
+  ok: boolean;
+  mediaId?: string;
+  error?: string;
+}
+
+/**
+ * Sube un archivo a WhatsApp Media API y devuelve el media_id
+ * Este media_id puede ser usado para enviar el archivo a través de WhatsApp
+ */
+export async function uploadToWhatsAppMedia(options: {
+  stream: Readable;
+  filename: string;
+  mimeType: string;
+}): Promise<WhatsAppMediaUploadResult> {
+  const config = getWhatsAppEnv();
+  if (!config.phoneNumberId || !config.accessToken) {
+    return { ok: false, error: "not_configured" };
+  }
+
+  try {
+    const form = new FormData();
+    form.append("file", options.stream, {
+      filename: options.filename,
+      contentType: options.mimeType,
+    });
+    form.append("messaging_product", "whatsapp");
+    form.append("type", options.mimeType);
+
+    const url = `${config.baseUrl.replace(/\/$/, "")}/${config.apiVersion}/${config.phoneNumberId}/media`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.accessToken}`,
+        ...form.getHeaders(),
+      },
+      body: form,
+    });
+
+    const body = await response.json() as { id?: string; error?: { message?: string } };
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: body.error?.message || `Upload failed with status ${response.status}`,
+      };
+    }
+
+    if (!body.id) {
+      return { ok: false, error: "No media_id returned" };
+    }
+
+    return { ok: true, mediaId: body.id };
+  } catch (error) {
+    console.error("[WhatsApp] Media upload error:", error);
+    return { ok: false, error: String(error) };
+  }
 }

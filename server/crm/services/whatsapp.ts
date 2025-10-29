@@ -4,6 +4,7 @@ type SendOptions = {
   phone: string;
   text?: string;
   mediaUrl?: string | null;
+  mediaId?: string | null;
   mediaType?: "image" | "audio" | "video" | "document" | "sticker";
   caption?: string | null;
 };
@@ -20,6 +21,7 @@ export async function sendOutboundMessage(options: SendOptions): Promise<Provide
     phone: options.phone,
     text: options.text,
     mediaUrl: options.mediaUrl,
+    mediaId: options.mediaId,
     mediaType: options.mediaType,
     caption: options.caption,
   });

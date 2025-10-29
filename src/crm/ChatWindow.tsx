@@ -116,6 +116,23 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
     }
   };
 
+  const handleUnarchive = async () => {
+    if (!conversation) return;
+    try {
+      const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/unarchive`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (response.ok) {
+        console.log('[CRM] Conversación desarchivada exitosamente:', conversation.id);
+      } else {
+        console.error('[CRM] Error al desarchivar conversación:', response.statusText);
+      }
+    } catch (error) {
+      console.error('[CRM] Error al desarchivar conversación:', error);
+    }
+  };
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-col gap-3 flex-shrink-0 border-b border-slate-200 bg-gradient-to-br from-emerald-50 to-white px-6 py-4 shadow-sm">
@@ -180,6 +197,18 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
                   Cerrar
                 </button>
               </>
+            )}
+            {conversation.status === "archived" && (
+              <button
+                onClick={handleUnarchive}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-green-600 bg-white border border-green-200 rounded-lg hover:bg-green-50 hover:border-green-300 transition"
+                title="Desarchivar conversación"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                </svg>
+                Reabrir
+              </button>
             )}
           </div>
         </div>
