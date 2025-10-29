@@ -456,5 +456,175 @@ export function createAdminRouter(): Router {
     }
   });
 
+  // ============================================
+  // ADVISOR STATUSES ENDPOINTS
+  // ============================================
+
+  /**
+   * GET /api/admin/advisor-statuses
+   * Get all advisor statuses
+   */
+  router.get("/advisor-statuses", (req, res) => {
+    try {
+      const statuses = adminDb.getAllAdvisorStatuses();
+      res.json({ statuses });
+    } catch (error) {
+      console.error("[Admin] Error getting advisor statuses:", error);
+      res.status(500).json({ error: "Failed to get advisor statuses" });
+    }
+  });
+
+  /**
+   * GET /api/admin/advisor-statuses/:id
+   * Get advisor status by ID
+   */
+  router.get("/advisor-statuses/:id", (req, res) => {
+    try {
+      const { id } = req.params;
+      const status = adminDb.getAdvisorStatusById(id);
+      if (!status) {
+        res.status(404).json({ error: "Advisor status not found" });
+        return;
+      }
+      res.json({ status });
+    } catch (error) {
+      console.error("[Admin] Error getting advisor status:", error);
+      res.status(500).json({ error: "Failed to get advisor status" });
+    }
+  });
+
+  /**
+   * POST /api/admin/advisor-statuses
+   * Create new advisor status
+   */
+  router.post("/advisor-statuses", (req, res) => {
+    try {
+      const { name, description, color, action, redirectToQueue, isDefault } = req.body;
+
+      if (!name || !description || !color || !action) {
+        res.status(400).json({ error: "Name, description, color, and action are required" });
+        return;
+      }
+
+      const status = adminDb.createAdvisorStatus({
+        name,
+        description,
+        color,
+        action,
+        redirectToQueue,
+        isDefault,
+      });
+
+      res.status(201).json({ status });
+    } catch (error) {
+      console.error("[Admin] Error creating advisor status:", error);
+      res.status(500).json({ error: "Failed to create advisor status" });
+    }
+  });
+
+  /**
+   * PUT /api/admin/advisor-statuses/:id
+   * Update advisor status
+   */
+  router.put("/advisor-statuses/:id", (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, description, color, action, redirectToQueue, isDefault, order } = req.body;
+
+      const status = adminDb.updateAdvisorStatus(id, {
+        name,
+        description,
+        color,
+        action,
+        redirectToQueue,
+        isDefault,
+        order,
+      });
+
+      if (!status) {
+        res.status(404).json({ error: "Advisor status not found" });
+        return;
+      }
+
+      res.json({ status });
+    } catch (error) {
+      console.error("[Admin] Error updating advisor status:", error);
+      res.status(500).json({ error: "Failed to update advisor status" });
+    }
+  });
+
+  /**
+   * DELETE /api/admin/advisor-statuses/:id
+   * Delete advisor status
+   */
+  router.delete("/advisor-statuses/:id", (req, res) => {
+    try {
+      const { id } = req.params;
+      const deleted = adminDb.deleteAdvisorStatus(id);
+
+      if (!deleted) {
+        res.status(400).json({ error: "Cannot delete default status or status not found" });
+        return;
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[Admin] Error deleting advisor status:", error);
+      res.status(500).json({ error: "Failed to delete advisor status" });
+    }
+  });
+
+  // ============================================
+  // ADVISOR STATUS ASSIGNMENT ENDPOINTS
+  // ============================================
+
+  /**
+   * GET /api/admin/advisor-status/:userId
+   * Get current status of an advisor
+   */
+  router.get("/advisor-status/:userId", (req, res) => {
+    try {
+      const { userId } = req.params;
+      const assignment = adminDb.getAdvisorStatus(userId);
+
+      if (!assignment) {
+        // Return default status if no assignment
+        const defaultStatus = adminDb.getDefaultAdvisorStatus();
+        res.json({ assignment: null, defaultStatus });
+        return;
+      }
+
+      const status = adminDb.getAdvisorStatusById(assignment.statusId);
+      res.json({ assignment, status });
+    } catch (error) {
+      console.error("[Admin] Error getting advisor status assignment:", error);
+      res.status(500).json({ error: "Failed to get advisor status assignment" });
+    }
+  });
+
+  /**
+   * POST /api/admin/advisor-status/:userId
+   * Set current status of an advisor
+   */
+  router.post("/advisor-status/:userId", (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { statusId } = req.body;
+
+      if (!statusId) {
+        res.status(400).json({ error: "statusId is required" });
+        return;
+      }
+
+      const assignment = adminDb.setAdvisorStatus(userId, statusId);
+      const status = adminDb.getAdvisorStatusById(statusId);
+
+      res.json({ assignment, status });
+    } catch (error) {
+      console.error("[Admin] Error setting advisor status:", error);
+      res.status(500).json({ error: "Failed to set advisor status" });
+    }
+  });
+
   return router;
 }

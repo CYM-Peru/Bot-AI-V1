@@ -19,6 +19,8 @@ import { toPng } from './utils/htmlToImage';
 import { ConnectionsButton } from "./components/Connections/ConnectionsButton";
 import { ConnectionsPanel } from "./components/Connections/ConnectionsPanel";
 import { ConfigurationPanel } from "./components/ConfigurationPanel";
+import { BotChannelAssignment } from "./components/BotChannelAssignment";
+import { WhatsAppNumbersPanel } from "./components/WhatsAppNumbersPanel";
 const CRMWorkspace = React.lazy(() => import("./crm"));
 import {
   ConnectionCreationKind,
@@ -312,6 +314,27 @@ export default function App(): JSX.Element {
   const [bitrixFieldsError, setBitrixFieldsError] = useState<string | null>(null);
 
   const [centerCanvas, setCenterCanvas] = useState<(() => void) | null>(null);
+
+  // WhatsApp numbers management
+  const [whatsappNumbers, setWhatsappNumbers] = useState<import('./flow/types').WhatsAppNumberAssignment[]>(() => {
+    const saved = localStorage.getItem('whatsapp-numbers');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // Persist WhatsApp numbers to localStorage
+  useEffect(() => {
+    localStorage.setItem('whatsapp-numbers', JSON.stringify(whatsappNumbers));
+  }, [whatsappNumbers]);
+
+  // Update flow channel assignments
+  const updateFlowChannelAssignments = useCallback((assignments: import('./flow/types').FlowChannelAssignment[]) => {
+    setFlow((prev) => {
+      const updated = { ...prev, channelAssignments: assignments };
+      setDirty(true);
+      return updated;
+    });
+  }, []);
+
   const handleRegisterFitView = useCallback((fn: (() => void) | null) => {
     setCenterCanvas(() => fn ?? null);
   }, []);
@@ -2377,7 +2400,16 @@ export default function App(): JSX.Element {
         <div className="order-2 lg:order-1 lg:col-span-9 lg:col-start-1 flex flex-col" style={{ height: "calc(100vh - 120px)" }}>
           <div className="bg-white flex-1 flex flex-col overflow-hidden">
               <div className="px-3 py-2 bg-slate-50 text-sm font-semibold flex items-center justify-between border-b flex-shrink-0">
-                <span>Canvas de flujo</span>
+                <div className="flex items-center gap-3">
+                  <span>Canvas de flujo</span>
+                  <BotChannelAssignment
+                    flowId={flow.id}
+                    flowName={flow.name}
+                    assignments={flow.channelAssignments || []}
+                    availableNumbers={whatsappNumbers}
+                    onUpdate={updateFlowChannelAssignments}
+                  />
+                </div>
                 <div className="flex gap-2">
                   <button
                     className="px-3 py-1.5 text-sm rounded border border-blue-200 bg-white text-blue-700 hover:bg-blue-50 transition disabled:opacity-60 disabled:cursor-not-allowed"
@@ -3661,14 +3693,17 @@ export default function App(): JSX.Element {
       {/* Metrics Tab */}
       {mainTab === 'metrics' && (
         <div style={{ height: "calc(100vh - 120px)" }}>
-          <MetricsPanel />
+          <MetricsPanel whatsappNumbers={whatsappNumbers} />
         </div>
       )}
 
       {/* Configuration Tab */}
       {mainTab === 'config' && (
         <div className="mt-2 h-[calc(100vh-160px)]">
-          <ConfigurationPanel />
+          <ConfigurationPanel
+            whatsappNumbers={whatsappNumbers}
+            onUpdateWhatsappNumbers={setWhatsappNumbers}
+          />
         </div>
       )}
 

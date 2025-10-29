@@ -6,6 +6,10 @@ interface SoundOptions {
   volume: number; // 0-1
 }
 
+interface ConversationData {
+  messages: Message[];
+}
+
 // Simple notification sound using Web Audio API
 function createNotificationSound(audioContext: AudioContext, volume: number) {
   const oscillator = audioContext.createOscillator();
@@ -24,7 +28,11 @@ function createNotificationSound(audioContext: AudioContext, volume: number) {
   oscillator.stop(audioContext.currentTime + 0.3);
 }
 
-export function useSoundNotifications(messages: Message[], options: SoundOptions) {
+export function useSoundNotifications(
+  allConversationData: Record<string, ConversationData>,
+  selectedConversationId: string | null,
+  options: SoundOptions
+) {
   const previousMessagesRef = useRef<Set<string>>(new Set());
   const audioContextRef = useRef<AudioContext | null>(null);
   const lastPlayedRef = useRef<number>(0);
@@ -47,15 +55,23 @@ export function useSoundNotifications(messages: Message[], options: SoundOptions
     };
   }, [options.enabled]);
 
-  // Detect new messages and play sound
+  // Detect new messages and play sound - ONLY for OTHER conversations (not the currently selected one)
   useEffect(() => {
     if (!options.enabled || !audioContextRef.current) return;
 
-    const currentMessageIds = new Set(messages.map((m) => m.id));
+    // Get all messages from ALL conversations EXCEPT the currently selected one
+    const allMessages: Message[] = [];
+    for (const [convId, data] of Object.entries(allConversationData)) {
+      if (convId !== selectedConversationId) {
+        allMessages.push(...data.messages);
+      }
+    }
+
+    const currentMessageIds = new Set(allMessages.map((m) => m.id));
     const previousIds = previousMessagesRef.current;
 
-    // Find new incoming messages
-    const newMessages = messages.filter(
+    // Find new incoming messages from OTHER conversations
+    const newMessages = allMessages.filter(
       (msg) => !previousIds.has(msg.id) && msg.direction === "incoming"
     );
 
@@ -77,5 +93,5 @@ export function useSoundNotifications(messages: Message[], options: SoundOptions
 
     // Update previous messages set
     previousMessagesRef.current = currentMessageIds;
-  }, [messages, options.enabled, options.volume]);
+  }, [allConversationData, selectedConversationId, options.enabled, options.volume]);
 }

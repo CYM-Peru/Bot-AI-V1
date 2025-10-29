@@ -68,6 +68,25 @@ export interface GeneralSettings {
   updatedAt: string;
 }
 
+export interface AdvisorStatus {
+  id: string;
+  name: string;
+  description: string;
+  color: string; // Color hex para badge (ej: "#10b981" para verde)
+  action: "accept" | "redirect" | "pause"; // accept = acepta chats, redirect = deriva a cola, pause = no acepta
+  redirectToQueue?: string; // ID de cola a la que derivar si action = redirect
+  isDefault: boolean; // Si es el estado por defecto al iniciar sesión
+  order: number; // Orden de visualización
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdvisorStatusAssignment {
+  userId: string;
+  statusId: string;
+  updatedAt: string;
+}
+
 // ============================================
 // DEFAULT DATA
 // ============================================
@@ -166,6 +185,53 @@ const DEFAULT_SETTINGS: GeneralSettings = {
   updatedAt: new Date().toISOString(),
 };
 
+const DEFAULT_ADVISOR_STATUSES: AdvisorStatus[] = [
+  {
+    id: "status-available",
+    name: "Disponible",
+    description: "Acepta nuevos chats de clientes",
+    color: "#10b981", // emerald-500
+    action: "accept",
+    isDefault: true,
+    order: 1,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: "status-busy",
+    name: "Ocupado",
+    description: "No acepta chats nuevos, los deriva a cola",
+    color: "#f59e0b", // amber-500
+    action: "redirect",
+    isDefault: false,
+    order: 2,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: "status-break",
+    name: "En Refrigerio",
+    description: "En pausa, deriva chats a cola",
+    color: "#3b82f6", // blue-500
+    action: "redirect",
+    isDefault: false,
+    order: 3,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: "status-offline",
+    name: "Desconectado",
+    description: "No acepta chats",
+    color: "#6b7280", // gray-500
+    action: "pause",
+    isDefault: false,
+    order: 4,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+];
+
 // ============================================
 // STORAGE HELPERS
 // ============================================
@@ -210,6 +276,8 @@ class AdminDatabase {
   private queues: Map<string, Queue>;
   private crmFieldConfig: CRMFieldConfig;
   private settings: GeneralSettings;
+  private advisorStatuses: Map<string, AdvisorStatus>;
+  private statusAssignments: Map<string, AdvisorStatusAssignment>; // userId -> assignment
 
   constructor() {
     this.users = new Map();
@@ -217,6 +285,8 @@ class AdminDatabase {
     this.queues = new Map();
     this.crmFieldConfig = DEFAULT_CRM_FIELDS;
     this.settings = DEFAULT_SETTINGS;
+    this.advisorStatuses = new Map();
+    this.statusAssignments = new Map();
     this.loadAll();
   }
 
@@ -239,10 +309,20 @@ class AdminDatabase {
     // Load settings
     this.settings = loadFromFile<GeneralSettings>("settings.json", DEFAULT_SETTINGS);
 
+    // Load advisor statuses
+    const statuses = loadFromFile<AdvisorStatus[]>("advisor-statuses.json", DEFAULT_ADVISOR_STATUSES);
+    statuses.forEach((status) => this.advisorStatuses.set(status.id, status));
+
+    // Load status assignments
+    const assignments = loadFromFile<AdvisorStatusAssignment[]>("status-assignments.json", []);
+    assignments.forEach((assignment) => this.statusAssignments.set(assignment.userId, assignment));
+
     console.log("[AdminDB] Loaded data:", {
       users: this.users.size,
       roles: this.roles.size,
       queues: this.queues.size,
+      advisorStatuses: this.advisorStatuses.size,
+      statusAssignments: this.statusAssignments.size,
     });
   }
 
@@ -252,6 +332,8 @@ class AdminDatabase {
     saveToFile("queues.json", Array.from(this.queues.values()));
     saveToFile("crm-fields.json", this.crmFieldConfig);
     saveToFile("settings.json", this.settings);
+    saveToFile("advisor-statuses.json", Array.from(this.advisorStatuses.values()));
+    saveToFile("status-assignments.json", Array.from(this.statusAssignments.values()));
   }
 
   // ============================================
@@ -491,6 +573,148 @@ class AdminDatabase {
     };
     this.saveAll();
     return this.settings;
+  }
+
+  // ============================================
+  // ADVISOR STATUSES
+  // ============================================
+
+  getAllAdvisorStatuses(): AdvisorStatus[] {
+    return Array.from(this.advisorStatuses.values()).sort((a, b) => a.order - b.order);
+  }
+
+  getAdvisorStatusById(id: string): AdvisorStatus | undefined {
+    return this.advisorStatuses.get(id);
+  }
+
+  createAdvisorStatus(data: {
+    name: string;
+    description: string;
+    color: string;
+    action: "accept" | "redirect" | "pause";
+    redirectToQueue?: string;
+    isDefault?: boolean;
+  }): AdvisorStatus {
+    const id = `status-${Date.now()}`;
+    const maxOrder = Math.max(0, ...Array.from(this.advisorStatuses.values()).map(s => s.order));
+    const status: AdvisorStatus = {
+      id,
+      name: data.name,
+      description: data.description,
+      color: data.color,
+      action: data.action,
+      redirectToQueue: data.redirectToQueue,
+      isDefault: data.isDefault ?? false,
+      order: maxOrder + 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // If this is default, remove default from others
+    if (status.isDefault) {
+      this.advisorStatuses.forEach((s) => {
+        if (s.isDefault) {
+          s.isDefault = false;
+        }
+      });
+    }
+
+    this.advisorStatuses.set(id, status);
+    this.saveAll();
+    return status;
+  }
+
+  updateAdvisorStatus(
+    id: string,
+    data: {
+      name?: string;
+      description?: string;
+      color?: string;
+      action?: "accept" | "redirect" | "pause";
+      redirectToQueue?: string;
+      isDefault?: boolean;
+      order?: number;
+    }
+  ): AdvisorStatus | null {
+    const status = this.advisorStatuses.get(id);
+    if (!status) return null;
+
+    if (data.name) status.name = data.name;
+    if (data.description) status.description = data.description;
+    if (data.color) status.color = data.color;
+    if (data.action) status.action = data.action;
+    if (data.redirectToQueue !== undefined) status.redirectToQueue = data.redirectToQueue;
+    if (data.order !== undefined) status.order = data.order;
+    if (data.isDefault !== undefined) {
+      // If setting as default, remove default from others
+      if (data.isDefault) {
+        this.advisorStatuses.forEach((s) => {
+          if (s.id !== id && s.isDefault) {
+            s.isDefault = false;
+          }
+        });
+      }
+      status.isDefault = data.isDefault;
+    }
+    status.updatedAt = new Date().toISOString();
+
+    this.advisorStatuses.set(id, status);
+    this.saveAll();
+    return status;
+  }
+
+  deleteAdvisorStatus(id: string): boolean {
+    const status = this.advisorStatuses.get(id);
+    if (!status) return false;
+
+    // Don't allow deleting default status
+    if (status.isDefault) {
+      return false;
+    }
+
+    const deleted = this.advisorStatuses.delete(id);
+    if (deleted) {
+      // Remove all assignments to this status
+      const toRemove: string[] = [];
+      this.statusAssignments.forEach((assignment, userId) => {
+        if (assignment.statusId === id) {
+          toRemove.push(userId);
+        }
+      });
+      toRemove.forEach((userId) => this.statusAssignments.delete(userId));
+      this.saveAll();
+    }
+    return deleted;
+  }
+
+  // ============================================
+  // ADVISOR STATUS ASSIGNMENTS
+  // ============================================
+
+  getAdvisorStatus(userId: string): AdvisorStatusAssignment | null {
+    return this.statusAssignments.get(userId) || null;
+  }
+
+  setAdvisorStatus(userId: string, statusId: string): AdvisorStatusAssignment {
+    const status = this.advisorStatuses.get(statusId);
+    if (!status) {
+      throw new Error(`Status ${statusId} not found`);
+    }
+
+    const assignment: AdvisorStatusAssignment = {
+      userId,
+      statusId,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.statusAssignments.set(userId, assignment);
+    this.saveAll();
+    return assignment;
+  }
+
+  getDefaultAdvisorStatus(): AdvisorStatus | null {
+    const statuses = Array.from(this.advisorStatuses.values());
+    return statuses.find((s) => s.isDefault) || statuses[0] || null;
   }
 }
 

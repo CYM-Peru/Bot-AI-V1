@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiUrl } from "../lib/apiBase";
+import { Avatar } from "./Avatar";
 import BitrixContactCard from "./BitrixContactCard";
 import Composer from "./Composer";
 import MessageList from "./MessageList";
@@ -139,13 +140,29 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
         <div className="flex items-center justify-between">
           <div className="flex-1">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 font-semibold">
-                {(conversation.contactName || conversation.phone).charAt(0).toUpperCase()}
-              </div>
+              <Avatar
+                src={conversation.avatarUrl}
+                alt={conversation.contactName || conversation.phone}
+                size="md"
+              />
               <div>
-                <h2 className="text-lg font-bold text-slate-900">{conversation.contactName || conversation.phone}</h2>
+                <h2 className="text-lg font-bold text-slate-900">
+                  {conversation.bitrixId && conversation.contactName
+                    ? conversation.contactName
+                    : conversation.contactName || conversation.phone}
+                </h2>
                 <p className="text-xs text-slate-600">
-                  {conversation.phone} · Último mensaje: {formatDate(conversation.lastMessageAt)}
+                  {conversation.bitrixId && conversation.bitrixDocument ? (
+                    <>
+                      Doc: {conversation.bitrixDocument} · {conversation.phone}
+                    </>
+                  ) : (
+                    <>
+                      {conversation.phone}
+                    </>
+                  )}
+                  {" · Último mensaje: "}
+                  {formatDate(conversation.lastMessageAt)}
                 </p>
               </div>
             </div>

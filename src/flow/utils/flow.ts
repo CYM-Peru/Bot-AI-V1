@@ -589,7 +589,7 @@ export type HandleSpec = {
   side: 'left' | 'right';
   type: 'input' | 'output';
   order: number;
-  variant?: 'default' | 'more' | 'invalid' | 'answer';
+  variant?: 'default' | 'more' | 'invalid' | 'answer' | 'success' | 'warning' | 'fallback';
 };
 
 export const INPUT_HANDLE_SPEC: HandleSpec = {
@@ -664,10 +664,10 @@ export function getOutputHandleSpecs(node: FlowNode): HandleSpec[] {
   const condition = getConditionData(node);
   if (condition) {
     return [
-      { id: 'out:validation:match', label: 'Coincide', side: 'right', type: 'output', order: 0, variant: 'default' },
-      { id: 'out:validation:nomatch', label: 'Sin coincidencia', side: 'right', type: 'output', order: 1, variant: 'default' },
+      { id: 'out:validation:match', label: 'Coincide', side: 'right', type: 'output', order: 0, variant: 'success' },
+      { id: 'out:validation:nomatch', label: 'Sin coincidencia', side: 'right', type: 'output', order: 1, variant: 'warning' },
       { id: 'out:validation:error', label: 'Error', side: 'right', type: 'output', order: 2, variant: 'invalid' },
-      { id: 'out:default', label: 'Fallback', side: 'right', type: 'output', order: 3, variant: 'default' },
+      { id: 'out:default', label: 'Fallback', side: 'right', type: 'output', order: 3, variant: 'fallback' },
     ];
   }
   if (node.action?.kind === 'end') {

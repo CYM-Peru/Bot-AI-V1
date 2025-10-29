@@ -4,10 +4,18 @@ import { RoleManagement } from "./Configuration/RoleManagement";
 import { QueueManagement } from "./Configuration/QueueManagement";
 import { CRMFieldConfig } from "./Configuration/CRMFieldConfig";
 import { GeneralSettings } from "./Configuration/GeneralSettings";
+import { StatusManagement } from "./Configuration/StatusManagement";
+import { WhatsAppNumbersPanel } from "./WhatsAppNumbersPanel";
+import type { WhatsAppNumberAssignment } from "../flow/types";
 
-type ConfigSection = "users" | "roles" | "queues" | "crm-fields" | "general";
+type ConfigSection = "users" | "roles" | "queues" | "crm-fields" | "whatsapp" | "statuses" | "general";
 
-export function ConfigurationPanel() {
+interface ConfigurationPanelProps {
+  whatsappNumbers?: WhatsAppNumberAssignment[];
+  onUpdateWhatsappNumbers?: (numbers: WhatsAppNumberAssignment[]) => void;
+}
+
+export function ConfigurationPanel({ whatsappNumbers = [], onUpdateWhatsappNumbers }: ConfigurationPanelProps = {}) {
   const [activeSection, setActiveSection] = useState<ConfigSection>("users");
 
   return (
@@ -97,6 +105,44 @@ export function ConfigurationPanel() {
           </button>
 
           <button
+            onClick={() => setActiveSection("whatsapp")}
+            className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-semibold transition ${
+              activeSection === "whatsapp"
+                ? "bg-emerald-100 text-emerald-700"
+                : "text-slate-700 hover:bg-slate-100"
+            }`}
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"
+              />
+            </svg>
+            Números WhatsApp
+          </button>
+
+          <button
+            onClick={() => setActiveSection("statuses")}
+            className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-semibold transition ${
+              activeSection === "statuses"
+                ? "bg-emerald-100 text-emerald-700"
+                : "text-slate-700 hover:bg-slate-100"
+            }`}
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            Estados de Asesor
+          </button>
+
+          <button
             onClick={() => setActiveSection("general")}
             className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-semibold transition ${
               activeSection === "general"
@@ -138,6 +184,27 @@ export function ConfigurationPanel() {
         {activeSection === "roles" && <RoleManagement />}
         {activeSection === "queues" && <QueueManagement />}
         {activeSection === "crm-fields" && <CRMFieldConfig />}
+        {activeSection === "whatsapp" && (
+          <div className="p-6">
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold text-slate-900">Números de WhatsApp</h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Gestiona los números de WhatsApp disponibles para asignar a tus bots.
+              </p>
+            </div>
+            {onUpdateWhatsappNumbers ? (
+              <WhatsAppNumbersPanel
+                numbers={whatsappNumbers}
+                onUpdate={onUpdateWhatsappNumbers}
+              />
+            ) : (
+              <p className="text-sm text-slate-500 italic">
+                No se ha configurado el gestor de números WhatsApp.
+              </p>
+            )}
+          </div>
+        )}
+        {activeSection === "statuses" && <StatusManagement />}
         {activeSection === "general" && <GeneralSettings />}
       </div>
     </div>

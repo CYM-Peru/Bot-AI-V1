@@ -4,11 +4,11 @@ import ChatWindow from "./ChatWindow";
 import type { Attachment, Conversation, Message } from "./types";
 import { fetchConversations, fetchMessages, sendMessage, uploadAttachment } from "./crmApi";
 import { createCrmSocket, type CrmSocket } from "./socket";
-import CrmDock from "../components/CRM/CrmDock";
 import { useNotifications } from "./useNotifications";
 import { useSoundNotifications } from "./useSoundNotifications";
 import { useDarkMode } from "./DarkModeContext";
 import { useKeyboardShortcuts, KEYBOARD_SHORTCUTS } from "./useKeyboardShortcuts";
+import { AdvisorStatusButton } from "./AdvisorStatusButton";
 
 interface ConversationState {
   messages: Message[];
@@ -49,8 +49,8 @@ export default function CRMPage() {
     showPreview: showNotificationPreview,
   });
 
-  // Use sound notifications hook
-  useSoundNotifications(currentMessages, {
+  // Use sound notifications hook - now monitors ALL conversations except the current one
+  useSoundNotifications(conversationData, selectedConversationId, {
     enabled: soundEnabled,
     volume: soundVolume,
   });
@@ -232,7 +232,6 @@ export default function CRMPage() {
 
   return (
     <div className="flex h-full flex-col gap-4">
-      <CrmDock />
       <div className="flex flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl relative">
         <div className="w-[320px] flex-shrink-0 h-full">
           {loadingConversations && conversations.length === 0 ? (
@@ -254,32 +253,38 @@ export default function CRMPage() {
           onSend={handleSend}
         />
 
-        {/* Action Buttons */}
-        <div className="absolute top-4 right-4 z-10 flex gap-2">
-          <button
-            onClick={() => setShowShortcuts(!showShortcuts)}
-            className="flex items-center justify-center w-10 h-10 rounded-full bg-white border-2 border-slate-200 shadow-lg hover:bg-slate-50 hover:border-slate-300 transition"
-            title="Atajos de teclado"
-          >
-            <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-            </svg>
-          </button>
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className="flex items-center justify-center w-10 h-10 rounded-full bg-white border-2 border-slate-200 shadow-lg hover:bg-slate-50 hover:border-slate-300 transition"
-            title="Configuración de notificaciones"
-          >
-            <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </button>
+        {/* Status and Action Buttons - Top right corner */}
+        <div className="absolute top-4 right-4 z-10 flex items-center gap-3">
+          {/* Advisor Status Button */}
+          <AdvisorStatusButton userId="user-1" />
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowShortcuts(!showShortcuts)}
+              className="flex items-center justify-center w-10 h-10 rounded-full bg-white border-2 border-slate-200 shadow-lg hover:bg-slate-50 hover:border-slate-300 transition"
+              title="Atajos de teclado"
+            >
+              <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="flex items-center justify-center w-10 h-10 rounded-full bg-white border-2 border-slate-200 shadow-lg hover:bg-slate-50 hover:border-slate-300 transition"
+              title="Configuración de notificaciones"
+            >
+              <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
+          </div>
         </div>
 
-        {/* Settings Panel */}
+        {/* Settings Panel - Adjusted position */}
         {showSettings && (
-          <div className="absolute top-16 right-4 z-20 w-80 bg-white rounded-xl border-2 border-slate-200 shadow-2xl">
+          <div className="absolute bottom-20 right-4 z-20 w-80 bg-white rounded-xl border-2 border-slate-200 shadow-2xl">
             <div className="bg-gradient-to-r from-blue-50 to-white px-4 py-3 border-b border-slate-200">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-slate-900">Configuración CRM</h3>
@@ -399,9 +404,9 @@ export default function CRMPage() {
           </div>
         )}
 
-        {/* Keyboard Shortcuts Panel */}
+        {/* Keyboard Shortcuts Panel - Adjusted position */}
         {showShortcuts && (
-          <div className="absolute top-16 right-4 z-20 w-80 bg-white rounded-xl border-2 border-slate-200 shadow-2xl">
+          <div className="absolute bottom-20 right-4 z-20 w-80 bg-white rounded-xl border-2 border-slate-200 shadow-2xl">
             <div className="bg-gradient-to-r from-purple-50 to-white px-4 py-3 border-b border-slate-200">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-slate-900">Atajos de Teclado</h3>
