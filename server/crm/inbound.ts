@@ -56,8 +56,14 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
   }
 
   if (!conversation.bitrixId) {
+    // Extraer nombre del perfil de los datos de WhatsApp Meta
+    const profileName = args.value.contacts?.[0]?.profile?.name;
+
     args.bitrixService
-      .upsertContactByPhone(phone)
+      .upsertContactByPhone(phone, {
+        phone,
+        profileName,
+      })
       .then((result) => {
         if (result.contactId) {
           args.bitrixService.attachConversation(conversation!, result.contactId);
@@ -65,6 +71,7 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
           if (updated) {
             args.socketManager.emitConversationUpdate({ conversation: updated });
           }
+          console.log(`[CRM][Bitrix] Sincronizado ${result.entityType} ${result.contactId} para ${phone}`);
         }
       })
       .catch((error) => {

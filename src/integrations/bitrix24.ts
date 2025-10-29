@@ -148,6 +148,32 @@ export class Bitrix24Client {
   }
 
   /**
+   * Crear un contacto
+   */
+  async createContact(fields: Record<string, any>): Promise<string | null> {
+    try {
+      const response = await this.callMethod("crm.contact.add", { fields });
+      return response.result?.toString() ?? null;
+    } catch (error) {
+      console.error("[Bitrix24] Error creating contact:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Actualizar un contacto
+   */
+  async updateContact(id: string, fields: Record<string, any>): Promise<boolean> {
+    try {
+      const response = await this.callMethod("crm.contact.update", { id, fields });
+      return response.result === true;
+    } catch (error) {
+      console.error("[Bitrix24] Error updating contact:", error);
+      return false;
+    }
+  }
+
+  /**
    * Actualizar un lead
    */
   async updateLead(id: string, fields: Record<string, any>): Promise<boolean> {
