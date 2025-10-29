@@ -139,7 +139,12 @@ export function createAuthRouter() {
       }
 
       // Actualizar con nueva contraseña (admin-db la hasheará automáticamente)
-      adminDb.updateUser(user.id, { password: newPassword });
+      const updated = await adminDb.updateUser(user.id, { password: newPassword });
+
+      if (!updated) {
+        res.status(500).json({ error: "update_failed", message: "Failed to update password" });
+        return;
+      }
 
       res.json({ success: true, message: "Password changed successfully" });
     } catch (error) {
