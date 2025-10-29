@@ -3637,7 +3637,7 @@ export default function App(): JSX.Element {
       )}
 
       {mainTab === 'crm' && (
-        <div className="mt-2">
+        <div className="mt-2 h-[calc(100vh-160px)]">
           <React.Suspense
             fallback={
               <div className="flex h-[calc(100vh-160px)] items-center justify-center rounded-3xl border border-slate-200 bg-white text-sm text-slate-500 shadow-xl">
