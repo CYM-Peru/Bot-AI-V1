@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { apiUrl } from "../../lib/apiBase";
 
 interface Queue {
   id: string;
@@ -11,39 +12,17 @@ interface Queue {
   createdAt: string;
 }
 
-const MOCK_ADVISORS = [
-  { id: "user1", name: "María García", avatar: "MG" },
-  { id: "user2", name: "Juan Pérez", avatar: "JP" },
-  { id: "user3", name: "Ana Torres", avatar: "AT" },
-  { id: "user4", name: "Carlos López", avatar: "CL" },
-  { id: "user5", name: "Laura Mendoza", avatar: "LM" },
-];
-
-const MOCK_QUEUES: Queue[] = [
-  {
-    id: "queue1",
-    name: "Soporte General",
-    description: "Cola principal para consultas generales",
-    status: "active",
-    distributionMode: "round-robin",
-    maxConcurrent: 5,
-    assignedAdvisors: ["user1", "user2", "user3"],
-    createdAt: "2025-01-01T00:00:00Z",
-  },
-  {
-    id: "queue2",
-    name: "Ventas",
-    description: "Atención a consultas de ventas y cotizaciones",
-    status: "active",
-    distributionMode: "least-busy",
-    maxConcurrent: 3,
-    assignedAdvisors: ["user4", "user5"],
-    createdAt: "2025-01-15T00:00:00Z",
-  },
-];
+interface Advisor {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
 
 export function QueueManagement() {
-  const [queues, setQueues] = useState<Queue[]>(MOCK_QUEUES);
+  const [queues, setQueues] = useState<Queue[]>([]);
+  const [advisors, setAdvisors] = useState<Advisor[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingQueue, setEditingQueue] = useState<Queue | null>(null);
   const [formData, setFormData] = useState<{
@@ -61,6 +40,34 @@ export function QueueManagement() {
     maxConcurrent: 5,
     assignedAdvisors: [],
   });
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [queuesRes, advisorsRes] = await Promise.all([
+        fetch(apiUrl("/api/admin/queues")),
+        fetch(apiUrl("/api/admin/advisors")),
+      ]);
+
+      if (queuesRes.ok) {
+        const data = await queuesRes.json();
+        setQueues(data.queues || []);
+      }
+
+      if (advisorsRes.ok) {
+        const data = await advisorsRes.json();
+        setAdvisors(data.advisors || []);
+      }
+    } catch (error) {
+      console.error("Error loading data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const openCreateModal = () => {
     setEditingQueue(null);
@@ -102,30 +109,42 @@ export function QueueManagement() {
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingQueue) {
-      setQueues(
-        queues.map((q) =>
-          q.id === editingQueue.id
-            ? { ...q, ...formData }
-            : q
-        )
-      );
-    } else {
-      const newQueue: Queue = {
-        id: `queue-${Date.now()}`,
-        ...formData,
-        createdAt: new Date().toISOString(),
-      };
-      setQueues([...queues, newQueue]);
+    try {
+      const url = editingQueue
+        ? apiUrl(`/api/admin/queues/${editingQueue.id}`)
+        : apiUrl("/api/admin/queues");
+      const method = editingQueue ? "PUT" : "POST";
+
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+
+      if (response.ok) {
+        await loadData();
+        closeModal();
+      }
+    } catch (error) {
+      console.error("Error saving queue:", error);
     }
-    closeModal();
   };
 
-  const handleDelete = (queueId: string) => {
-    if (confirm("¿Estás seguro de eliminar esta cola?")) {
-      setQueues(queues.filter((q) => q.id !== queueId));
+  const handleDelete = async (queueId: string) => {
+    if (!confirm("¿Estás seguro de eliminar esta cola?")) return;
+
+    try {
+      const response = await fetch(apiUrl(`/api/admin/queues/${queueId}`), {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        await loadData();
+      }
+    } catch (error) {
+      console.error("Error deleting queue:", error);
     }
   };
 
@@ -176,7 +195,11 @@ export function QueueManagement() {
         </button>
       </div>
 
-      {queues.length === 0 ? (
+      {loading ? (
+        <div className="flex h-64 items-center justify-center">
+          <div className="text-sm text-slate-500">Cargando colas...</div>
+        </div>
+      ) : queues.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed border-slate-200 bg-white p-12 text-center">
           <svg
             className="mx-auto h-12 w-12 text-slate-400"
@@ -296,14 +319,14 @@ export function QueueManagement() {
                   <p className="text-xs font-semibold text-slate-500 mb-3">Asesores:</p>
                   <div className="flex flex-wrap gap-2">
                     {queue.assignedAdvisors.map((advisorId) => {
-                      const advisor = MOCK_ADVISORS.find((a) => a.id === advisorId);
+                      const advisor = advisors.find((a) => a.id === advisorId);
                       return advisor ? (
                         <div
                           key={advisorId}
                           className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5"
                         >
                           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">
-                            {advisor.avatar}
+                            {advisor.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
                           </div>
                           <span className="text-sm font-medium text-slate-900">
                             {advisor.name}
@@ -411,7 +434,7 @@ export function QueueManagement() {
                   Asesores Asignados ({formData.assignedAdvisors.length})
                 </label>
                 <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto rounded-lg border border-slate-200 p-3">
-                  {MOCK_ADVISORS.map((advisor) => (
+                  {advisors.map((advisor) => (
                     <label
                       key={advisor.id}
                       className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 cursor-pointer transition"
@@ -423,7 +446,7 @@ export function QueueManagement() {
                         className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                       />
                       <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">
-                        {advisor.avatar}
+                        {advisor.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
                       </div>
                       <span className="text-sm font-medium text-slate-900">{advisor.name}</span>
                     </label>

@@ -17,6 +17,7 @@ import { ensureStorageSetup } from "./utils/storage";
 import { getWhatsAppEnv, getWhatsAppVerifyToken } from "./utils/env";
 import whatsappConnectionsRouter from "./connections/whatsapp-routes";
 import { registerReloadCallback } from "./whatsapp-handler-manager";
+import { createAdminRouter } from "./routes/admin";
 
 // Load environment variables
 dotenv.config();
@@ -191,6 +192,9 @@ app.get("/api/flows", async (req: Request, res: Response) => {
 
 // Mount WhatsApp connections routes
 app.use("/api/connections/whatsapp", whatsappConnectionsRouter);
+
+// Mount admin routes
+app.use("/api/admin", createAdminRouter());
 
 // Mount additional API routes (validation, simulation, monitoring, etc.)
 app.use("/api", createApiRoutes({ flowProvider, sessionStore }));

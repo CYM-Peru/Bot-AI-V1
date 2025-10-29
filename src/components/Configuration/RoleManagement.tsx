@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { apiUrl } from "../../lib/apiBase";
 
 interface Permission {
   id: string;
@@ -65,7 +66,8 @@ const DEFAULT_ROLES: Role[] = [
 ];
 
 export function RoleManagement() {
-  const [roles, setRoles] = useState<Role[]>(DEFAULT_ROLES);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({
@@ -73,6 +75,25 @@ export function RoleManagement() {
     description: "",
     permissions: [] as string[],
   });
+
+  useEffect(() => {
+    loadRoles();
+  }, []);
+
+  const loadRoles = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(apiUrl("/api/admin/roles"));
+      if (response.ok) {
+        const data = await response.json();
+        setRoles(data.roles || []);
+      }
+    } catch (error) {
+      console.error("Error loading roles:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const openCreateModal = () => {
     setSelectedRole(null);
@@ -108,33 +129,48 @@ export function RoleManagement() {
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedRole) {
-      // Edit existing role
-      setRoles(
-        roles.map((r) =>
-          r.id === selectedRole.id ? { ...r, ...formData } : r
-        )
-      );
-    } else {
-      // Create new role
-      const newRole: Role = {
-        id: `role-${Date.now()}`,
-        ...formData,
-      };
-      setRoles([...roles, newRole]);
+    try {
+      const url = selectedRole
+        ? apiUrl(`/api/admin/roles/${selectedRole.id}`)
+        : apiUrl("/api/admin/roles");
+      const method = selectedRole ? "PUT" : "POST";
+
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+
+      if (response.ok) {
+        await loadRoles();
+        closeModal();
+      }
+    } catch (error) {
+      console.error("Error saving role:", error);
     }
-    closeModal();
   };
 
-  const handleDelete = (roleId: string) => {
+  const handleDelete = async (roleId: string) => {
     if (["admin", "supervisor", "asesor"].includes(roleId)) {
       alert("No se pueden eliminar roles predeterminados del sistema");
       return;
     }
-    if (confirm("¿Estás seguro de eliminar este rol?")) {
-      setRoles(roles.filter((r) => r.id !== roleId));
+    if (!confirm("¿Estás seguro de eliminar este rol?")) return;
+
+    try {
+      const response = await fetch(apiUrl(`/api/admin/roles/${roleId}`), {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        await loadRoles();
+      } else {
+        alert("No se puede eliminar este rol");
+      }
+    } catch (error) {
+      console.error("Error deleting role:", error);
     }
   };
 
@@ -183,6 +219,11 @@ export function RoleManagement() {
         </button>
       </div>
 
+      {loading ? (
+        <div className="flex h-64 items-center justify-center">
+          <div className="text-sm text-slate-500">Cargando roles...</div>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
         {roles.map((role) => (
           <div
@@ -258,6 +299,7 @@ export function RoleManagement() {
           </div>
         ))}
       </div>
+      )}
 
       {/* Modal Create/Edit */}
       {showModal && (

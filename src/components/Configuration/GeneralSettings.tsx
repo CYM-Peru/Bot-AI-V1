@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { apiUrl } from "../../lib/apiBase";
 
 interface Settings {
   companyName: string;
@@ -30,22 +31,59 @@ const DEFAULT_SETTINGS: Settings = {
 
 export function GeneralSettings() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [originalSettings, setOriginalSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [hasChanges, setHasChanges] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(apiUrl("/api/admin/settings"));
+      if (response.ok) {
+        const data = await response.json();
+        setSettings(data.settings);
+        setOriginalSettings(data.settings);
+      }
+    } catch (error) {
+      console.error("Error loading settings:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleChange = (key: keyof Settings, value: string | number | boolean) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
     setHasChanges(true);
   };
 
-  const handleSave = () => {
-    console.log("Saving settings:", settings);
-    alert("Configuración guardada exitosamente");
-    setHasChanges(false);
+  const handleSave = async () => {
+    try {
+      const response = await fetch(apiUrl("/api/admin/settings"), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSettings(data.settings);
+        setOriginalSettings(data.settings);
+        setHasChanges(false);
+        alert("Configuración guardada exitosamente");
+      }
+    } catch (error) {
+      console.error("Error saving settings:", error);
+      alert("Error al guardar la configuración");
+    }
   };
 
   const handleReset = () => {
-    if (confirm("¿Estás seguro de restablecer a valores por defecto?")) {
-      setSettings(DEFAULT_SETTINGS);
+    if (confirm("¿Estás seguro de cancelar los cambios?")) {
+      setSettings(originalSettings);
       setHasChanges(false);
     }
   };

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { apiUrl } from "../../lib/apiBase";
 
 interface CRMField {
   id: string;
@@ -141,6 +142,49 @@ export function CRMFieldConfig() {
   const [fields, setFields] = useState<CRMField[]>(DEFAULT_FIELDS);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadConfig();
+  }, []);
+
+  const loadConfig = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(apiUrl("/api/admin/crm-fields"));
+      if (response.ok) {
+        const data = await response.json();
+        const enabledFieldIds = data.config?.enabledFields || [];
+        // Update enabled state based on backend config
+        setFields(DEFAULT_FIELDS.map(f => ({
+          ...f,
+          enabled: enabledFieldIds.includes(f.id)
+        })));
+      }
+    } catch (error) {
+      console.error("Error loading CRM field config:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveConfig = async () => {
+    try {
+      const enabledFields = fields.filter(f => f.enabled).map(f => f.id);
+      const response = await fetch(apiUrl("/api/admin/crm-fields"), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabledFields }),
+      });
+
+      if (response.ok) {
+        alert("Configuración guardada exitosamente");
+      }
+    } catch (error) {
+      console.error("Error saving config:", error);
+      alert("Error al guardar la configuración");
+    }
+  };
 
   const categories = Array.from(new Set(fields.map((f) => f.category)));
 
@@ -328,11 +372,9 @@ export function CRMFieldConfig() {
 
       <div className="mt-6 flex justify-end">
         <button
-          onClick={() => {
-            alert("Configuración guardada exitosamente");
-            console.log("Saved fields:", fields.filter((f) => f.enabled).map((f) => f.id));
-          }}
-          className="rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition shadow-sm"
+          onClick={saveConfig}
+          disabled={loading}
+          className="rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Guardar Configuración
         </button>
