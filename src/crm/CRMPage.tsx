@@ -254,8 +254,8 @@ export default function CRMPage() {
           onSend={handleSend}
         />
 
-        {/* Action Buttons */}
-        <div className="absolute top-4 right-4 z-10 flex gap-2">
+        {/* Action Buttons - Moved to bottom right to avoid covering chat buttons */}
+        <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2">
           <button
             onClick={() => setShowShortcuts(!showShortcuts)}
             className="flex items-center justify-center w-10 h-10 rounded-full bg-white border-2 border-slate-200 shadow-lg hover:bg-slate-50 hover:border-slate-300 transition"
@@ -277,9 +277,9 @@ export default function CRMPage() {
           </button>
         </div>
 
-        {/* Settings Panel */}
+        {/* Settings Panel - Adjusted position */}
         {showSettings && (
-          <div className="absolute top-16 right-4 z-20 w-80 bg-white rounded-xl border-2 border-slate-200 shadow-2xl">
+          <div className="absolute bottom-20 right-4 z-20 w-80 bg-white rounded-xl border-2 border-slate-200 shadow-2xl">
             <div className="bg-gradient-to-r from-blue-50 to-white px-4 py-3 border-b border-slate-200">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-slate-900">Configuración CRM</h3>
@@ -399,9 +399,9 @@ export default function CRMPage() {
           </div>
         )}
 
-        {/* Keyboard Shortcuts Panel */}
+        {/* Keyboard Shortcuts Panel - Adjusted position */}
         {showShortcuts && (
-          <div className="absolute top-16 right-4 z-20 w-80 bg-white rounded-xl border-2 border-slate-200 shadow-2xl">
+          <div className="absolute bottom-20 right-4 z-20 w-80 bg-white rounded-xl border-2 border-slate-200 shadow-2xl">
             <div className="bg-gradient-to-r from-purple-50 to-white px-4 py-3 border-b border-slate-200">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-slate-900">Atajos de Teclado</h3>
