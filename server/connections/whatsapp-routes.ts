@@ -239,12 +239,17 @@ router.post('/test', async (req: Request, res: Response) => {
 
     // Send message via WhatsApp Cloud API
     const url = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`;
+
+    // Use template message (hello_world) since text messages require active conversation
     const payload = {
       messaging_product: 'whatsapp',
       to: to.replace(/\D/g, ''), // Remove non-digits
-      type: 'text',
-      text: {
-        body: text || 'Hola desde Builder',
+      type: 'template',
+      template: {
+        name: 'hello_world',
+        language: {
+          code: 'en_US',
+        },
       },
     };
 
@@ -260,7 +265,9 @@ router.post('/test', async (req: Request, res: Response) => {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      console.error('[WhatsApp Test] API Error:', errorData);
+      console.error('[WhatsApp Test] API Error:', JSON.stringify(errorData, null, 2));
+      console.error('[WhatsApp Test] Status:', response.status);
+      console.error('[WhatsApp Test] URL:', url);
       res.status(response.status).json({
         ok: false,
         reason: 'provider_error',
