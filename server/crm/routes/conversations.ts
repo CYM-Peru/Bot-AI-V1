@@ -72,6 +72,21 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
     res.json({ success: true });
   });
 
+  router.post("/:id/unarchive", (req, res) => {
+    const conversation = crmDb.getConversationById(req.params.id);
+    if (!conversation) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    // Cambiar el estado a "active" para desarchivar
+    crmDb.updateConversationMeta(conversation.id, { status: "active" });
+    const updated = crmDb.getConversationById(conversation.id);
+    if (updated) {
+      socketManager.emitConversationUpdate({ conversation: updated });
+    }
+    res.json({ success: true });
+  });
+
   router.post("/:id/transfer", (req, res) => {
     const conversation = crmDb.getConversationById(req.params.id);
     if (!conversation) {
