@@ -24,10 +24,18 @@ interface ConversationMetric {
   status: 'active' | 'ended' | 'error';
 }
 
+interface MenuStat {
+  nodeId: string;
+  optionId: string;
+  label: string;
+  count: number;
+}
+
 export function MetricsPanel() {
   const [stats, setStats] = useState<MetricsStats | null>(null);
   const [metrics, setMetrics] = useState<ConversationMetric[]>([]);
   const [activeConversations, setActiveConversations] = useState<ConversationMetric[]>([]);
+  const [menuStats, setMenuStats] = useState<MenuStat[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,10 +73,21 @@ export function MetricsPanel() {
     }
   };
 
+  const fetchMenuStats = async () => {
+    try {
+      const response = await fetch(apiUrl('/api/metrics/menu-stats'));
+      if (!response.ok) throw new Error('Failed to fetch menu stats');
+      const data = await response.json();
+      setMenuStats(data.stats || []);
+    } catch (err) {
+      console.error('Error fetching menu stats:', err);
+    }
+  };
+
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchStats(), fetchMetrics(), fetchActiveConversations()]);
+      await Promise.all([fetchStats(), fetchMetrics(), fetchActiveConversations(), fetchMenuStats()]);
       setLoading(false);
     };
 
@@ -79,6 +98,7 @@ export function MetricsPanel() {
       fetchStats();
       fetchMetrics();
       fetchActiveConversations();
+      fetchMenuStats();
     }, 5000);
 
     return () => clearInterval(interval);
@@ -254,6 +274,64 @@ export function MetricsPanel() {
                   </div>
                 </div>
               ))
+            )}
+          </div>
+        </div>
+
+        {/* Menu Analytics */}
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 bg-gradient-to-r from-violet-50 to-white p-4">
+            <h3 className="text-lg font-bold text-slate-900">📊 Análisis de Opciones de Menú</h3>
+            <p className="text-sm text-slate-600 mt-1">
+              Estadísticas de selecciones de menús y botones por los usuarios
+            </p>
+          </div>
+          <div className="p-6">
+            {menuStats.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <div className="text-5xl mb-4">📋</div>
+                <p className="text-slate-600 font-medium">No hay datos de menús aún</p>
+                <p className="text-sm text-slate-500 mt-2">
+                  Las estadísticas aparecerán cuando los usuarios interactúen con los menús del flujo
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {menuStats.slice(0, 20).map((stat, index) => {
+                  const maxCount = Math.max(...menuStats.map(s => s.count));
+                  const percentage = (stat.count / maxCount) * 100;
+                  return (
+                    <div key={`${stat.nodeId}-${stat.optionId}`} className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-700">
+                            {index + 1}
+                          </span>
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800">{stat.label}</p>
+                            <p className="text-xs text-slate-500">Node: {stat.nodeId.slice(0, 8)}...</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-violet-600">{stat.count}</p>
+                          <p className="text-xs text-slate-500">clicks</p>
+                        </div>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-violet-500 to-purple-600 transition-all duration-500"
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+                {menuStats.length > 20 && (
+                  <p className="text-center text-sm text-slate-500 mt-4">
+                    Mostrando top 20 de {menuStats.length} opciones
+                  </p>
+                )}
+              </div>
             )}
           </div>
         </div>

@@ -299,6 +299,22 @@ export function createApiRoutes(options: ApiRoutesOptions): Router {
     }
   });
 
+  /**
+   * Obtener estadísticas de opciones de menú seleccionadas
+   * GET /api/metrics/menu-stats
+   */
+  router.get("/metrics/menu-stats", (req, res) => {
+    try {
+      const menuStats = metricsTracker.getMenuStats();
+      // Convertir el objeto en array para mejor manejo en frontend
+      const statsArray = Object.values(menuStats).sort((a, b) => b.count - a.count);
+      res.json({ stats: statsArray, total: statsArray.length });
+    } catch (error) {
+      console.error("[API] Menu stats error:", error);
+      res.status(500).json({ error: "Failed to get menu statistics" });
+    }
+  });
+
   // ============================================
   // SESSION MANAGEMENT ENDPOINTS
   // ============================================

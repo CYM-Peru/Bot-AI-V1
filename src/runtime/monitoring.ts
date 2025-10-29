@@ -14,6 +14,8 @@ export type LogEventType =
   | "message_received"
   | "message_sent"
   | "node_executed"
+  | "menu_option_selected"
+  | "button_clicked"
   | "webhook_called"
   | "webhook_error"
   | "condition_evaluated"
@@ -373,6 +375,29 @@ export class MetricsTracker {
    */
   getMetrics(sessionId: string): ConversationMetrics | null {
     return this.metrics.get(sessionId) ?? null;
+  }
+
+  /**
+   * Obtener estadísticas de opciones de menú seleccionadas
+   */
+  getMenuStats(): Record<string, { nodeId: string; optionId: string; label: string; count: number }> {
+    const menuLogs = this.logger.getLogs().filter((log) => log.type === "menu_option_selected");
+    const stats: Record<string, { nodeId: string; optionId: string; label: string; count: number }> = {};
+
+    for (const log of menuLogs) {
+      const key = `${log.nodeId}_${log.metadata?.optionId}`;
+      if (!stats[key]) {
+        stats[key] = {
+          nodeId: log.nodeId ?? "",
+          optionId: log.metadata?.optionId ?? "",
+          label: log.metadata?.label ?? "Opción desconocida",
+          count: 0,
+        };
+      }
+      stats[key].count++;
+    }
+
+    return stats;
   }
 
   /**

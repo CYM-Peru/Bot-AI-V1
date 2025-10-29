@@ -31,29 +31,62 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
     );
   }
 
+  const handleArchive = async () => {
+    if (!conversation) return;
+    // TODO: Implementar endpoint de archivo
+    console.log('[CRM] Archivar conversación:', conversation.id);
+  };
+
   return (
-    <div className="flex h-full flex-1 flex-col">
-      <header className="flex flex-col gap-2 border-b border-slate-200 bg-white px-6 py-4">
+    <div className="flex h-full flex-1 flex-col relative">
+      <header className="flex flex-col gap-3 border-b border-slate-200 bg-gradient-to-br from-emerald-50 to-white px-6 py-4 shadow-sm">
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-800">{conversation.contactName || conversation.phone}</h2>
-            <p className="text-xs text-slate-500">Último mensaje: {formatDate(conversation.lastMessageAt)}</p>
+          <div className="flex-1">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 font-semibold">
+                {(conversation.contactName || conversation.phone).charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">{conversation.contactName || conversation.phone}</h2>
+                <p className="text-xs text-slate-600">
+                  {conversation.phone} · Último mensaje: {formatDate(conversation.lastMessageAt)}
+                </p>
+              </div>
+            </div>
           </div>
-          <div className="text-xs text-slate-400">
-            Estado: {conversation.status === "archived" ? "Archivada" : "Activa"}
+          <div className="flex items-center gap-2">
+            <div className="text-xs px-3 py-1 rounded-full font-medium bg-white border border-slate-200">
+              {conversation.status === "archived" ? "🗂️ Archivada" : "✓ Activa"}
+            </div>
+            {conversation.status !== "archived" && (
+              <button
+                onClick={handleArchive}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition"
+                title="Archivar conversación"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                </svg>
+                Cerrar
+              </button>
+            )}
           </div>
         </div>
         <BitrixContactCard conversation={conversation} />
       </header>
-      <MessageList
-        messages={sortedMessages}
-        attachments={attachments}
-        onReply={(message) => {
-          const repliedAttachments = attachments.filter((item) => item.msgId === message.id);
-          setReplyTo({ message, attachments: repliedAttachments });
-        }}
-      />
-      <Composer replyingTo={replyTo} onCancelReply={() => setReplyTo(null)} onSend={handleSend} />
+      <div className="flex-1 overflow-hidden">
+        <MessageList
+          messages={sortedMessages}
+          attachments={attachments}
+          onReply={(message) => {
+            const repliedAttachments = attachments.filter((item) => item.msgId === message.id);
+            setReplyTo({ message, attachments: repliedAttachments });
+          }}
+        />
+      </div>
+      <div className="flex-shrink-0">
+        <Composer replyingTo={replyTo} onCancelReply={() => setReplyTo(null)} onSend={handleSend} />
+      </div>
     </div>
   );
 }
