@@ -1,5 +1,6 @@
 import express, { type Request, type Response } from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import { createServer } from "http";
 import { RuntimeEngine } from "../src/runtime/engine";
@@ -18,6 +19,8 @@ import { getWhatsAppEnv, getWhatsAppVerifyToken } from "./utils/env";
 import whatsappConnectionsRouter from "./connections/whatsapp-routes";
 import { registerReloadCallback } from "./whatsapp-handler-manager";
 import { createAdminRouter } from "./routes/admin";
+import { createAuthRouter } from "./routes/auth";
+import { requireAuth } from "./auth/middleware";
 
 // Load environment variables
 dotenv.config();
@@ -29,7 +32,11 @@ const PORT = process.env.PORT || 3000;
 const server = createServer(app);
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  credentials: true, // Permitir envío de cookies
+}));
+app.use(cookieParser()); // Cookie parser ANTES de las rutas
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -190,14 +197,25 @@ app.get("/api/flows", async (req: Request, res: Response) => {
   }
 });
 
-// Mount WhatsApp connections routes
-app.use("/api/connections/whatsapp", whatsappConnectionsRouter);
+// ============================================
+// RUTAS PÚBLICAS (sin autenticación)
+// ============================================
 
-// Mount admin routes
-app.use("/api/admin", createAdminRouter());
+// Auth routes (login, logout, me)
+app.use("/api/auth", createAuthRouter());
 
-// Mount additional API routes (validation, simulation, monitoring, etc.)
-app.use("/api", createApiRoutes({ flowProvider, sessionStore }));
+// ============================================
+// RUTAS PROTEGIDAS (requieren autenticación)
+// ============================================
+
+// WhatsApp connections routes - PROTEGIDAS
+app.use("/api/connections/whatsapp", requireAuth, whatsappConnectionsRouter);
+
+// Admin routes - PROTEGIDAS
+app.use("/api/admin", requireAuth, createAdminRouter());
+
+// Additional API routes (validation, simulation, monitoring, etc.) - PROTEGIDAS
+app.use("/api", requireAuth, createApiRoutes({ flowProvider, sessionStore }));
 
 // Serve static files from dist directory (frontend)
 app.use(express.static("dist"));
