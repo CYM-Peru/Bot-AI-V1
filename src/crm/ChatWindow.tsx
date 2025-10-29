@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiUrl } from "../lib/apiBase";
 import BitrixContactCard from "./BitrixContactCard";
 import Composer from "./Composer";
@@ -15,10 +15,76 @@ interface ChatWindowProps {
 export default function ChatWindow({ conversation, messages, attachments, onSend }: ChatWindowProps) {
   const [replyTo, setReplyTo] = useState<{ message: Message; attachments: Attachment[] } | null>(null);
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferType, setTransferType] = useState<"advisor" | "bot">("advisor");
+  const [advisors, setAdvisors] = useState<Array<{ id: string; name: string }>>([]);
+  const [bots, setBots] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedTarget, setSelectedTarget] = useState<string>("");
+  const [transferring, setTransferring] = useState(false);
 
   const sortedMessages = useMemo(() => {
     return [...messages].sort((a, b) => a.createdAt - b.createdAt);
   }, [messages]);
+
+  // Load advisors and bots for transfer
+  useEffect(() => {
+    const loadTransferTargets = async () => {
+      try {
+        // Load advisors
+        const advisorsRes = await fetch(apiUrl("/api/admin/advisors"));
+        if (advisorsRes.ok) {
+          const data = await advisorsRes.json();
+          setAdvisors(data.advisors || []);
+        }
+
+        // Load bots (flows)
+        const botsRes = await fetch(apiUrl("/api/flows"));
+        if (botsRes.ok) {
+          const data = await botsRes.json();
+          const flowList = data.flows || [];
+          setBots(flowList.map((f: { id: string; name: string }) => ({ id: f.id, name: f.name })));
+        }
+      } catch (error) {
+        console.error("[CRM] Error loading transfer targets:", error);
+      }
+    };
+    loadTransferTargets();
+  }, []);
+
+  const openTransferModal = (type: "advisor" | "bot") => {
+    setTransferType(type);
+    setSelectedTarget("");
+    setShowTransferModal(true);
+  };
+
+  const handleTransfer = async () => {
+    if (!conversation || !selectedTarget) return;
+
+    setTransferring(true);
+    try {
+      const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/transfer`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: transferType,
+          targetId: selectedTarget,
+        }),
+      });
+
+      if (response.ok) {
+        console.log(`[CRM] Transferencia exitosa a ${transferType}:`, selectedTarget);
+        setShowTransferModal(false);
+        // Optionally show success message or refresh conversation
+      } else {
+        alert("Error al transferir la conversación");
+      }
+    } catch (error) {
+      console.error("[CRM] Error al transferir:", error);
+      alert("Error al transferir la conversación");
+    } finally {
+      setTransferring(false);
+    }
+  };
 
   const handleSend = async (payload: { text: string; file?: File | null; replyToId?: string | null; isInternal?: boolean }) => {
     await onSend(payload);
@@ -74,7 +140,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
             {conversation.status !== "archived" && (
               <>
                 <button
-                  onClick={() => console.log('[CRM] Transferir a asesor')}
+                  onClick={() => openTransferModal("advisor")}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 transition"
                   title="Transferir a otro asesor"
                 >
@@ -84,7 +150,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
                   Asesor
                 </button>
                 <button
-                  onClick={() => console.log('[CRM] Transferir a bot')}
+                  onClick={() => openTransferModal("bot")}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-purple-600 bg-white border border-purple-200 rounded-lg hover:bg-purple-50 hover:border-purple-300 transition"
                   title="Transferir a bot"
                 >
@@ -155,6 +221,118 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
             </div>
             <div className="p-6">
               <BitrixContactCard conversation={conversation} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Transferencia */}
+      {showTransferModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={() => setShowTransferModal(false)}
+        >
+          <div
+            className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl m-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-slate-200 bg-gradient-to-r from-blue-50 to-white px-6 py-4">
+              <h3 className="text-xl font-bold text-slate-900">
+                {transferType === "advisor" ? "🔀 Transferir a Asesor" : "🤖 Transferir a Bot"}
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Selecciona el destino para transferir esta conversación
+              </p>
+            </div>
+
+            <div className="p-6">
+              <div className="space-y-3">
+                {transferType === "advisor" ? (
+                  advisors.length > 0 ? (
+                    advisors.map((advisor) => (
+                      <label
+                        key={advisor.id}
+                        className={`flex items-center gap-3 rounded-lg border-2 p-4 cursor-pointer transition ${
+                          selectedTarget === advisor.id
+                            ? "border-blue-500 bg-blue-50"
+                            : "border-slate-200 hover:border-blue-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="transfer-target"
+                          value={advisor.id}
+                          checked={selectedTarget === advisor.id}
+                          onChange={(e) => setSelectedTarget(e.target.value)}
+                          className="h-4 w-4 text-blue-600"
+                        />
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-700 font-semibold text-sm flex-shrink-0">
+                          {advisor.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold text-slate-900">{advisor.name}</p>
+                          <p className="text-xs text-slate-500">Asesor disponible</p>
+                        </div>
+                      </label>
+                    ))
+                  ) : (
+                    <div className="text-center py-8 text-slate-500">
+                      <p>No hay asesores disponibles</p>
+                    </div>
+                  )
+                ) : (
+                  bots.length > 0 ? (
+                    bots.map((bot) => (
+                      <label
+                        key={bot.id}
+                        className={`flex items-center gap-3 rounded-lg border-2 p-4 cursor-pointer transition ${
+                          selectedTarget === bot.id
+                            ? "border-purple-500 bg-purple-50"
+                            : "border-slate-200 hover:border-purple-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="transfer-target"
+                          value={bot.id}
+                          checked={selectedTarget === bot.id}
+                          onChange={(e) => setSelectedTarget(e.target.value)}
+                          className="h-4 w-4 text-purple-600"
+                        />
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100 text-purple-700 flex-shrink-0">
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold text-slate-900">{bot.name}</p>
+                          <p className="text-xs text-slate-500">Bot automatizado</p>
+                        </div>
+                      </label>
+                    ))
+                  ) : (
+                    <div className="text-center py-8 text-slate-500">
+                      <p>No hay bots configurados</p>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-3 border-t border-slate-200 px-6 py-4">
+              <button
+                onClick={() => setShowTransferModal(false)}
+                className="flex-1 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleTransfer}
+                disabled={!selectedTarget || transferring}
+                className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {transferring ? "Transfiriendo..." : "Transferir"}
+              </button>
             </div>
           </div>
         </div>
