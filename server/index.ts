@@ -15,6 +15,7 @@ import { registerCrmModule } from "./crm";
 import { initCrmWSS } from "./crm/ws";
 import { ensureStorageSetup } from "./utils/storage";
 import { getWhatsAppEnv, getWhatsAppVerifyToken } from "./utils/env";
+import whatsappConnectionsRouter from "./connections/whatsapp-routes";
 
 // Load environment variables
 dotenv.config();
@@ -175,6 +176,9 @@ app.get("/api/flows", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to list flows" });
   }
 });
+
+// Mount WhatsApp connections routes
+app.use("/api/connections/whatsapp", whatsappConnectionsRouter);
 
 // Mount additional API routes (validation, simulation, monitoring, etc.)
 app.use("/api", createApiRoutes({ flowProvider, sessionStore }));
