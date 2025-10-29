@@ -8,6 +8,9 @@ const handleVariantClasses: Record<string, string> = {
   more: 'bg-[var(--pastel-lilac)]',
   invalid: 'bg-rose-400',
   answer: 'bg-sky-400',
+  success: 'bg-emerald-400',
+  warning: 'bg-amber-400',
+  fallback: 'bg-slate-400',
 };
 
 type BadgeTone =
@@ -100,6 +103,18 @@ export function NodeCard(props: NodeCardProps) {
     [data, id],
   );
 
+  const handleShowSelector = useCallback(
+    (handleId: string, event: React.MouseEvent<HTMLButtonElement>) => {
+      if (data.onShowNodeTypeSelector) {
+        data.onShowNodeTypeSelector(id, handleId, event.currentTarget);
+      } else {
+        // Fallback to direct creation if selector not available
+        data.onAddChild(id, handleId === 'out:menu' ? 'menu' : 'action');
+      }
+    },
+    [data, id],
+  );
+
   const handleDuplicate = useCallback(() => {
     data.onDuplicate(id);
   }, [data, id]);
@@ -137,14 +152,29 @@ export function NodeCard(props: NodeCardProps) {
         const variantClass = handleVariantClasses[spec.variant ?? 'default'] ?? handleVariantClasses.default;
         const topPercent = ((index + 1) / (handleCount + 1)) * 100;
         return (
-          <Handle
-            key={spec.id}
-            type="source"
-            position={Position.Right}
-            id={spec.id}
-            className={`!w-3 !h-3 border-2 border-white shadow ${variantClass}`}
-            style={{ top: `${topPercent}%` }}
-          />
+          <React.Fragment key={spec.id}>
+            <Handle
+              type="source"
+              position={Position.Right}
+              id={spec.id}
+              className={`!w-3 !h-3 border-2 border-white shadow ${variantClass}`}
+              style={{ top: `${topPercent}%` }}
+            />
+            {/* Label for handle */}
+            <div
+              className="absolute right-0 pr-4 pointer-events-none"
+              style={{
+                top: `${topPercent}%`,
+                transform: 'translateY(-50%)',
+              }}
+            >
+              <div className="flex items-center justify-end">
+                <span className="text-[10px] font-medium text-slate-600 bg-white/90 px-2 py-0.5 rounded shadow-sm border border-slate-200">
+                  {spec.label}
+                </span>
+              </div>
+            </div>
+          </React.Fragment>
         );
       })}
 
@@ -186,7 +216,7 @@ export function NodeCard(props: NodeCardProps) {
               className="rounded-md border border-emerald-200 bg-white px-3 py-1.5 font-medium text-emerald-700 transition hover:bg-emerald-50"
               onClick={(event) => {
                 event.stopPropagation();
-                handleAddChild('menu');
+                handleShowSelector('out:menu', event);
               }}
             >
               + menú
@@ -198,7 +228,7 @@ export function NodeCard(props: NodeCardProps) {
               className="rounded-md border border-emerald-200 bg-white px-3 py-1.5 font-medium text-emerald-700 transition hover:bg-emerald-50"
               onClick={(event) => {
                 event.stopPropagation();
-                handleAddChild('action');
+                handleShowSelector('out:action', event);
               }}
             >
               + acción

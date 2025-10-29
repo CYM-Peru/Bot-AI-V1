@@ -41,6 +41,7 @@ import { EndFlowNode } from './flow/components/nodes/EndFlowNode';
 import { StartNode } from './flow/components/nodes/StartNode';
 import { QuestionNode } from './flow/components/nodes/QuestionNode';
 import { ValidationNode } from './flow/components/nodes/ValidationNode';
+import { CustomEdge } from './flow/components/edges/CustomEdge';
 
 const NODE_TYPES: Record<string, ComponentType<NodeProps<RuntimeNode>>> = {
   start: StartNode,
@@ -151,12 +152,50 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
     });
   }, [flow, soloRoot, invalidMessageIds, nodePositions]);
 
+  const handleCreateNodeFromEdge = useCallback(
+    (sourceId: string, targetId: string, handleId: string) => {
+      props.onInsertBetween(sourceId, targetId);
+    },
+    [props],
+  );
+
+  const edgeTypes = useMemo(
+    () => ({
+      step: (edgeProps: any) => (
+        <CustomEdge
+          {...edgeProps}
+          onDeleteEdge={onDeleteEdge}
+          onCreateNode={handleCreateNodeFromEdge}
+        />
+      ),
+    }),
+    [onDeleteEdge, handleCreateNodeFromEdge],
+  );
+
   const handleAttach = useCallback(
     (nodeId: string, files: FileList) => {
       if (files.length === 0) return;
       onAttachToMessage(nodeId, files);
     },
     [onAttachToMessage],
+  );
+
+  const handleShowNodeTypeSelector = useCallback(
+    (parentId: string, handleId: string, buttonElement: HTMLElement) => {
+      const rect = buttonElement.getBoundingClientRect();
+      const flowPosition = screenToFlowPosition({
+        x: rect.left + rect.width / 2,
+        y: rect.bottom + 8,
+      });
+      setQuickCreateState({
+        sourceId: parentId,
+        handleId,
+        position: flowPosition,
+        screen: { x: rect.left + rect.width / 2, y: rect.bottom + 8 },
+      });
+      pendingSourceRef.current = { sourceId: parentId, handleId };
+    },
+    [screenToFlowPosition],
   );
 
   const decoratedNodes = useMemo(() => {
@@ -167,12 +206,13 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
         isSelected: node.id === selectedId,
         onSelect,
         onAddChild,
+        onShowNodeTypeSelector: handleShowNodeTypeSelector,
         onDuplicate: onDuplicateNode,
         onDelete: onDeleteNode,
         onAttach: handleAttach,
       },
     })) as RuntimeNode[];
-  }, [graph.nodes, selectedId, onSelect, onAddChild, onDuplicateNode, onDeleteNode, handleAttach]);
+  }, [graph.nodes, selectedId, onSelect, onAddChild, handleShowNodeTypeSelector, onDuplicateNode, onDeleteNode, handleAttach]);
 
   useEffect(() => {
     setNodes(decoratedNodes);
@@ -405,6 +445,7 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
+        edgeTypes={edgeTypes}
         defaultEdgeOptions={{ type: 'step', animated: false, className: 'flow-edge' }}
         className="h-full"
         style={{ width: '100%', height: '100%', background: '#f8fafc' }}
