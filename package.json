@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "start:server": "node dist/server/index.js",
+    "init-admin": "tsx server/init-admin.js",
     "preview": "vite preview --port 5173",
     "test": "vitest run",
     "test:ci": "vitest run --coverage",
