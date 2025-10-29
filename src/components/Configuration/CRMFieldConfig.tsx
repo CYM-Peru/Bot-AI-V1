@@ -151,7 +151,7 @@ export function CRMFieldConfig() {
   const loadConfig = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/crm-fields"));
+      const response = await fetch(apiUrl("/api/admin/crm-fields"), { credentials: "include" });
       if (response.ok) {
         const data = await response.json();
         const enabledFieldIds = data.config?.enabledFields || [];

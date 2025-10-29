@@ -83,7 +83,7 @@ export function RoleManagement() {
   const loadRoles = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/roles"));
+      const response = await fetch(apiUrl("/api/admin/roles"), { credentials: "include" });
       if (response.ok) {
         const data = await response.json();
         setRoles(data.roles || []);

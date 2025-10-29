@@ -21,6 +21,8 @@ import { ConnectionsPanel } from "./components/Connections/ConnectionsPanel";
 import { ConfigurationPanel } from "./components/ConfigurationPanel";
 import { BotChannelAssignment } from "./components/BotChannelAssignment";
 import { WhatsAppNumbersPanel } from "./components/WhatsAppNumbersPanel";
+import { useAuth } from "./hooks/useAuth";
+import LoginPage from "./components/LoginPage";
 const CRMWorkspace = React.lazy(() => import("./crm"));
 import {
   ConnectionCreationKind,
@@ -288,6 +290,9 @@ type PersistedState = {
 type Toast = { id: number; message: string; type: "success" | "error" };
 
 export default function App(): JSX.Element {
+  // Authentication state
+  const { isAuthenticated, isLoading, checkAuth } = useAuth();
+
   const [flow, setFlowState] = useState<Flow>(demoFlow);
   const [positionsState, setPositionsState] = useState<Record<string, { x: number; y: number }>>({});
   const [selectedId, setSelectedId] = useState(flow.rootId);
@@ -2288,6 +2293,24 @@ export default function App(): JSX.Element {
     });
   }
 
+  // Show loading spinner while checking authentication
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
+          <p className="mt-4 text-sm text-slate-600">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login page if not authenticated
+  if (!isAuthenticated) {
+    return <LoginPage onLoginSuccess={checkAuth} />;
+  }
+
+  // Main application (only shown when authenticated)
   return (
     <div className="mx-auto max-w-[1500px] px-3 md:px-6 py-4 md:py-6 space-y-4 bg-slate-50">
       {toast && (
