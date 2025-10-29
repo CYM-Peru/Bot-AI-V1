@@ -210,12 +210,23 @@ async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buff
       logError("[CRM][Media] Metadata no contiene URL del archivo");
       return null;
     }
-    logDebug(`[CRM][Media] Descargando archivo desde: ${meta.url.substring(0, 50)}...`);
-    const mediaResponse = await fetch(meta.url, {
+    logDebug(`[CRM][Media] URL completa de descarga: ${meta.url}`);
+    logDebug(`[CRM][Media] Descargando archivo con Authorization header...`);
+    let mediaResponse = await fetch(meta.url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+
+    // Si falla con Authorization, intentar sin él (URLs firmadas de CDN)
+    if (!mediaResponse.ok && mediaResponse.status === 404) {
+      logDebug(`[CRM][Media] Falló con Authorization, intentando sin header...`);
+      mediaResponse = await fetch(meta.url);
+    }
+
     if (!mediaResponse.ok) {
       logError(`[CRM][Media] Error descargando archivo: HTTP ${mediaResponse.status}`);
+      const errorBody = await mediaResponse.text();
+      logError(`[CRM][Media] Cuerpo de error: ${errorBody}`);
+      logDebug(`[CRM][Media] Headers de respuesta:`, Object.fromEntries(mediaResponse.headers.entries()));
       return null;
     }
     const arrayBuffer = await mediaResponse.arrayBuffer();
