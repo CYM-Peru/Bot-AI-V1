@@ -195,6 +195,14 @@ app.use("/api/connections/whatsapp", whatsappConnectionsRouter);
 // Mount additional API routes (validation, simulation, monitoring, etc.)
 app.use("/api", createApiRoutes({ flowProvider, sessionStore }));
 
+// Serve static files from dist directory (frontend)
+app.use(express.static("dist"));
+
+// SPA fallback: serve index.html for all non-API routes
+app.get("*", (_req: Request, res: Response) => {
+  res.sendFile("index.html", { root: "dist" });
+});
+
 // Start server
 server.listen(PORT, () => {
   const whatsappEnv = getWhatsAppEnv();
