@@ -53,7 +53,8 @@ export default function Composer({ disabled, onSend, replyingTo, onCancelReply }
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
+    // Send on Enter (without Shift) or Ctrl+Enter / Cmd+Enter
+    if (event.key === "Enter" && (!event.shiftKey || event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       handleSend();
     }
@@ -133,7 +134,7 @@ export default function Composer({ disabled, onSend, replyingTo, onCancelReply }
             onChange={(event) => setText(event.target.value)}
             onKeyDown={handleKeyDown}
             className="h-11 flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm leading-6 focus:border-emerald-400 focus:outline-none focus:ring focus:ring-emerald-100"
-            placeholder="Escribe un mensaje (Enter para enviar, Shift+Enter para salto de línea)"
+            placeholder="Escribe un mensaje (Enter o Ctrl+Enter para enviar, Shift+Enter para salto de línea)"
             rows={1}
             disabled={disabled || sending}
           />

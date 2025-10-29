@@ -9,11 +9,16 @@ interface ConversationListProps {
 
 type FilterType = "all" | "unread" | "attending" | "archived";
 type SortType = "recent" | "unread" | "name";
+type DateFilter = "all" | "today" | "week" | "month" | "custom";
 
 export default function ConversationList({ conversations, selectedId, onSelect }: ConversationListProps) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterType>("all");
   const [sort, setSort] = useState<SortType>("recent");
+  const [dateFilter, setDateFilter] = useState<DateFilter>("all");
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [customDateStart, setCustomDateStart] = useState("");
+  const [customDateEnd, setCustomDateEnd] = useState("");
 
   const filtered = useMemo(() => {
     let result = [...conversations];
@@ -28,6 +33,23 @@ export default function ConversationList({ conversations, selectedId, onSelect }
     } else {
       // "all" - active and attending conversations
       result = result.filter((item) => item.status === "active" || item.status === "attending");
+    }
+
+    // Apply date filter
+    const now = Date.now();
+    if (dateFilter === "today") {
+      const todayStart = new Date().setHours(0, 0, 0, 0);
+      result = result.filter((item) => item.lastMessageAt >= todayStart);
+    } else if (dateFilter === "week") {
+      const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+      result = result.filter((item) => item.lastMessageAt >= weekAgo);
+    } else if (dateFilter === "month") {
+      const monthAgo = now - 30 * 24 * 60 * 60 * 1000;
+      result = result.filter((item) => item.lastMessageAt >= monthAgo);
+    } else if (dateFilter === "custom" && customDateStart && customDateEnd) {
+      const start = new Date(customDateStart).getTime();
+      const end = new Date(customDateEnd).setHours(23, 59, 59, 999);
+      result = result.filter((item) => item.lastMessageAt >= start && item.lastMessageAt <= end);
     }
 
     // Apply search
@@ -53,7 +75,7 @@ export default function ConversationList({ conversations, selectedId, onSelect }
     }
 
     return result;
-  }, [conversations, search, filter, sort]);
+  }, [conversations, search, filter, sort, dateFilter, customDateStart, customDateEnd]);
 
   const unreadCount = conversations.filter((c) => c.unread > 0 && c.status !== "archived").length;
   const attendingCount = conversations.filter((c) => c.status === "attending").length;
@@ -99,16 +121,87 @@ export default function ConversationList({ conversations, selectedId, onSelect }
             </button>
           )}
         </div>
-        <button
-          onClick={exportToCSV}
-          className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          Exportar ({filtered.length})
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+            className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-semibold border rounded-lg transition ${
+              showAdvancedFilters
+                ? "text-blue-700 bg-blue-50 border-blue-200"
+                : "text-slate-700 bg-white border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+            </svg>
+            Filtros
+          </button>
+          <button
+            onClick={exportToCSV}
+            className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Exportar ({filtered.length})
+          </button>
+        </div>
       </div>
+
+      {/* Advanced Filters Panel */}
+      {showAdvancedFilters && (
+        <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Fecha</label>
+            <select
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value as DateFilter)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:border-blue-400 focus:outline-none focus:ring focus:ring-blue-100"
+            >
+              <option value="all">Todas las fechas</option>
+              <option value="today">Hoy</option>
+              <option value="week">Últimos 7 días</option>
+              <option value="month">Últimos 30 días</option>
+              <option value="custom">Rango personalizado</option>
+            </select>
+          </div>
+
+          {dateFilter === "custom" && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Desde</label>
+                <input
+                  type="date"
+                  value={customDateStart}
+                  onChange={(e) => setCustomDateStart(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none focus:ring focus:ring-blue-100"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Hasta</label>
+                <input
+                  type="date"
+                  value={customDateEnd}
+                  onChange={(e) => setCustomDateEnd(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none focus:ring focus:ring-blue-100"
+                />
+              </div>
+            </div>
+          )}
+
+          {(dateFilter !== "all" || customDateStart || customDateEnd) && (
+            <button
+              onClick={() => {
+                setDateFilter("all");
+                setCustomDateStart("");
+                setCustomDateEnd("");
+              }}
+              className="w-full px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition"
+            >
+              Limpiar filtros de fecha
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Filter tabs */}
       <div className="flex border-b border-slate-200 bg-slate-50">
