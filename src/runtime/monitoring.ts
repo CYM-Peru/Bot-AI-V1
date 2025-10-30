@@ -19,6 +19,8 @@ export type LogEventType =
   | "webhook_called"
   | "webhook_error"
   | "condition_evaluated"
+  | "ia_rag_invoked"
+  | "tool_invoked"
   | "error"
   | "system";
 
