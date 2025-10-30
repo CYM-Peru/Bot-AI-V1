@@ -3,6 +3,8 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import { createServer } from "http";
+import path from "path";
+import { fileURLToPath } from "url";
 import { RuntimeEngine } from "../src/runtime/engine";
 import { NodeExecutor } from "../src/runtime/executor";
 import { WhatsAppWebhookHandler } from "../src/api/whatsapp-webhook";
@@ -29,6 +31,11 @@ import { QueueScheduler } from "./queue-scheduler";
 dotenv.config();
 
 ensureStorageSetup();
+
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.join(__dirname, "..", "dist");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -266,12 +273,12 @@ app.use("/api/admin", requireAuth, createAdminRouter());
 app.use("/api", requireAuth, createApiRoutes({ flowProvider, sessionStore }));
 
 // Serve static files from dist directory (frontend)
-app.use(express.static("dist"));
+app.use(express.static(distPath));
 
 // SPA fallback: serve index.html for all non-API routes
 // Use regex to exclude /api routes, preventing masking of undefined API endpoints
 app.get(/^\/(?!api).*/, (_req: Request, res: Response) => {
-  res.sendFile("index.html", { root: "dist" });
+  res.sendFile(path.join(distPath, "index.html"));
 });
 
 // Start server
