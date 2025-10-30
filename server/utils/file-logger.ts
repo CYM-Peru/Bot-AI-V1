@@ -1,45 +1,34 @@
-/**
- * File logger - Now powered by Winston
- * This file maintains backward compatibility while using structured logging
- */
-import logger, { logDebug as winstonLogDebug, logError as winstonLogError } from "./logger";
+import * as fs from "fs";
+import * as path from "path";
 
-/**
- * Log debug messages
- * @param message - The message to log
- * @param args - Additional arguments to log as metadata
- */
+const LOG_DIR = path.join(process.cwd(), "logs");
+const DEBUG_LOG = path.join(LOG_DIR, "debug.log");
+
+// Ensure log directory exists
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+function formatTimestamp(): string {
+  return new Date().toISOString();
+}
+
 export function logDebug(message: string, ...args: unknown[]): void {
-  if (args.length > 0) {
-    winstonLogDebug(message, { data: args });
-  } else {
-    winstonLogDebug(message);
-  }
+  const timestamp = formatTimestamp();
+  const formattedMessage = `[${timestamp}] ${message} ${args.length > 0 ? JSON.stringify(args) : ""}\n`;
+
+  // Write to file synchronously to ensure it's written immediately
+  fs.appendFileSync(DEBUG_LOG, formattedMessage, "utf-8");
+
+  // Also log to console (even if buffered, at least we have file)
+  console.log(message, ...args);
 }
 
-/**
- * Log error messages
- * @param message - The error message
- * @param error - The error object or additional data
- */
 export function logError(message: string, error?: unknown): void {
-  winstonLogError(message, error);
-}
+  const timestamp = formatTimestamp();
+  const errorStr = error instanceof Error ? error.stack : JSON.stringify(error);
+  const formattedMessage = `[${timestamp}] ERROR: ${message} ${errorStr || ""}\n`;
 
-/**
- * Log info messages
- * @param message - The message to log
- * @param metadata - Additional metadata
- */
-export function logInfo(message: string, metadata?: any): void {
-  logger.info(message, metadata);
-}
-
-/**
- * Log warning messages
- * @param message - The message to log
- * @param metadata - Additional metadata
- */
-export function logWarn(message: string, metadata?: any): void {
-  logger.warn(message, metadata);
+  fs.appendFileSync(DEBUG_LOG, formattedMessage, "utf-8");
+  console.error(message, error);
 }
