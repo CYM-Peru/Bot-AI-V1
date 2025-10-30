@@ -21,13 +21,33 @@ import { registerReloadCallback } from "./whatsapp-handler-manager";
 import { createAdminRouter } from "./routes/admin";
 import { createAuthRouter } from "./routes/auth";
 import { requireAuth } from "./auth/middleware";
-import { logDebug, logError } from "./utils/file-logger";
+import { logDebug, logError, logInfo } from "./utils/file-logger";
+import logger from "./utils/logger";
 import { TimerScheduler } from "./timer-scheduler";
 import { QueueScheduler } from "./queue-scheduler";
 import { authLimiter, apiLimiter, webhookLimiter, flowLimiter } from "./middleware/rate-limit";
+import { validate } from "./middleware/validation";
+import { saveFlowSchema, getFlowSchema } from "./validation/flow.schemas";
+import { errorHandler, notFoundHandler, setupUnhandledRejectionHandler, setupUncaughtExceptionHandler, asyncHandler } from "./middleware/error-handler";
+import { NotFoundError, InternalServerError } from "./utils/errors";
+import { validateEnvironment, printEnvironmentConfig } from "./utils/env-validator";
 
 // Load environment variables
 dotenv.config();
+
+// Validate environment variables
+try {
+  validateEnvironment();
+  printEnvironmentConfig();
+} catch (error) {
+  console.error("❌ Environment validation failed:");
+  console.error((error as Error).message);
+  process.exit(1);
+}
+
+// Setup global error handlers for unhandled rejections and exceptions
+setupUnhandledRejectionHandler();
+setupUncaughtExceptionHandler();
 
 ensureStorageSetup();
 
@@ -126,9 +146,17 @@ function createWhatsAppHandler() {
         const assignedFlow = await flowProvider.findFlowByWhatsAppNumber(phoneNumberId);
         if (assignedFlow) {
           flowId = assignedFlow.id;
-          console.log(`[WhatsApp] Using assigned flow ${flowId} for number ${phoneNumberId}`);
+          logInfo(`Using assigned flow ${flowId} for WhatsApp number ${phoneNumberId}`, {
+            component: 'WhatsApp',
+            flowId,
+            phoneNumberId
+          });
         } else {
-          console.log(`[WhatsApp] No assignment found for number ${phoneNumberId}, using default flow ${defaultFlowId}`);
+          logInfo(`No flow assignment found for WhatsApp number ${phoneNumberId}, using default`, {
+            component: 'WhatsApp',
+            phoneNumberId,
+            defaultFlowId
+          });
         }
       }
 
@@ -165,9 +193,9 @@ let whatsappHandler = createWhatsAppHandler();
 
 // Register reload callback for dynamic credential updates
 registerReloadCallback(() => {
-  console.log('[WhatsApp] Reloading handler with updated credentials...');
+  logInfo('Reloading WhatsApp handler with updated credentials', { component: 'WhatsApp' });
   whatsappHandler = createWhatsAppHandler();
-  console.log('[WhatsApp] Handler reloaded successfully');
+  logInfo('WhatsApp handler reloaded successfully', { component: 'WhatsApp' });
 });
 
 const healthHandler = (_req: Request, res: Response) => {
@@ -207,48 +235,32 @@ app.all("/api/meta/webhook", webhookLimiter, async (req: Request, res: Response)
 });
 
 // API endpoint to create/update flows
-app.post("/api/flows/:flowId", flowLimiter, express.json(), async (req: Request, res: Response) => {
-  try {
-    const { flowId } = req.params;
-    const flow = req.body;
+app.post("/api/flows/:flowId", flowLimiter, express.json(), validate(saveFlowSchema), asyncHandler(async (req: Request, res: Response) => {
+  const { flowId } = req.params;
+  const flow = req.body;
 
-    await flowProvider.saveFlow(flowId, flow);
+  await flowProvider.saveFlow(flowId, flow);
 
-    res.json({ success: true, flowId });
-  } catch (error) {
-    console.error("[ERROR] Failed to save flow:", error);
-    res.status(500).json({ error: "Failed to save flow" });
-  }
-});
+  res.json({ success: true, flowId });
+}));
 
 // API endpoint to get a flow
-app.get("/api/flows/:flowId", async (req: Request, res: Response) => {
-  try {
-    const { flowId } = req.params;
-    const flow = await flowProvider.getFlow(flowId);
+app.get("/api/flows/:flowId", validate(getFlowSchema), asyncHandler(async (req: Request, res: Response) => {
+  const { flowId } = req.params;
+  const flow = await flowProvider.getFlow(flowId);
 
-    if (!flow) {
-      res.status(404).json({ error: "Flow not found" });
-      return;
-    }
-
-    res.json(flow);
-  } catch (error) {
-    console.error("[ERROR] Failed to get flow:", error);
-    res.status(500).json({ error: "Failed to get flow" });
+  if (!flow) {
+    throw new NotFoundError("Flow not found");
   }
-});
+
+  res.json(flow);
+}));
 
 // API endpoint to list all flows
-app.get("/api/flows", async (req: Request, res: Response) => {
-  try {
-    const flows = await flowProvider.listFlows();
-    res.json({ flows });
-  } catch (error) {
-    console.error("[ERROR] Failed to list flows:", error);
-    res.status(500).json({ error: "Failed to list flows" });
-  }
-});
+app.get("/api/flows", asyncHandler(async (req: Request, res: Response) => {
+  const flows = await flowProvider.listFlows();
+  res.json({ flows });
+}));
 
 // ============================================
 // RUTAS PÚBLICAS (sin autenticación)
@@ -279,45 +291,67 @@ app.get(/^\/(?!api).*/, (_req: Request, res: Response) => {
   res.sendFile("index.html", { root: "dist" });
 });
 
+// 404 handler - must be after all routes
+app.use(notFoundHandler);
+
+// Global error handler - must be last
+app.use(errorHandler);
+
 // Start server
 server.listen(PORT, () => {
   const whatsappEnv = getWhatsAppEnv();
   const verifyToken = getWhatsAppVerifyToken();
 
+  // Log startup info for debugging (these still go to debug.log via file-logger)
   logDebug(`🚀 Server iniciado en puerto ${PORT}`);
   logDebug(`📱 WhatsApp webhook: http://localhost:${PORT}/api/meta/webhook`);
   logDebug(`⚙️  Access Token configurado: ${whatsappEnv.accessToken ? "SI" : "NO"}`);
   logDebug(`⚙️  Phone Number ID: ${whatsappEnv.phoneNumberId ? whatsappEnv.phoneNumberId : "NO CONFIGURADO"}`);
 
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📱 WhatsApp webhook: http://localhost:${PORT}/api/meta/webhook`);
-  console.log(`🏥 Health check: http://localhost:${PORT}/health`);
-  console.log(`\n⚙️  Configuration:`);
-  console.log(`   - Verify Token: ${verifyToken ? "✓" : "✗"}`);
-  console.log(`   - Access Token: ${whatsappEnv.accessToken ? "✓" : "✗"}`);
-  console.log(`   - Phone Number ID: ${whatsappEnv.phoneNumberId ? "✓" : "✗"}`);
-  console.log(`   - Default Flow ID: ${process.env.DEFAULT_FLOW_ID || "default-flow"}`);
-  console.log(`   - Session Storage: ${process.env.SESSION_STORAGE_TYPE || "file"}`);
-  console.log(`   - Bitrix24: ${bitrix24Client ? "✓" : "✗"}`);
-  console.log(`\n📊 Additional Endpoints:`);
-  console.log(`   - Logs: GET http://localhost:${PORT}/api/logs`);
-  console.log(`   - Stats: GET http://localhost:${PORT}/api/stats`);
-  console.log(`   - Metrics: GET http://localhost:${PORT}/api/metrics`);
-  console.log(`   - Active Conversations: GET http://localhost:${PORT}/api/conversations/active`);
-  console.log(`   - Validate Flow: POST http://localhost:${PORT}/api/validate`);
-  console.log(`   - Simulate Start: POST http://localhost:${PORT}/api/simulate/start`);
-  console.log(`   - Simulate Message: POST http://localhost:${PORT}/api/simulate/message`);
+  // Structured logging for server startup
+  logger.info(`Server running on port ${PORT}`, {
+    component: 'Server',
+    port: PORT,
+    environment: process.env.NODE_ENV || 'development',
+    config: {
+      verifyToken: !!verifyToken,
+      accessToken: !!whatsappEnv.accessToken,
+      phoneNumberId: !!whatsappEnv.phoneNumberId,
+      defaultFlowId: process.env.DEFAULT_FLOW_ID || "default-flow",
+      sessionStorage: process.env.SESSION_STORAGE_TYPE || "file",
+      bitrix24: !!bitrix24Client,
+    }
+  });
+
+  // Console output for visibility
+  logger.info(`📱 WhatsApp webhook: http://localhost:${PORT}/api/meta/webhook`);
+  logger.info(`🏥 Health check: http://localhost:${PORT}/health`);
+  logger.info(`\n⚙️  Configuration:`);
+  logger.info(`   - Verify Token: ${verifyToken ? "✓" : "✗"}`);
+  logger.info(`   - Access Token: ${whatsappEnv.accessToken ? "✓" : "✗"}`);
+  logger.info(`   - Phone Number ID: ${whatsappEnv.phoneNumberId ? "✓" : "✗"}`);
+  logger.info(`   - Default Flow ID: ${process.env.DEFAULT_FLOW_ID || "default-flow"}`);
+  logger.info(`   - Session Storage: ${process.env.SESSION_STORAGE_TYPE || "file"}`);
+  logger.info(`   - Bitrix24: ${bitrix24Client ? "✓" : "✗"}`);
+  logger.info(`\n📊 Additional Endpoints:`);
+  logger.info(`   - Logs: GET http://localhost:${PORT}/api/logs`);
+  logger.info(`   - Stats: GET http://localhost:${PORT}/api/stats`);
+  logger.info(`   - Metrics: GET http://localhost:${PORT}/api/metrics`);
+  logger.info(`   - Active Conversations: GET http://localhost:${PORT}/api/conversations/active`);
+  logger.info(`   - Validate Flow: POST http://localhost:${PORT}/api/validate`);
+  logger.info(`   - Simulate Start: POST http://localhost:${PORT}/api/simulate/start`);
+  logger.info(`   - Simulate Message: POST http://localhost:${PORT}/api/simulate/message`);
 });
 
 export { server };
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
-  console.log("SIGTERM received, shutting down gracefully...");
+  logger.info("SIGTERM received, shutting down gracefully...", { component: 'Server' });
   process.exit(0);
 });
 
 process.on("SIGINT", () => {
-  console.log("SIGINT received, shutting down gracefully...");
+  logger.info("SIGINT received, shutting down gracefully...", { component: 'Server' });
   process.exit(0);
 });
