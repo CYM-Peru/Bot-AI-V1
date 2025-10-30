@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { crmDb } from "../db";
+import { metricsTracker } from "../metrics-tracker";
 import type { CrmRealtimeManager } from "../ws";
 import type { BitrixService } from "../services/bitrix";
 
@@ -99,6 +100,10 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
       return;
     }
     crmDb.archiveConversation(conversation.id);
+
+    // End metrics tracking for this conversation
+    metricsTracker.endConversation(conversation.id);
+
     const updated = crmDb.getConversationById(conversation.id);
     if (updated) {
       socketManager.emitConversationUpdate({ conversation: updated });
@@ -157,6 +162,60 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
     }
 
     res.json({ success: true, transferred: { type, targetId } });
+  });
+
+  // Queue management endpoints
+  router.get("/queue", (_req, res) => {
+    const queuedConversations = crmDb.listQueuedConversations();
+    res.json({ conversations: queuedConversations });
+  });
+
+  router.post("/:id/accept", (req, res) => {
+    const conversation = crmDb.getConversationById(req.params.id);
+    if (!conversation) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    // Get advisor ID from auth (user email)
+    const advisorId = req.user?.email || "unknown";
+
+    const accepted = crmDb.acceptConversation(conversation.id, advisorId);
+    if (!accepted) {
+      res.status(400).json({ error: "cannot_accept", reason: "Conversation is not in queue" });
+      return;
+    }
+
+    // Start tracking metrics for this conversation
+    metricsTracker.startConversation(conversation.id, advisorId);
+
+    const updated = crmDb.getConversationById(conversation.id);
+    if (updated) {
+      socketManager.emitConversationUpdate({ conversation: updated });
+    }
+
+    res.json({ success: true, conversation: updated });
+  });
+
+  router.post("/:id/release", (req, res) => {
+    const conversation = crmDb.getConversationById(req.params.id);
+    if (!conversation) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    const released = crmDb.releaseConversation(conversation.id);
+    if (!released) {
+      res.status(400).json({ error: "cannot_release", reason: "Conversation is not being attended" });
+      return;
+    }
+
+    const updated = crmDb.getConversationById(conversation.id);
+    if (updated) {
+      socketManager.emitConversationUpdate({ conversation: updated });
+    }
+
+    res.json({ success: true, conversation: updated });
   });
 
   return router;

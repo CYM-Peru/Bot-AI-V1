@@ -744,15 +744,17 @@ export type ConnectionCreationKind =
   | 'menu'
   | 'message'
   | 'buttons'
-  | 'ask'
   | 'question'
   | 'validation'
   | 'attachment'
   | 'webhook_out'
   | 'webhook_in'
   | 'transfer'
+  | 'handoff'
   | 'scheduler'
-  | 'condition'
+  | 'delay'
+  | 'ia_rag'
+  | 'tool'
   | 'end';
 
 export const STRICTEST_LIMIT = CHANNEL_BUTTON_LIMITS.reduce(

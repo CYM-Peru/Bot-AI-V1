@@ -62,18 +62,33 @@ export interface WebhookDispatcher {
   callWebhook(config: WebhookCallConfig, context: { flow: Flow; node: FlowNode; session: ConversationSession }): Promise<WebhookCallResult>;
 }
 
+export interface TimerScheduler {
+  scheduleTimer(
+    sessionId: string,
+    flowId: string,
+    contactId: string,
+    channel: string,
+    nextNodeId: string,
+    nodeId: string,
+    delaySeconds: number
+  ): Promise<string>;
+}
+
 export interface ExecutorDependencies {
   webhookDispatcher?: WebhookDispatcher;
   bitrix24Client?: Bitrix24Client;
+  timerScheduler?: TimerScheduler;
 }
 
 export class NodeExecutor {
   private readonly webhookDispatcher?: WebhookDispatcher;
   private readonly bitrix24Client?: Bitrix24Client;
+  private readonly timerScheduler?: TimerScheduler;
 
   constructor(dependencies: ExecutorDependencies = {}) {
     this.webhookDispatcher = dependencies.webhookDispatcher;
     this.bitrix24Client = dependencies.bitrix24Client;
+    this.timerScheduler = dependencies.timerScheduler;
   }
 
   async execute(
@@ -103,6 +118,16 @@ export class NodeExecutor {
         return this.executeSchedulerNode(flow, node, options.now ?? new Date());
       case "webhook_out":
         return this.executeWebhookNode(flow, node, session);
+      case "transfer":
+        return this.executeTransferNode(node);
+      case "handoff":
+        return this.executeHandoffNode(node);
+      case "ia_rag":
+        return this.executeIaRagNode(node, message, session);
+      case "tool":
+        return this.executeToolNode(node, session);
+      case "delay":
+        return this.executeDelayNode(flow, node, session, message);
       case "end":
         return { responses: [], nextNodeId: null, awaitingUserInput: false, ended: true };
       default:
@@ -726,6 +751,268 @@ export class NodeExecutor {
       default:
         console.warn(`[Condition] Unknown operator: ${operator}`);
         return { matched: false };
+    }
+  }
+
+  private executeTransferNode(node: FlowNode): ExecutionResult {
+    // Transfer node ends bot conversation and signals handoff to human agent
+    const transferMessage = node.action?.data?.text || node.description || "Transfering to agent...";
+    return {
+      responses: [
+        {
+          type: "text",
+          text: transferMessage,
+        },
+        {
+          type: "system",
+          payload: {
+            level: "info",
+            message: "Conversation transferred to human agent",
+            nodeId: node.id,
+            action: "transfer_to_agent",
+          },
+        },
+      ],
+      nextNodeId: null,
+      awaitingUserInput: false,
+      ended: true,
+    };
+  }
+
+  private executeHandoffNode(node: FlowNode): ExecutionResult {
+    // Handoff node transfers conversation to human agent
+    const queue = node.action?.data?.queue || "default";
+    const note = node.action?.data?.note || "User requested human assistance";
+
+    return {
+      responses: [
+        {
+          type: "text",
+          text: "Un momento, te voy a conectar con un agente...",
+        },
+        {
+          type: "system",
+          payload: {
+            level: "info",
+            message: `Handoff to queue: ${queue}`,
+            nodeId: node.id,
+            action: "handoff_to_agent",
+            metadata: { queue, note },
+          },
+        },
+      ],
+      nextNodeId: null,
+      awaitingUserInput: false,
+      ended: true,
+    };
+  }
+
+  private executeIaRagNode(node: FlowNode, message: IncomingMessage | null, session: ConversationSession): ExecutionResult {
+    // IA/RAG node - placeholder implementation
+    // In production, this would call an AI service with RAG capabilities
+    const prompt = node.action?.data?.prompt || "Responder consulta del usuario";
+    const model = node.action?.data?.model || "gpt-4";
+    const knowledgeBase = node.action?.data?.knowledgeBase || "default";
+
+    botLogger.log({
+      level: "info",
+      type: "ia_rag_invoked",
+      nodeId: node.id,
+      message: `IA/RAG node invoked with model ${model}`,
+      metadata: { prompt, model, knowledgeBase, userMessage: message?.text },
+    });
+
+    return {
+      responses: [
+        {
+          type: "text",
+          text: "Lo siento, la funcionalidad de IA/RAG aún no está implementada en el backend. Continuando con el flujo...",
+        },
+        {
+          type: "system",
+          payload: {
+            level: "warn",
+            message: "IA/RAG node requires backend implementation",
+            nodeId: node.id,
+            action: "ia_rag_placeholder",
+          },
+        },
+      ],
+      nextNodeId: this.nextChild(node),
+      awaitingUserInput: false,
+    };
+  }
+
+  private executeToolNode(node: FlowNode, session: ConversationSession): ExecutionResult {
+    // Tool/External Action node - placeholder implementation
+    // In production, this would call external APIs or custom functions
+    const toolName = node.action?.data?.toolName || node.action?.data?.name || "unknown";
+    const endpoint = node.action?.data?.endpoint;
+    const method = node.action?.data?.method || "POST";
+
+    botLogger.log({
+      level: "info",
+      type: "tool_invoked",
+      nodeId: node.id,
+      message: `Tool node invoked: ${toolName}`,
+      metadata: { toolName, endpoint, method },
+    });
+
+    return {
+      responses: [
+        {
+          type: "text",
+          text: `Ejecutando acción: ${toolName}...`,
+        },
+        {
+          type: "system",
+          payload: {
+            level: "warn",
+            message: "Tool node requires backend implementation",
+            nodeId: node.id,
+            action: "tool_placeholder",
+            metadata: { toolName, endpoint },
+          },
+        },
+      ],
+      nextNodeId: this.nextChild(node),
+      awaitingUserInput: false,
+    };
+  }
+
+  private async executeDelayNode(flow: Flow, node: FlowNode, session: ConversationSession, message: IncomingMessage | null): Promise<ExecutionResult> {
+    // Check if this is a timer completion callback
+    if (message?.text === "__TIMER_COMPLETE__" && session.variables.__delay_next_node__) {
+      const resumeNodeId = session.variables.__delay_next_node__;
+      console.log(`[Executor] Timer complete, resuming flow at node ${resumeNodeId}`);
+
+      // Clear delay variables and continue to next node
+      return {
+        responses: [],
+        nextNodeId: resumeNodeId,
+        awaitingUserInput: false,
+        variables: {
+          __delay_next_node__: "",
+          __delay_timer_id__: "",
+        },
+      };
+    }
+
+    const data = node.action?.data;
+    const delaySeconds = typeof data?.delaySeconds === "number" ? data.delaySeconds : null;
+
+    if (!delaySeconds || delaySeconds < 1) {
+      return {
+        responses: [
+          {
+            type: "system",
+            payload: { level: "error", message: "Delay node missing valid delay configuration", nodeId: node.id },
+          },
+        ],
+        nextNodeId: this.nextChild(node),
+        awaitingUserInput: false,
+      };
+    }
+
+    // Max delay: 4 days = 345600 seconds
+    if (delaySeconds > 345600) {
+      return {
+        responses: [
+          {
+            type: "system",
+            payload: { level: "error", message: "Delay exceeds maximum of 4 days", nodeId: node.id },
+          },
+        ],
+        nextNodeId: this.nextChild(node),
+        awaitingUserInput: false,
+      };
+    }
+
+    if (!this.timerScheduler) {
+      return {
+        responses: [
+          {
+            type: "system",
+            payload: {
+              level: "warn",
+              message: "Timer scheduler not configured. Delay was skipped.",
+              nodeId: node.id,
+            },
+          },
+        ],
+        nextNodeId: this.nextChild(node),
+        awaitingUserInput: false,
+      };
+    }
+
+    // Schedule the timer
+    const nextNodeId = this.nextChild(node);
+    if (!nextNodeId) {
+      return {
+        responses: [
+          {
+            type: "system",
+            payload: {
+              level: "error",
+              message: "Delay node has no next node to resume to",
+              nodeId: node.id,
+            },
+          },
+        ],
+        nextNodeId: null,
+        awaitingUserInput: false,
+        ended: true,
+      };
+    }
+
+    try {
+      const timerId = await this.timerScheduler.scheduleTimer(
+        session.id,
+        flow.id,
+        session.contactId,
+        session.channel,
+        nextNodeId,
+        node.id,
+        delaySeconds
+      );
+
+      // Store nextNodeId in session variables so timer can resume from there
+      // Keep session alive by staying on current node and awaiting (timer will resume it)
+      return {
+        responses: [
+          {
+            type: "system",
+            payload: {
+              level: "info",
+              message: `Timer scheduled for ${delaySeconds} seconds`,
+              nodeId: node.id,
+              timerId,
+              delaySeconds,
+            },
+          },
+        ],
+        nextNodeId: node.id, // Stay on current node
+        awaitingUserInput: true, // Keep session alive
+        variables: {
+          __delay_next_node__: nextNodeId,
+          __delay_timer_id__: timerId,
+        },
+      };
+    } catch (error) {
+      return {
+        responses: [
+          {
+            type: "system",
+            payload: {
+              level: "error",
+              message: error instanceof Error ? error.message : "Failed to schedule timer",
+              nodeId: node.id,
+            },
+          },
+        ],
+        nextNodeId: this.nextChild(node),
+        awaitingUserInput: false,
+      };
     }
   }
 }

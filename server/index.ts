@@ -22,6 +22,8 @@ import { createAdminRouter } from "./routes/admin";
 import { createAuthRouter } from "./routes/auth";
 import { requireAuth } from "./auth/middleware";
 import { logDebug, logError } from "./utils/file-logger";
+import { TimerScheduler } from "./timer-scheduler";
+import { QueueScheduler } from "./queue-scheduler";
 
 // Load environment variables
 dotenv.config();
@@ -55,10 +57,14 @@ const bitrix24Client = process.env.BITRIX24_WEBHOOK_URL
   ? new Bitrix24Client({ webhookUrl: process.env.BITRIX24_WEBHOOK_URL })
   : undefined;
 
+// Initialize TimerScheduler
+const timerScheduler = new TimerScheduler("./data");
+
 const webhookDispatcher = new HttpWebhookDispatcher();
 const executor = new NodeExecutor({
   webhookDispatcher,
   bitrix24Client,
+  timerScheduler,
 });
 
 const runtimeEngine = new RuntimeEngine({
@@ -67,6 +73,12 @@ const runtimeEngine = new RuntimeEngine({
   executor,
 });
 
+// Connect TimerScheduler to RuntimeEngine
+timerScheduler.setEngine(runtimeEngine);
+
+// Start timer checking (every 30 seconds)
+timerScheduler.startChecking(30000);
+
 // Conversational CRM module
 const crmSocketManager = initCrmWSS(server);
 const crmModule = registerCrmModule({
@@ -74,6 +86,15 @@ const crmModule = registerCrmModule({
   socketManager: crmSocketManager,
   bitrixClient: bitrix24Client,
 });
+
+// Initialize Queue Scheduler for automatic conversation reassignment
+const queueScheduler = new QueueScheduler(crmSocketManager);
+
+// Start queue timeout checking (every minute)
+queueScheduler.startChecking(60000);
+
+// Set timeout rules: 10m, 30m, 1h, 2h, 4h, 8h, 12h
+queueScheduler.setTimeoutRules([10, 30, 60, 120, 240, 480, 720]);
 
 // Initialize WhatsApp Webhook Handler
 function createWhatsAppHandler() {
@@ -90,16 +111,30 @@ function createWhatsAppHandler() {
     },
     resolveFlow: async (context) => {
       const phoneNumber = context.message.from;
+      const phoneNumberId = context.value.metadata?.phone_number_id;
       const defaultFlowId = process.env.DEFAULT_FLOW_ID || "default-flow";
+
+      let flowId = defaultFlowId;
+
+      // Try to find flow assigned to this WhatsApp number
+      if (phoneNumberId && flowProvider instanceof LocalStorageFlowProvider) {
+        const assignedFlow = await flowProvider.findFlowByWhatsAppNumber(phoneNumberId);
+        if (assignedFlow) {
+          flowId = assignedFlow.id;
+          console.log(`[WhatsApp] Using assigned flow ${flowId} for number ${phoneNumberId}`);
+        } else {
+          console.log(`[WhatsApp] No assignment found for number ${phoneNumberId}, using default flow ${defaultFlowId}`);
+        }
+      }
 
       // Log conversation start
       const sessionId = `whatsapp_${phoneNumber}`;
-      botLogger.logConversationStarted(sessionId, defaultFlowId);
-      metricsTracker.startConversation(sessionId, defaultFlowId);
+      botLogger.logConversationStarted(sessionId, flowId);
+      metricsTracker.startConversation(sessionId, flowId);
 
       return {
         sessionId,
-        flowId: defaultFlowId,
+        flowId,
         contactId: phoneNumber,
         channel: "whatsapp",
       };

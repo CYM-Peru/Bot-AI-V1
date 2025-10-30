@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { crmDb } from "../db";
+import { metricsTracker } from "../metrics-tracker";
 import type { CrmRealtimeManager } from "../ws";
 import type { BitrixService } from "../services/bitrix";
 import { sendOutboundMessage } from "../services/whatsapp";
@@ -67,9 +68,25 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
 
     socketManager.emitNewMessage({ message, attachment: linkedAttachment });
 
+    // Track message for metrics (only outgoing non-internal messages)
+    if (!payload.isInternal) {
+      metricsTracker.recordMessage(conversation.id, true);
+    }
+
     // Auto-cambiar a "attending" cuando el asesor responde (excepto notas internas)
+    // Y asignar al asesor si la conversación estaba en cola
     if (!payload.isInternal && conversation.status === "active") {
-      crmDb.updateConversationMeta(conversation.id, { status: "attending" });
+      const advisorId = req.user?.email || "unknown";
+      const now = Date.now();
+
+      crmDb.updateConversationMeta(conversation.id, {
+        status: "attending",
+        assignedTo: advisorId,
+        assignedAt: now,
+      });
+
+      // Start tracking metrics for this conversation
+      metricsTracker.startConversation(conversation.id, advisorId);
     }
 
     socketManager.emitConversationUpdate({ conversation: crmDb.getConversationById(conversation.id)! });
