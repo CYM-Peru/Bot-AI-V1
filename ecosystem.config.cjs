@@ -5,7 +5,7 @@ module.exports = {
     {
       name: 'bot-ai',
       script: 'npm',
-      args: 'run start:server',
+      args: 'run dev:server',
       cwd: '/opt/flow-builder',
       instances: 1,
       autorestart: true,

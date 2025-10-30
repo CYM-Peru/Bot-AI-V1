@@ -12,10 +12,10 @@ El proyecto tiene configurado CI/CD con GitHub Actions para desplegar automátic
 - Se recargan permisos y Nginx
 
 ### ✅ Backend
-- **No requiere compilación** (usa `tsx` en runtime)
+- **No requiere compilación** (usa `tsx` con watch mode)
 - Se sube el código fuente al path configurado en `VPS_APP_PATH`
 - Se instalan dependencias (incluyendo `tsx`)
-- Se reinicia el servicio (PM2 o systemd)
+- Se reinicia PM2 con `ecosystem.config.cjs` (proceso: `bot-ai`)
 
 ## Configuración Requerida
 
@@ -54,7 +54,7 @@ El workflow necesita saber cómo reiniciar tu backend. Elige una opción:
 
 **Ya está configurado** ✅ El workflow usa el archivo `ecosystem.config.cjs` que define:
 - Nombre del proceso: `bot-ai`
-- Script: `npm run start:server`
+- Script: `npm run dev:server` (tsx con hot reload)
 - Logs en `/opt/flow-builder/logs/`
 - Auto-restart y gestión de memoria
 
@@ -66,6 +66,9 @@ pm2 start ecosystem.config.cjs
 pm2 save
 pm2 startup
 ```
+
+**⚠️ IMPORTANTE:** El servidor usa `dev:server` (tsx) que funciona perfectamente en producción.
+NO cambies a `start:server` ya que requiere compilación previa.
 
 ### Opción 2: systemd
 
