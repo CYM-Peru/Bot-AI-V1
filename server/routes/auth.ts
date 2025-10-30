@@ -6,6 +6,7 @@ import { adminDb } from "../admin-db";
 import { authLimiter } from "../middleware/rate-limit";
 import { validate } from "../middleware/validation";
 import { loginSchema, changePasswordSchema, updateProfileSchema } from "../validation/auth.schemas";
+import { logError } from "../utils/file-logger";
 
 export function createAuthRouter() {
   const router = Router();
@@ -66,7 +67,7 @@ export function createAuthRouter() {
         token, // También enviar en el body para clientes que prefieran localStorage
       });
     } catch (error) {
-      console.error("[Auth] Login error:", error);
+      logError("Login error", error);
       res.status(500).json({ error: "internal_error", message: "Login failed" });
     }
   });
@@ -158,7 +159,7 @@ export function createAuthRouter() {
         },
       });
     } catch (error) {
-      console.error("[Auth] Update profile error:", error);
+      logError("Update profile error", error);
       res.status(500).json({ error: "internal_error", message: "Failed to update profile" });
     }
   });
@@ -206,7 +207,7 @@ export function createAuthRouter() {
 
       res.json({ success: true, message: "Password changed successfully" });
     } catch (error) {
-      console.error("[Auth] Change password error:", error);
+      logError("Change password error", error);
       res.status(500).json({ error: "internal_error", message: "Failed to change password" });
     }
   });

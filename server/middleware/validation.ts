@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { z, ZodError, ZodSchema } from "zod";
+import { logError } from "../utils/file-logger";
 
 /**
  * Middleware de validación genérico usando Zod
@@ -46,7 +47,7 @@ export function validate(schemas: {
       }
 
       // Error inesperado
-      console.error("[Validation] Unexpected error:", error);
+      logError("Validation unexpected error", error);
       res.status(500).json({
         error: "internal_error",
         message: "Validation failed",
