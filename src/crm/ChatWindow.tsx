@@ -5,7 +5,8 @@ import BitrixContactCard from "./BitrixContactCard";
 import Composer from "./Composer";
 import MessageList from "./MessageList";
 import TemplateSelector from "./TemplateSelector";
-import ConversationTags from "./ConversationTags";
+// TEMPORARY: Disabled to fix infinite render loop
+// import ConversationTags from "./ConversationTags";
 import SatisfactionSurvey from "./SatisfactionSurvey";
 import type { Attachment, Conversation, Message } from "./types";
 
@@ -223,10 +224,12 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
                   {" · Último mensaje: "}
                   {formatDate(conversation.lastMessageAt)}
                 </p>
-                {/* Tags */}
-                <div className="mt-2">
-                  <ConversationTags conversationId={conversation.id} />
-                </div>
+                {/* Tags - TEMPORARY: Disabled to fix infinite render loop */}
+                {/* {conversation?.id && (
+                  <div className="mt-2">
+                    <ConversationTags conversationId={conversation.id} />
+                  </div>
+                )} */}
               </div>
             </div>
           </div>
