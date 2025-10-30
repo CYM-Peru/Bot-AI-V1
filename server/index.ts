@@ -24,6 +24,7 @@ import { requireAuth } from "./auth/middleware";
 import { logDebug, logError } from "./utils/file-logger";
 import { TimerScheduler } from "./timer-scheduler";
 import { QueueScheduler } from "./queue-scheduler";
+import { authLimiter, apiLimiter, webhookLimiter, flowLimiter } from "./middleware/rate-limit";
 
 // Load environment variables
 dotenv.config();
@@ -33,6 +34,10 @@ ensureStorageSetup();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const server = createServer(app);
+
+// Trust proxy - CRITICAL for rate limiting behind nginx/load balancer
+// This allows Express to correctly identify client IPs from X-Forwarded-For header
+app.set('trust proxy', 1);
 
 // Middleware
 app.use(cors({
@@ -174,7 +179,7 @@ app.get("/health", healthHandler);
 app.get("/api/healthz", healthHandler);
 
 // WhatsApp webhook endpoint (Meta for Developers configured URL)
-app.all("/api/meta/webhook", async (req: Request, res: Response) => {
+app.all("/api/meta/webhook", webhookLimiter, async (req: Request, res: Response) => {
   try {
     logDebug(`[WEBHOOK] ${req.method} /api/meta/webhook - Body keys:`, Object.keys(req.body || {}));
     if (req.body) {
@@ -202,7 +207,7 @@ app.all("/api/meta/webhook", async (req: Request, res: Response) => {
 });
 
 // API endpoint to create/update flows
-app.post("/api/flows/:flowId", express.json(), async (req: Request, res: Response) => {
+app.post("/api/flows/:flowId", flowLimiter, express.json(), async (req: Request, res: Response) => {
   try {
     const { flowId } = req.params;
     const flow = req.body;
@@ -263,7 +268,7 @@ app.use("/api/connections/whatsapp", requireAuth, whatsappConnectionsRouter);
 app.use("/api/admin", requireAuth, createAdminRouter());
 
 // Additional API routes (validation, simulation, monitoring, etc.) - PROTEGIDAS
-app.use("/api", requireAuth, createApiRoutes({ flowProvider, sessionStore }));
+app.use("/api", requireAuth, apiLimiter, createApiRoutes({ flowProvider, sessionStore }));
 
 // Serve static files from dist directory (frontend)
 app.use(express.static("dist"));

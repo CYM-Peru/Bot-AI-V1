@@ -40,10 +40,10 @@ jobs:
             echo "No test:ci script, skipping"
           fi
 
-      - name: Build
+      - name: Build Frontend
         run: npm run build
 
-      - name: Upload dist to VPS
+      - name: Upload Frontend (dist) to VPS
         if: github.ref == 'refs/heads/main'
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -54,7 +54,18 @@ jobs:
           target: "/var/www/flow-builder"
           strip_components: 1
 
-      - name: Fix perms & Reload Nginx
+      - name: Upload Backend to VPS
+        if: github.ref == 'refs/heads/main'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_KEY }}
+          source: "server/*,src/*,package.json,tsconfig.server.json"
+          target: "${{ secrets.VPS_APP_PATH }}"
+          rm: false
+
+      - name: Deploy Backend & Reload Services
         if: github.ref == 'refs/heads/main'
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -62,7 +73,18 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_KEY }}
           script: |
+            # Fix frontend permissions
             chown -R www-data:www-data /var/www/flow-builder
             find /var/www/flow-builder -type d -exec chmod 755 {} \;
             find /var/www/flow-builder -type f -exec chmod 644 {} \;
+
+            # Deploy backend
+            cd ${{ secrets.VPS_APP_PATH }}
+            npm install --production=false
+
+            # Restart PM2 process using ecosystem config
+            pm2 restart ecosystem.config.cjs
+            pm2 save
+
+            # Reload nginx
             nginx -t && systemctl reload nginx

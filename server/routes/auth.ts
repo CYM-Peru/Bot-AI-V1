@@ -3,6 +3,7 @@ import { generateToken } from "../auth/jwt";
 import { verifyPassword } from "../auth/password";
 import { requireAuth } from "../auth/middleware";
 import { adminDb } from "../admin-db";
+import { authLimiter } from "../middleware/rate-limit";
 
 export function createAuthRouter() {
   const router = Router();
@@ -11,7 +12,7 @@ export function createAuthRouter() {
    * POST /api/auth/login
    * Login con usuario y contraseña
    */
-  router.post("/login", async (req, res) => {
+  router.post("/login", authLimiter, async (req, res) => {
     try {
       const { username, password } = req.body;
 
@@ -164,7 +165,7 @@ export function createAuthRouter() {
    * POST /api/auth/change-password
    * Cambiar contraseña del usuario autenticado
    */
-  router.post("/change-password", requireAuth, async (req, res) => {
+  router.post("/change-password", authLimiter, requireAuth, async (req, res) => {
     try {
       const { currentPassword, newPassword } = req.body;
 
