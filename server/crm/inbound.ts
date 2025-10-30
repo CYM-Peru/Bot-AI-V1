@@ -4,6 +4,9 @@ import type { CrmRealtimeManager } from "./ws";
 import type { BitrixService } from "./services/bitrix";
 import { attachmentStorage } from "./storage";
 import type { Attachment, MessageType } from "./models";
+import { logDebug, logError } from "../utils/file-logger";
+import { getWhatsAppEnv } from "../utils/env";
+import axios from "axios";
 
 interface HandleIncomingArgs {
   entryId: string;
@@ -104,21 +107,26 @@ async function translateMessage(message: WhatsAppMessage): Promise<{
     case "sticker": {
       const mediaInfo = getMediaInfo(message);
       if (!mediaInfo) {
+        logError(`[CRM][Media] No se pudo extraer info de media del mensaje tipo ${message.type}`);
         return { type: "document", text: null, attachment: null };
       }
+      logDebug(`[CRM][Media] Descargando ${message.type} con ID: ${mediaInfo.id} (usando axios)`);
       const downloaded = await downloadMedia(mediaInfo.id, mediaInfo.mimeType ?? undefined);
       if (!downloaded) {
+        logError(`[CRM][Media] Falló descarga de ${message.type} con ID: ${mediaInfo.id}`);
         return {
           type: mapType(message.type),
           text: mediaInfo.caption ?? null,
           attachment: null,
         };
       }
+      logDebug(`[CRM][Media] Descarga exitosa: ${downloaded.filename} (${downloaded.mime}, ${downloaded.buffer.length} bytes)`);
       const stored = await attachmentStorage.saveBuffer({
         buffer: downloaded.buffer,
         filename: downloaded.filename,
         mime: downloaded.mime,
       });
+      logDebug(`[CRM][Media] Guardado en storage: ${stored.url}`);
       return {
         type: mapType(message.type),
         text: mediaInfo.caption ?? null,
@@ -176,34 +184,61 @@ function getMediaInfo(message: WhatsAppMessage):
 }
 
 async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buffer: Buffer; filename: string; mime: string } | null> {
-  if (!mediaId) return null;
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-  if (!accessToken) return null;
-  const baseUrl = process.env.WHATSAPP_API_BASE_URL ?? "https://graph.facebook.com";
-  const version = process.env.WHATSAPP_API_VERSION ?? "v20.0";
+  if (!mediaId) {
+    logError("[CRM][Media] downloadMedia: mediaId vacío");
+    return null;
+  }
+  const whatsappEnv = getWhatsAppEnv();
+  if (!whatsappEnv.accessToken) {
+    logError("[CRM][Media] downloadMedia: WHATSAPP_ACCESS_TOKEN no configurado");
+    return null;
+  }
+  const baseUrl = whatsappEnv.baseUrl;
+  const version = whatsappEnv.apiVersion;
   try {
-    const metaResponse = await fetch(`${baseUrl}/${version}/${mediaId}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+    // Step 1: Get metadata usando axios
+    const metaUrl = `${baseUrl}/${version}/${mediaId}`;
+    logDebug(`[CRM][Media] Obteniendo metadata de: ${metaUrl}`);
+
+    const metaResponse = await axios.get(metaUrl, {
+      headers: {
+        Authorization: `Bearer ${whatsappEnv.accessToken}`,
+      },
     });
-    if (!metaResponse.ok) {
-      return null;
-    }
-    const meta = (await metaResponse.json()) as { url?: string; mime_type?: string; file_size?: number; id?: string }; // eslint-disable-line @typescript-eslint/consistent-type-assertions
+
+    const meta = metaResponse.data as { url?: string; mime_type?: string; file_size?: number; id?: string };
     if (!meta.url) {
+      logError("[CRM][Media] Metadata no contiene URL del archivo");
       return null;
     }
-    const mediaResponse = await fetch(meta.url, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+
+    logDebug(`[CRM][Media] URL completa de descarga: ${meta.url}`);
+    logDebug(`[CRM][Media] Descargando con axios (responseType: arraybuffer)...`);
+
+    // Step 2: Download usando axios con arraybuffer
+    // Según reportes de Stack Overflow, axios funciona donde fetch falla
+    const mediaResponse = await axios.get(meta.url, {
+      headers: {
+        Authorization: `Bearer ${whatsappEnv.accessToken}`,
+        "User-Agent": "curl/7.64.1",
+      },
+      responseType: "arraybuffer",
+      maxRedirects: 5,
+      timeout: 30000, // 30 segundos
     });
-    if (!mediaResponse.ok) {
-      return null;
-    }
-    const arrayBuffer = await mediaResponse.arrayBuffer();
+
+    const buffer = Buffer.from(mediaResponse.data);
     const mime = meta.mime_type ?? mimeHint ?? "application/octet-stream";
     const filename = `${mediaId}`;
-    return { buffer: Buffer.from(arrayBuffer), filename, mime };
+
+    logDebug(`[CRM][Media] ✅ Descarga exitosa con axios: ${buffer.length} bytes`);
+    return { buffer, filename, mime };
   } catch (error) {
-    console.warn("[CRM] Unable to download WhatsApp media", error);
+    if (axios.isAxiosError(error)) {
+      logError(`[CRM][Media] Axios error: HTTP ${error.response?.status}`, error.response?.data);
+    } else {
+      logError("[CRM][Media] Error descargando media", error);
+    }
     return null;
   }
 }

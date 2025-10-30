@@ -9,6 +9,7 @@ export interface WhatsAppSendOptions {
   mediaId?: string | null;
   mediaType?: "image" | "audio" | "video" | "document" | "sticker";
   caption?: string | null;
+  filename?: string | null;
 }
 
 export interface WhatsAppSendResult {
@@ -56,8 +57,13 @@ export async function sendWhatsAppMessage(options: WhatsAppSendOptions): Promise
       // Usar link público (debe ser HTTPS y accesible públicamente)
       payload[options.mediaType] = { link: options.mediaUrl };
     }
+    // Agregar caption para image, video y document
     if (options.caption && (options.mediaType === "image" || options.mediaType === "video" || options.mediaType === "document")) {
       (payload[options.mediaType] as Record<string, unknown>).caption = options.caption;
+    }
+    // Agregar filename para document
+    if (options.filename && options.mediaType === "document") {
+      (payload[options.mediaType] as Record<string, unknown>).filename = options.filename;
     }
   } else if (options.text) {
     payload.type = "text";

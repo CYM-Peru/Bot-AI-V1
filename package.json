@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "start:server": "node dist/server/index.js",
+    "init-admin": "tsx server/init-admin.js",
     "preview": "vite preview --port 5173",
     "test": "vitest run",
     "test:ci": "vitest run --coverage",
@@ -22,6 +23,7 @@
   },
   "dependencies": {
     "@xyflow/react": "^12.2.4",
+    "axios": "^1.13.1",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

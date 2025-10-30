@@ -108,6 +108,7 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
             mediaId,
             mediaType: inferTypeFromMime(attachment.mime),
             caption: payload.text ?? undefined,
+            filename: attachment.filename ?? undefined,
           });
           providerResult = {
             ok: outbound.ok,

@@ -7,6 +7,7 @@ type SendOptions = {
   mediaId?: string | null;
   mediaType?: "image" | "audio" | "video" | "document" | "sticker";
   caption?: string | null;
+  filename?: string | null;
 };
 
 export interface ProviderResult {
@@ -24,6 +25,7 @@ export async function sendOutboundMessage(options: SendOptions): Promise<Provide
     mediaId: options.mediaId,
     mediaType: options.mediaType,
     caption: options.caption,
+    filename: options.filename,
   });
 
   return {
