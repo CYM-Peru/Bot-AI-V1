@@ -3,6 +3,7 @@ import type { NodeProps } from '@xyflow/react';
 import { NodeCard } from './NodeCard';
 import type { RuntimeNode } from './types';
 import { getAskData } from '../../utils/flow';
+import { HelpCircle } from 'lucide-react';
 
 export function QuestionNode(props: NodeProps<RuntimeNode>) {
   const { data } = props;
@@ -15,7 +16,7 @@ export function QuestionNode(props: NodeProps<RuntimeNode>) {
       subtitle={data.flowNode.description}
       badgeLabel="Pregunta"
       badgeTone="question"
-      icon="❓"
+      icon={<HelpCircle className="w-5 h-5" />}
       body={
         ask ? (
           <div className="space-y-2 text-xs text-slate-600">

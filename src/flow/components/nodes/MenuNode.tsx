@@ -3,6 +3,7 @@ import type { NodeProps } from '@xyflow/react';
 import { NodeCard } from './NodeCard';
 import type { RuntimeNode } from './types';
 import { getMenuOptions } from '../../utils/flow';
+import { Menu } from 'lucide-react';
 
 export function MenuNode(props: NodeProps<RuntimeNode>) {
   const { data } = props;
@@ -33,7 +34,7 @@ export function MenuNode(props: NodeProps<RuntimeNode>) {
       subtitle={data.flowNode.description}
       badgeLabel="Menú"
       badgeTone="menu"
-      icon="📋"
+      icon={<Menu className="w-5 h-5" />}
       body={body}
       footer="Conecta cada opción a una acción o submenú."
     />

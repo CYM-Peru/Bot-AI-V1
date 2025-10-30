@@ -2,6 +2,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import React, { useCallback } from 'react';
 import type { RuntimeNode } from './types';
 import type { NodeType } from '../../types';
+import { Timer } from 'lucide-react';
 
 const handleVariantClasses: Record<string, string> = {
   default: 'bg-[rgba(30,41,59,0.6)]',
@@ -27,7 +28,7 @@ interface NodeCardProps extends NodeProps<RuntimeNode> {
   subtitle?: string;
   badgeLabel: string;
   badgeTone: BadgeTone;
-  icon: string;
+  icon: React.ReactNode;
   body?: React.ReactNode;
   footer?: React.ReactNode;
   extraActions?: React.ReactNode;
@@ -181,7 +182,7 @@ export function NodeCard(props: NodeCardProps) {
       {/* Delay indicator badge in top-right corner */}
       {data.flowNode.delay && data.flowNode.delay > 0 && (
         <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-[10px] font-medium text-blue-700 shadow-sm">
-          <span>⏱️</span>
+          <Timer className="w-3 h-3" />
           <span>{data.flowNode.delay}s</span>
         </div>
       )}

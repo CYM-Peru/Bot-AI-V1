@@ -3,6 +3,7 @@ import type { NodeProps } from '@xyflow/react';
 import { NodeCard } from './NodeCard';
 import type { RuntimeNode } from './types';
 import { getConditionData } from '../../utils/flow';
+import { Shield } from 'lucide-react';
 
 function formatGroupKeywords(keywords: string[]): string {
   if (keywords.length === 0) {
@@ -28,7 +29,7 @@ export function ValidationNode(props: NodeProps<RuntimeNode>) {
       subtitle={data.flowNode.description}
       badgeLabel="Validación"
       badgeTone="validation"
-      icon="🛡️"
+      icon={<Shield className="w-5 h-5" />}
       body={
         validation ? (
           <div className="space-y-3 text-xs text-slate-600">

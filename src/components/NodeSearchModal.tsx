@@ -59,7 +59,7 @@ export function NodeSearchModal({ flow, selectedId, onSelect, onClose }: NodeSea
     if (node.type === 'menu') return 'Menú';
     if (node.action?.kind === 'message') return 'Mensaje';
     if (node.action?.kind === 'buttons') return 'Botones';
-    if (node.action?.kind === 'ask') return 'Pregunta (Legacy)';
+    if (node.action?.kind === 'ask') return 'Pregunta';
     if (node.action?.kind === 'question') return 'Pregunta';
     if (node.action?.kind === 'attachment') return 'Adjunto';
     if (node.action?.kind === 'webhook_out') return 'Webhook OUT';

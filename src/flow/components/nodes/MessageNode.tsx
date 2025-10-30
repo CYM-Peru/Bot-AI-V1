@@ -2,6 +2,7 @@ import React, { useMemo, useRef } from 'react';
 import type { NodeProps } from '@xyflow/react';
 import { NodeCard } from './NodeCard';
 import type { RuntimeNode } from './types';
+import { MessageSquare } from 'lucide-react';
 
 export function MessageNode(props: NodeProps<RuntimeNode>) {
   const { id, data } = props;
@@ -34,7 +35,7 @@ export function MessageNode(props: NodeProps<RuntimeNode>) {
         subtitle={data.flowNode.description}
         badgeLabel="Mensaje"
         badgeTone="message"
-        icon="💬"
+        icon={<MessageSquare className="w-5 h-5" />}
         body={body}
         footer={footer}
         extraActions={
