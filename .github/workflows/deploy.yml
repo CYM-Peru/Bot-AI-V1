@@ -43,9 +43,6 @@ jobs:
       - name: Build Frontend
         run: npm run build
 
-      - name: Build Backend
-        run: npm run build:server
-
       - name: Upload Frontend (dist) to VPS
         if: github.ref == 'refs/heads/main'
         uses: appleboy/scp-action@v0.1.7
@@ -84,11 +81,10 @@ jobs:
             # Deploy backend
             cd ${{ secrets.VPS_APP_PATH }}
             npm install --production=false
-            npm run build:server
 
             # Restart backend service (adjust based on your process manager)
             # Option 1: PM2 (uncomment if using PM2)
-            # pm2 restart bot-ai-server || pm2 start dist/server/index.js --name bot-ai-server
+            # pm2 restart bot-ai-server || pm2 start npm --name bot-ai-server -- run start:server
 
             # Option 2: systemd (uncomment if using systemd)
             # systemctl restart bot-ai.service

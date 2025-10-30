@@ -12,9 +12,9 @@ El proyecto tiene configurado CI/CD con GitHub Actions para desplegar automátic
 - Se recargan permisos y Nginx
 
 ### ✅ Backend
-- Se compila con `npm run build:server`
-- Se sube al path configurado en `VPS_APP_PATH`
-- Se instalan dependencias
+- **No requiere compilación** (usa `tsx` en runtime)
+- Se sube el código fuente al path configurado en `VPS_APP_PATH`
+- Se instalan dependencias (incluyendo `tsx`)
 - Se reinicia el servicio (PM2 o systemd)
 
 ## Configuración Requerida
@@ -56,14 +56,14 @@ Edita `.github/workflows/deploy.yml` y descomenta estas líneas:
 
 ```yaml
 # Option 1: PM2 (uncomment if using PM2)
-pm2 restart bot-ai-server || pm2 start dist/server/index.js --name bot-ai-server
+pm2 restart bot-ai-server || pm2 start npm --name bot-ai-server -- run start:server
 ```
 
 **Instalación de PM2 en el VPS:**
 ```bash
 npm install -g pm2
 cd /home/deploy/bot-ai
-pm2 start dist/server/index.js --name bot-ai-server
+pm2 start npm --name bot-ai-server -- run start:server
 pm2 save
 pm2 startup
 ```
@@ -93,7 +93,7 @@ After=network.target
 Type=simple
 User=deploy
 WorkingDirectory=/home/deploy/bot-ai
-ExecStart=/usr/bin/node dist/server/index.js
+ExecStart=/usr/bin/npm run start:server
 Restart=always
 Environment=NODE_ENV=production
 
@@ -119,13 +119,11 @@ sudo systemctl start bot-ai
    - ✅ Instala dependencias
    - ✅ Ejecuta tests (si existen)
    - ✅ Compila frontend (`npm run build`)
-   - ✅ Compila backend (`npm run build:server`)
 
 3. **Si el build es exitoso:**
    - ✅ Sube frontend compilado al VPS
    - ✅ Sube código backend al VPS
-   - ✅ Instala dependencias en el VPS
-   - ✅ Recompila backend en el VPS
+   - ✅ Instala dependencias en el VPS (incluyendo `tsx`)
    - ✅ Reinicia el servicio
    - ✅ Recarga Nginx
 
@@ -156,9 +154,10 @@ sudo apt-get install -y nodejs
 npm install -g pm2
 ```
 
-### Error en compilación
+### Error en compilación del frontend
 - Verifica que no haya errores de TypeScript localmente
-- Ejecuta `npm run build` y `npm run build:server` antes de hacer push
+- Ejecuta `npm run build` antes de hacer push
+- El backend usa `tsx` en runtime, no requiere compilación
 
 ## Deployment Manual (Fallback)
 
@@ -169,7 +168,6 @@ Si el CI/CD falla, puedes desplegar manualmente:
 cd /home/deploy/bot-ai
 git pull origin main
 npm install
-npm run build:server
 pm2 restart bot-ai-server  # o systemctl restart bot-ai
 ```
 
