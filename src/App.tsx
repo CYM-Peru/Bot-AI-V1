@@ -24,6 +24,7 @@ import { WhatsAppNumbersPanel } from "./components/WhatsAppNumbersPanel";
 import { useAuth } from "./hooks/useAuth";
 import LoginPage from "./components/LoginPage";
 import WelcomeSplash from "./components/WelcomeSplash";
+import { LogOut } from "lucide-react";
 const CRMWorkspace = React.lazy(() => import("./crm"));
 import {
   ConnectionCreationKind,
@@ -294,6 +295,7 @@ export default function App(): JSX.Element {
   // Authentication state
   const { isAuthenticated, isLoading, user, checkAuth } = useAuth();
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const [flow, setFlowState] = useState<Flow>(demoFlow);
   const [positionsState, setPositionsState] = useState<Record<string, { x: number; y: number }>>({});
@@ -2357,6 +2359,59 @@ export default function App(): JSX.Element {
     );
   }
 
+  // Show logout animation
+  if (isLoggingOut) {
+    return (
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-blue-900 to-emerald-900 flex items-center justify-center z-50">
+        <div className="text-center animate-fade-in">
+          <div className="mb-6 animate-bounce-slow">
+            <div className="inline-block text-8xl">👋</div>
+          </div>
+          <h2 className="text-4xl font-bold text-white mb-2 animate-slide-up">
+            ¡Hasta pronto!
+          </h2>
+          <p className="text-lg text-blue-200 animate-slide-up animation-delay-200">
+            {user?.name || user?.username || "Usuario"}
+          </p>
+        </div>
+        <style>{`
+          @keyframes fade-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+          @keyframes bounce-slow {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+          }
+          @keyframes slide-up {
+            from {
+              opacity: 0;
+              transform: translateY(20px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+          .animate-fade-in {
+            animation: fade-in 0.5s ease-in;
+          }
+          .animate-bounce-slow {
+            animation: bounce-slow 1.5s ease-in-out infinite;
+          }
+          .animate-slide-up {
+            animation: slide-up 0.6s ease-out;
+          }
+          .animation-delay-200 {
+            animation-delay: 0.2s;
+            opacity: 0;
+            animation-fill-mode: forwards;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
   // Main application (only shown when authenticated and splash completed)
   return (
     <div className="mx-auto max-w-[1500px] px-3 md:px-6 py-4 md:py-6 space-y-4 bg-slate-50">
@@ -2445,19 +2500,25 @@ export default function App(): JSX.Element {
             Publicar
           </button>
           <button
-            className="btn btn--ghost"
+            className="btn btn--ghost flex items-center gap-2"
             onClick={async () => {
               try {
+                setIsLoggingOut(true);
                 await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-                window.location.href = '/';
+                // Esperar 2 segundos para la animación antes de redirigir
+                setTimeout(() => {
+                  window.location.href = '/';
+                }, 2000);
               } catch (err) {
                 console.error('Logout error:', err);
+                setIsLoggingOut(false);
               }
             }}
             title="Cerrar sesión"
             type="button"
           >
-            🚪 Salir
+            <LogOut className="w-4 h-4" />
+            Salir
           </button>
           <button className="btn btn--ghost" onClick={handleExportPNG} type="button">
             📸 Exportar PNG
