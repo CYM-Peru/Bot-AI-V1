@@ -82,12 +82,9 @@ jobs:
             cd ${{ secrets.VPS_APP_PATH }}
             npm install --production=false
 
-            # Restart backend service (adjust based on your process manager)
-            # Option 1: PM2 (uncomment if using PM2)
-            # pm2 restart bot-ai-server || pm2 start npm --name bot-ai-server -- run start:server
-
-            # Option 2: systemd (uncomment if using systemd)
-            # systemctl restart bot-ai.service
+            # Restart PM2 process using ecosystem config
+            pm2 restart ecosystem.config.cjs
+            pm2 save
 
             # Reload nginx
             nginx -t && systemctl reload nginx

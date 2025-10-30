@@ -50,20 +50,19 @@ Copia el contenido completo de la clave privada (incluyendo `-----BEGIN` y `----
 
 El workflow necesita saber cómo reiniciar tu backend. Elige una opción:
 
-### Opción 1: PM2 (Recomendado)
+### Opción 1: PM2 con ecosystem.config.cjs (Recomendado)
 
-Edita `.github/workflows/deploy.yml` y descomenta estas líneas:
-
-```yaml
-# Option 1: PM2 (uncomment if using PM2)
-pm2 restart bot-ai-server || pm2 start npm --name bot-ai-server -- run start:server
-```
+**Ya está configurado** ✅ El workflow usa el archivo `ecosystem.config.cjs` que define:
+- Nombre del proceso: `bot-ai`
+- Script: `npm run start:server`
+- Logs en `/opt/flow-builder/logs/`
+- Auto-restart y gestión de memoria
 
 **Instalación de PM2 en el VPS:**
 ```bash
 npm install -g pm2
-cd /home/deploy/bot-ai
-pm2 start npm --name bot-ai-server -- run start:server
+cd /opt/flow-builder
+pm2 start ecosystem.config.cjs
 pm2 save
 pm2 startup
 ```
