@@ -25,6 +25,7 @@ import { logDebug, logError } from "./utils/file-logger";
 import { TimerScheduler } from "./timer-scheduler";
 import { QueueScheduler } from "./queue-scheduler";
 import { authLimiter, apiLimiter, webhookLimiter, flowLimiter } from "./middleware/rate-limit";
+import { errorHandler, notFoundHandler } from "./middleware/error-handler";
 
 // Load environment variables
 dotenv.config();
@@ -278,6 +279,12 @@ app.use(express.static("dist"));
 app.get(/^\/(?!api).*/, (_req: Request, res: Response) => {
   res.sendFile("index.html", { root: "dist" });
 });
+
+// 404 handler - must be after all routes
+app.use(notFoundHandler);
+
+// Global error handler - must be last
+app.use(errorHandler);
 
 // Start server
 server.listen(PORT, () => {
