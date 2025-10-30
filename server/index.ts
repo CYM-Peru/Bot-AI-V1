@@ -30,9 +30,20 @@ import { validate } from "./middleware/validation";
 import { saveFlowSchema, getFlowSchema } from "./validation/flow.schemas";
 import { errorHandler, notFoundHandler, setupUnhandledRejectionHandler, setupUncaughtExceptionHandler, asyncHandler } from "./middleware/error-handler";
 import { NotFoundError, InternalServerError } from "./utils/errors";
+import { validateEnvironment, printEnvironmentConfig } from "./utils/env-validator";
 
 // Load environment variables
 dotenv.config();
+
+// Validate environment variables
+try {
+  validateEnvironment();
+  printEnvironmentConfig();
+} catch (error) {
+  console.error("❌ Environment validation failed:");
+  console.error((error as Error).message);
+  process.exit(1);
+}
 
 // Setup global error handlers for unhandled rejections and exceptions
 setupUnhandledRejectionHandler();

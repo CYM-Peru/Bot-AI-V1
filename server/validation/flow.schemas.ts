@@ -4,7 +4,7 @@ import { flowIdSchema, sanitizeString } from "../middleware/validation";
 /**
  * Schema para crear/actualizar flow
  */
-export const saveFlowSchema = z.object({
+export const saveFlowSchema = {
   params: z.object({
     flowId: flowIdSchema,
   }),
@@ -18,21 +18,21 @@ export const saveFlowSchema = z.object({
     version: z.string().optional(),
     tags: z.array(sanitizeString).optional(),
   }),
-});
+};
 
 /**
  * Schema para obtener un flow
  */
-export const getFlowSchema = z.object({
+export const getFlowSchema = {
   params: z.object({
     flowId: flowIdSchema,
   }),
-});
+};
 
 /**
  * Schema para simular inicio de conversación
  */
-export const simulateStartSchema = z.object({
+export const simulateStartSchema = {
   body: z.object({
     flowId: flowIdSchema,
     sessionId: z.string().min(1, "Session ID is required").max(100),
@@ -41,22 +41,22 @@ export const simulateStartSchema = z.object({
       errorMap: () => ({ message: "Invalid channel" }),
     }).default("web"),
   }),
-});
+};
 
 /**
  * Schema para simular mensaje
  */
-export const simulateMessageSchema = z.object({
+export const simulateMessageSchema = {
   body: z.object({
     sessionId: z.string().min(1, "Session ID is required").max(100),
     message: sanitizeString.min(1, "Message is required").max(4096),
   }),
-});
+};
 
 /**
  * Schema para validar flow
  */
-export const validateFlowSchema = z.object({
+export const validateFlowSchema = {
   body: z.object({
     flow: z.object({
       nodes: z.array(z.any()).min(1, "Flow must have at least one node"),
@@ -64,4 +64,4 @@ export const validateFlowSchema = z.object({
     }),
     channel: z.enum(["whatsapp", "web", "api"]).optional(),
   }),
-});
+};
