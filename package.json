@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@xyflow/react": "^12.2.4",
+    "axios": "^1.13.1",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
