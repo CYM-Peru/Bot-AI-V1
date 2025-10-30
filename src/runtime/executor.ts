@@ -730,4 +730,29 @@ export class NodeExecutor {
         return { matched: false };
     }
   }
+
+  private executeTransferNode(node: FlowNode): ExecutionResult {
+    // Transfer node ends bot conversation and signals handoff to human agent
+    const transferMessage = node.action?.data?.text || node.description || "Transferring to agent...";
+    return {
+      responses: [
+        {
+          type: "text",
+          text: transferMessage,
+        },
+        {
+          type: "system",
+          payload: {
+            level: "info",
+            message: "Conversation transferred to human agent",
+            nodeId: node.id,
+            action: "transfer_to_agent",
+          },
+        },
+      ],
+      nextNodeId: null,
+      awaitingUserInput: false,
+      ended: true,
+    };
+  }
 }
