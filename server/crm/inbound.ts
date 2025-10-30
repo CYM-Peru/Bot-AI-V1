@@ -193,51 +193,28 @@ async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buff
     logError("[CRM][Media] downloadMedia: WHATSAPP_ACCESS_TOKEN no configurado");
     return null;
   }
-  const baseUrl = whatsappEnv.baseUrl;
-  const version = whatsappEnv.apiVersion;
+
+  // USAR PROXY LOCAL (media-proxy-3080) para descargar media
+  const proxyUrl = `http://127.0.0.1:3080/media/${mediaId}`;
+  logDebug(`[CRM][Media] Descargando desde proxy local: ${proxyUrl}`);
+
   try {
-    // Step 1: Get metadata usando axios
-    const metaUrl = `${baseUrl}/${version}/${mediaId}`;
-    logDebug(`[CRM][Media] Obteniendo metadata de: ${metaUrl}`);
-
-    const metaResponse = await axios.get(metaUrl, {
-      headers: {
-        Authorization: `Bearer ${whatsappEnv.accessToken}`,
-      },
-    });
-
-    const meta = metaResponse.data as { url?: string; mime_type?: string; file_size?: number; id?: string };
-    if (!meta.url) {
-      logError("[CRM][Media] Metadata no contiene URL del archivo");
-      return null;
-    }
-
-    logDebug(`[CRM][Media] URL completa de descarga: ${meta.url}`);
-    logDebug(`[CRM][Media] Descargando con axios (responseType: arraybuffer)...`);
-
-    // Step 2: Download usando axios con arraybuffer
-    // Según reportes de Stack Overflow, axios funciona donde fetch falla
-    const mediaResponse = await axios.get(meta.url, {
-      headers: {
-        Authorization: `Bearer ${whatsappEnv.accessToken}`,
-        "User-Agent": "curl/7.64.1",
-      },
+    const proxyResponse = await axios.get(proxyUrl, {
       responseType: "arraybuffer",
-      maxRedirects: 5,
       timeout: 30000, // 30 segundos
     });
 
-    const buffer = Buffer.from(mediaResponse.data);
-    const mime = meta.mime_type ?? mimeHint ?? "application/octet-stream";
+    const buffer = Buffer.from(proxyResponse.data);
+    const mime = proxyResponse.headers['content-type'] || mimeHint || "application/octet-stream";
     const filename = `${mediaId}`;
 
-    logDebug(`[CRM][Media] ✅ Descarga exitosa con axios: ${buffer.length} bytes`);
+    logDebug(`[CRM][Media] ✅ Descarga exitosa desde proxy: ${buffer.length} bytes`);
     return { buffer, filename, mime };
   } catch (error) {
     if (axios.isAxiosError(error)) {
-      logError(`[CRM][Media] Axios error: HTTP ${error.response?.status}`, error.response?.data);
+      logError(`[CRM][Media] Proxy error: HTTP ${error.response?.status}`, error.response?.data);
     } else {
-      logError("[CRM][Media] Error descargando media", error);
+      logError("[CRM][Media] Error descargando desde proxy", error);
     }
     return null;
   }
