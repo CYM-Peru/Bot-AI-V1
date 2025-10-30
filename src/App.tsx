@@ -292,7 +292,7 @@ type Toast = { id: number; message: string; type: "success" | "error" };
 
 export default function App(): JSX.Element {
   // Authentication state
-  const { isAuthenticated, isLoading, checkAuth } = useAuth();
+  const { isAuthenticated, isLoading, user, checkAuth } = useAuth();
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
 
   const [flow, setFlowState] = useState<Flow>(demoFlow);
@@ -2325,7 +2325,7 @@ export default function App(): JSX.Element {
   if (showWelcomeSplash) {
     return (
       <WelcomeSplash
-        userName="Admin"
+        userName={user?.name || user?.username || "Usuario"}
         onComplete={() => setShowWelcomeSplash(false)}
       />
     );
