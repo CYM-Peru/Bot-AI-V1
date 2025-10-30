@@ -2418,6 +2418,21 @@ export default function App(): JSX.Element {
           >
             Publicar
           </button>
+          <button
+            className="btn btn--ghost"
+            onClick={async () => {
+              try {
+                await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+                window.location.href = '/';
+              } catch (err) {
+                console.error('Logout error:', err);
+              }
+            }}
+            title="Cerrar sesión"
+            type="button"
+          >
+            🚪 Salir
+          </button>
           <button className="btn btn--ghost" onClick={handleExportPNG} type="button">
             📸 Exportar PNG
           </button>

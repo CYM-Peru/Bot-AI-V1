@@ -103,8 +103,8 @@ export function BotChannelAssignment({
             onClick={() => setShowPanel(false)}
           />
 
-          {/* Panel */}
-          <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-slate-200 rounded-lg shadow-lg z-50">
+          {/* Panel - Fixed position to prevent cutoff */}
+          <div className="fixed right-4 top-20 w-80 bg-white border border-slate-200 rounded-lg shadow-2xl z-[100] max-h-[80vh] overflow-y-auto">
             <div className="p-4 border-b border-slate-200">
               <h3 className="text-sm font-semibold text-slate-800">
                 Asignación de Canal
