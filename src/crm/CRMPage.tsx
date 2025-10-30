@@ -41,6 +41,7 @@ export default function CRMPage() {
     const saved = localStorage.getItem("crm:sound:volume");
     return saved ? parseFloat(saved) : 0.7;
   });
+  const [showMetrics, setShowMetrics] = useState(false);
   const fetchedConversationsRef = useRef<Set<string>>(new Set());
 
   // Use notifications hook for current conversation

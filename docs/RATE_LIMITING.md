@@ -83,13 +83,19 @@ export const authLimiter = rateLimit({
 
 ### IP Detrás de Proxies
 
-Si el servidor está detrás de un proxy (nginx, load balancer), asegúrate de configurar Express para confiar en los headers del proxy:
+✅ **YA CONFIGURADO**: El servidor está configurado con `app.set('trust proxy', 1)` para funcionar correctamente detrás de Nginx/load balancers.
 
+Esto es **CRÍTICO** porque:
+- Sin esto, todos los usuarios comparten el mismo límite (la IP del proxy)
+- Con esto, cada usuario tiene su propio límite basado en su IP real
+- Express lee correctamente el header `X-Forwarded-For`
+
+**Configuración actual en `server/index.ts`:**
 ```typescript
 app.set('trust proxy', 1);
 ```
 
-Esto permite que `express-rate-limit` identifique correctamente la IP del cliente.
+**Importante**: Si tienes múltiples niveles de proxies, ajusta el número (ej: `2` para proxy + CDN).
 
 ### Rate Limiting Distribuido
 

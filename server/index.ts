@@ -35,6 +35,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const server = createServer(app);
 
+// Trust proxy - CRITICAL for rate limiting behind nginx/load balancer
+// This allows Express to correctly identify client IPs from X-Forwarded-For header
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(cors({
   origin: process.env.CORS_ORIGIN || "http://localhost:5173",
