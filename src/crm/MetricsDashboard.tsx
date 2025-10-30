@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { apiUrl } from "../lib/apiBase";
 import {
   Chart as ChartJS,
@@ -53,11 +53,7 @@ export default function MetricsDashboard() {
   const [trendData, setTrendData] = useState<TrendData[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadMetrics();
-  }, [dateFilter, customStartDate, customEndDate]);
-
-  const getDateRange = (): { startDate?: number; endDate?: number } => {
+  const getDateRange = useCallback((): { startDate?: number; endDate?: number } => {
     const now = Date.now();
     const oneDayMs = 24 * 60 * 60 * 1000;
 
@@ -88,9 +84,9 @@ export default function MetricsDashboard() {
       default:
         return {};
     }
-  };
+  }, [dateFilter, customStartDate, customEndDate]);
 
-  const loadMetrics = async () => {
+  const loadMetrics = useCallback(async () => {
     setLoading(true);
     try {
       const { startDate, endDate } = getDateRange();
@@ -125,7 +121,11 @@ export default function MetricsDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [dateFilter, getDateRange]);
+
+  useEffect(() => {
+    loadMetrics();
+  }, [loadMetrics]);
 
   const formatTime = (ms: number) => {
     const seconds = Math.floor(ms / 1000);
