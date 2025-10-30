@@ -108,34 +108,27 @@ async function translateMessage(message: WhatsAppMessage): Promise<{
         logError(`[CRM][Media] No se pudo extraer info de media del mensaje tipo ${message.type}`);
         return { type: "document", text: null, attachment: null };
       }
-      logDebug(`[CRM][Media] Descargando ${message.type} con ID: ${mediaInfo.id}`);
-      const downloaded = await downloadMedia(mediaInfo.id, mediaInfo.mimeType ?? undefined);
-      if (!downloaded) {
-        logError(`[CRM][Media] Falló descarga de ${message.type} con ID: ${mediaInfo.id}`);
-        return {
-          type: mapType(message.type),
-          text: mediaInfo.caption ?? null,
-          attachment: null,
-        };
-      }
-      logDebug(`[CRM][Media] Descarga exitosa: ${downloaded.filename} (${downloaded.mime}, ${downloaded.buffer.length} bytes)`);
-      const stored = await attachmentStorage.saveBuffer({
-        buffer: downloaded.buffer,
-        filename: downloaded.filename,
-        mime: downloaded.mime,
-      });
-      logDebug(`[CRM][Media] Guardado en storage: ${stored.url}`);
+
+      // WORKAROUND: No descargar media porque la IP está bloqueada por Meta
+      // En su lugar, guardar el media_id como referencia
+      logDebug(`[CRM][Media] Guardando ${message.type} con ID: ${mediaInfo.id} (sin descargar)`);
+
+      const typeEmoji = message.type === "image" ? "🖼️" :
+                        message.type === "video" ? "🎥" :
+                        message.type === "audio" ? "🎵" :
+                        message.type === "document" ? "📎" : "📄";
+
       return {
         type: mapType(message.type),
         text: mediaInfo.caption ?? null,
         attachment: {
-          id: stored.id,
+          id: mediaInfo.id, // Usar media_id como ID
           msgId: null,
-          filename: downloaded.filename,
-          mime: downloaded.mime,
-          size: stored.size,
-          url: stored.url,
-          thumbUrl: stored.url,
+          filename: `${typeEmoji} Adjunto de WhatsApp`,
+          mime: mediaInfo.mimeType ?? "application/octet-stream",
+          size: 0,
+          url: `/api/crm/media/${mediaInfo.id}`, // URL del proxy (puede fallar pero intentará)
+          thumbUrl: null,
           createdAt: Date.now(),
         },
       };
