@@ -139,10 +139,9 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
           : undefined,
       );
 
-      if (status === "sent") {
-        const updatedMsg = { ...message, status };
-        socketManager.emitMessageUpdate({ message: updatedMsg, attachment: attachments[0] ?? null });
-      }
+      // SIEMPRE emitir update (sent o failed) para que el frontend actualice el mensaje
+      const updatedMsg = { ...message, status };
+      socketManager.emitMessageUpdate({ message: updatedMsg, attachment: attachments[0] ?? null });
     }
 
     if (!conversation.bitrixId && conversation.phone) {
