@@ -42,6 +42,26 @@ import { StartNode } from './flow/components/nodes/StartNode';
 import { QuestionNode } from './flow/components/nodes/QuestionNode';
 import { ValidationNode } from './flow/components/nodes/ValidationNode';
 import { CustomEdge } from './flow/components/edges/CustomEdge';
+import {
+  Target,
+  Eye,
+  EyeOff,
+  Menu,
+  MessageSquare,
+  CheckSquare,
+  HelpCircle,
+  Paperclip,
+  Webhook,
+  Download,
+  UserPlus,
+  Users,
+  Clock,
+  Timer,
+  Shield,
+  Bot,
+  Wrench,
+  Flag,
+} from 'lucide-react';
 
 const NODE_TYPES: Record<string, ComponentType<NodeProps<RuntimeNode>>> = {
   start: StartNode,
@@ -486,18 +506,29 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
         <span>{visibleNodeIds.length} nodos visibles</span>
         <button
           type="button"
-          className="rounded-full border border-emerald-200 px-2 py-1 font-medium text-emerald-700 hover:bg-emerald-50"
+          className="rounded-full border border-emerald-200 px-2 py-1 font-medium text-emerald-700 hover:bg-emerald-50 flex items-center gap-1.5"
           onClick={props.toggleScope}
         >
-          {props.soloRoot ? 'Mostrar todo' : 'Solo raíz'}
+          {props.soloRoot ? (
+            <>
+              <Eye className="w-3.5 h-3.5" />
+              Mostrar todo
+            </>
+          ) : (
+            <>
+              <EyeOff className="w-3.5 h-3.5" />
+              Solo raíz
+            </>
+          )}
         </button>
         <button
           type="button"
-          className="rounded-full border border-blue-200 px-2 py-1 font-medium text-blue-700 hover:bg-blue-50"
+          className="rounded-full border border-blue-200 px-2 py-1 font-medium text-blue-700 hover:bg-blue-50 flex items-center gap-1.5"
           onClick={() => fitView({ padding: 0.2, duration: 300 })}
           title="Centrar y ajustar vista"
         >
-          🎯 Centrar
+          <Target className="w-3.5 h-3.5" />
+          Centrar
         </button>
       </div>
     </div>
@@ -634,38 +665,38 @@ function QuickCreatePopover({ position, options, onSelect, onDismiss }: QuickCre
   );
 }
 
-function renderOptionLabel(option: ConnectionCreationKind): string {
+function renderOptionLabel(option: ConnectionCreationKind): React.ReactNode {
   switch (option) {
     case 'menu':
-      return '📋 Menú';
+      return <span className="flex items-center gap-2"><Menu className="w-4 h-4" /> Menú</span>;
     case 'message':
-      return '💬 Mensaje';
+      return <span className="flex items-center gap-2"><MessageSquare className="w-4 h-4" /> Mensaje</span>;
     case 'buttons':
-      return '🔘 Botones';
+      return <span className="flex items-center gap-2"><CheckSquare className="w-4 h-4" /> Botones</span>;
     case 'question':
-      return '❓ Pregunta al cliente';
+      return <span className="flex items-center gap-2"><HelpCircle className="w-4 h-4" /> Pregunta al cliente</span>;
     case 'attachment':
-      return '📎 Adjunto';
+      return <span className="flex items-center gap-2"><Paperclip className="w-4 h-4" /> Adjunto</span>;
     case 'webhook_out':
-      return '🔗 Webhook OUT';
+      return <span className="flex items-center gap-2"><Webhook className="w-4 h-4" /> Webhook OUT</span>;
     case 'webhook_in':
-      return '📥 Webhook IN';
+      return <span className="flex items-center gap-2"><Download className="w-4 h-4" /> Webhook IN</span>;
     case 'transfer':
-      return '👤 Transferir';
+      return <span className="flex items-center gap-2"><UserPlus className="w-4 h-4" /> Transferir</span>;
     case 'handoff':
-      return '🤝 Handoff (Humano)';
+      return <span className="flex items-center gap-2"><Users className="w-4 h-4" /> Handoff (Humano)</span>;
     case 'scheduler':
-      return '⏰ Scheduler';
+      return <span className="flex items-center gap-2"><Clock className="w-4 h-4" /> Scheduler</span>;
     case 'delay':
-      return '⏱️ Delay (Espera)';
+      return <span className="flex items-center gap-2"><Timer className="w-4 h-4" /> Delay (Espera)</span>;
     case 'validation':
-      return '🛡️ Validación Bitrix';
+      return <span className="flex items-center gap-2"><Shield className="w-4 h-4" /> Validación Bitrix</span>;
     case 'ia_rag':
-      return '🤖 IA · RAG';
+      return <span className="flex items-center gap-2"><Bot className="w-4 h-4" /> IA · RAG</span>;
     case 'tool':
-      return '🔧 Tool/Acción externa';
+      return <span className="flex items-center gap-2"><Wrench className="w-4 h-4" /> Tool/Acción externa</span>;
     case 'end':
-      return '🏁 Finalizar flujo';
+      return <span className="flex items-center gap-2"><Flag className="w-4 h-4" /> Finalizar flujo</span>;
     default:
       return option;
   }

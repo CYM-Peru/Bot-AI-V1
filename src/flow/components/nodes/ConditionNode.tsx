@@ -3,6 +3,7 @@ import type { NodeProps } from '@xyflow/react';
 import { NodeCard } from './NodeCard';
 import type { RuntimeNode } from './types';
 import { getAskData } from '../../utils/flow';
+import { GitBranch } from 'lucide-react';
 
 export function ConditionNode(props: NodeProps<RuntimeNode>) {
   const { data } = props;
@@ -24,7 +25,7 @@ export function ConditionNode(props: NodeProps<RuntimeNode>) {
       subtitle={data.flowNode.description}
       badgeLabel="Condición"
       badgeTone="question"
-      icon="❓"
+      icon={<GitBranch className="w-5 h-5" />}
       body={body}
     />
   );

@@ -2477,7 +2477,12 @@ export default function App(): JSX.Element {
         )}
       </div>
 
-      <ConnectionsPanel open={connectionsOpen} onClose={() => setConnectionsOpen(false)} />
+      <ConnectionsPanel
+        open={connectionsOpen}
+        onClose={() => setConnectionsOpen(false)}
+        whatsappNumbers={whatsappNumbers}
+        onUpdateWhatsappNumbers={setWhatsappNumbers}
+      />
 
       <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
 

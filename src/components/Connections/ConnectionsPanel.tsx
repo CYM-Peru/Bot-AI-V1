@@ -1,6 +1,7 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { ConnectionsTabs } from './ConnectionsTabs';
 import './ConnectionsPanel.css';
+import type { WhatsAppNumberAssignment } from '../../flow/types';
 
 const BitrixSettings = React.lazy(() =>
   import('../Bitrix24Panel').then((module) => ({ default: module.Bitrix24Panel }))
@@ -15,9 +16,11 @@ type TabId = 'bitrix' | 'whatsapp';
 interface ConnectionsPanelProps {
   open: boolean;
   onClose: () => void;
+  whatsappNumbers?: WhatsAppNumberAssignment[];
+  onUpdateWhatsappNumbers?: (numbers: WhatsAppNumberAssignment[]) => void;
 }
 
-export function ConnectionsPanel({ open, onClose }: ConnectionsPanelProps) {
+export function ConnectionsPanel({ open, onClose, whatsappNumbers = [], onUpdateWhatsappNumbers }: ConnectionsPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>('bitrix');
   const headingRef = useRef<HTMLHeadingElement>(null);
   const previousOverflow = useRef<string>('');
@@ -119,7 +122,12 @@ export function ConnectionsPanel({ open, onClose }: ConnectionsPanelProps) {
                   role="tabpanel"
                   aria-labelledby="connections-tab-whatsapp"
                 >
-                  <WhatsappSettings headingId="connections-panel-whatsapp-heading" className="w-full" />
+                  <WhatsappSettings
+                    headingId="connections-panel-whatsapp-heading"
+                    className="w-full"
+                    whatsappNumbers={whatsappNumbers}
+                    onUpdateWhatsappNumbers={onUpdateWhatsappNumbers}
+                  />
                 </div>
               )}
             </Suspense>

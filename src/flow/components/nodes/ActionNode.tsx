@@ -8,6 +8,7 @@ import {
   getSchedulerData,
   STRICTEST_LIMIT,
 } from '../../utils/flow';
+import { Settings, Timer, Paperclip } from 'lucide-react';
 
 export function ActionNode(props: NodeProps<RuntimeNode>) {
   const { data } = props;
@@ -90,7 +91,9 @@ export function ActionNode(props: NodeProps<RuntimeNode>) {
         : 'No configurado';
       return (
         <div className="space-y-1 text-xs text-slate-600">
-          <div className="text-[11px] font-semibold text-slate-500">⏱️ Timer/Espera</div>
+          <div className="text-[11px] font-semibold text-slate-500 flex items-center gap-1.5">
+            <Timer className="w-3.5 h-3.5" /> Timer/Espera
+          </div>
           <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-2 leading-snug text-amber-700">
             Esperar: <span className="font-semibold">{formatted}</span>
           </p>
@@ -109,7 +112,9 @@ export function ActionNode(props: NodeProps<RuntimeNode>) {
 
       return (
         <div className="space-y-1 text-xs text-slate-600">
-          <div className="text-[11px] font-semibold text-slate-500">📎 Adjunto</div>
+          <div className="text-[11px] font-semibold text-slate-500 flex items-center gap-1.5">
+            <Paperclip className="w-3.5 h-3.5" /> Adjunto
+          </div>
           <p className="font-medium truncate">{baseName}</p>
           {(extension || fileSize) && (
             <div className="flex gap-2 text-[10px] text-slate-400">
@@ -137,7 +142,7 @@ export function ActionNode(props: NodeProps<RuntimeNode>) {
       subtitle={data.flowNode.description}
       badgeLabel="Acción"
       badgeTone={badgeTone}
-      icon="⚙️"
+      icon={<Settings className="w-5 h-5" />}
       body={summary}
     />
   );

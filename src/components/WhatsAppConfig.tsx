@@ -27,6 +27,8 @@ interface TestResult {
 interface WhatsAppConfigContentProps {
   headingId?: string;
   className?: string;
+  whatsappNumbers?: import('../flow/types').WhatsAppNumberAssignment[];
+  onUpdateWhatsappNumbers?: (numbers: import('../flow/types').WhatsAppNumberAssignment[]) => void;
 }
 
 const DEFAULT_TEST_NUMBER = '51918131082';
@@ -45,7 +47,7 @@ const INITIAL_FORM: FormState = {
   verifyToken: '',
 };
 
-export function WhatsAppConfigContent({ headingId, className }: WhatsAppConfigContentProps) {
+export function WhatsAppConfigContent({ headingId, className, whatsappNumbers = [], onUpdateWhatsappNumbers }: WhatsAppConfigContentProps) {
   const [status, setStatus] = useState<WhatsAppCheckResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,12 +125,28 @@ export function WhatsAppConfigContent({ headingId, className }: WhatsAppConfigCo
       setForm((current) => ({ ...current, accessToken: '', verifyToken: '' }));
       setSyncedStatus(false);
       await loadStatus();
+
+      // Auto-agregar el número a la lista de números disponibles para asignación
+      if (onUpdateWhatsappNumbers && payload.phoneNumberId) {
+        const existingNumber = whatsappNumbers.find(
+          (num) => num.numberId === payload.phoneNumberId
+        );
+
+        if (!existingNumber) {
+          const newNumber: import('../flow/types').WhatsAppNumberAssignment = {
+            numberId: payload.phoneNumberId, // Usar phoneNumberId como numberId para que el routing funcione
+            displayName: payload.displayNumber || payload.phoneNumberId,
+            phoneNumber: payload.displayNumber || payload.phoneNumberId,
+          };
+          onUpdateWhatsappNumbers([...whatsappNumbers, newNumber]);
+        }
+      }
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'network_error');
     } finally {
       setSaving(false);
     }
-  }, [form, loadStatus]);
+  }, [form, loadStatus, whatsappNumbers, onUpdateWhatsappNumbers]);
 
   const handleTestMessage = useCallback(async () => {
     setTesting(true);
@@ -293,7 +311,12 @@ export function WhatsAppConfigContent({ headingId, className }: WhatsAppConfigCo
             <button type="button" className="btn btn--secondary" onClick={() => void handleSave()} disabled={saving}>
               {saving ? 'Guardando…' : 'Guardar'}
             </button>
-            {saveSuccess && <span className="text-sm text-emerald-600">Credenciales guardadas correctamente.</span>}
+            {saveSuccess && (
+              <div className="text-sm text-emerald-600">
+                <p className="font-semibold">✓ Credenciales guardadas correctamente.</p>
+                <p className="text-xs mt-1">El número ya está disponible para asignar a flujos.</p>
+              </div>
+            )}
             {saveError && <span className="text-sm text-rose-600">{saveError}</span>}
           </div>
           <p className="mt-3 text-xs text-slate-500">
