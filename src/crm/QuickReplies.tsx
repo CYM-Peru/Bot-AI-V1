@@ -8,25 +8,27 @@ interface QuickReply {
 }
 
 const DEFAULT_QUICK_REPLIES: QuickReply[] = [
-  // Saludos
-  { id: "q1", title: "Buenos días", message: "¡Buenos días! ¿En qué puedo ayudarte hoy?", category: "Saludos" },
-  { id: "q2", title: "Buenas tardes", message: "¡Buenas tardes! Gracias por contactarnos. ¿En qué puedo ayudarte?", category: "Saludos" },
+  // Saludos - Use with /hola, /buenos-dias, /buenas-tardes
+  { id: "q1", title: "Buenos días (/hola)", message: "¡Buenos días! ¿En qué puedo ayudarte hoy?", category: "Saludos" },
+  { id: "q2", title: "Buenas tardes (/tardes)", message: "¡Buenas tardes! Gracias por contactarnos. ¿En qué puedo ayudarte?", category: "Saludos" },
+  { id: "q11", title: "Bienvenida (/bienvenido)", message: "¡Bienvenido/a! Es un gusto atenderte. ¿En qué te puedo ayudar el día de hoy?", category: "Saludos" },
 
-  // Espera
-  { id: "q3", title: "Un momento", message: "Dame un momento por favor, estoy verificando la información.", category: "Espera" },
-  { id: "q4", title: "Gracias por esperar", message: "Gracias por tu paciencia. Ya tengo la información que necesitas.", category: "Espera" },
+  // Espera - Use with /momento, /espera, /gracias
+  { id: "q3", title: "Un momento (/momento)", message: "Dame un momento por favor, estoy verificando la información.", category: "Espera" },
+  { id: "q4", title: "Gracias por esperar (/gracias)", message: "Gracias por tu paciencia. Ya tengo la información que necesitas.", category: "Espera" },
 
-  // Información
-  { id: "q5", title: "Horario", message: "Nuestro horario de atención es de Lunes a Viernes de 9:00 AM a 6:00 PM", category: "Información" },
-  { id: "q6", title: "Ubicación", message: "Puedes encontrarnos en [dirección]. También hacemos envíos a nivel nacional.", category: "Información" },
+  // Información - Use with /horario, /ubicacion, /envios
+  { id: "q5", title: "Horario (/horario)", message: "Nuestro horario de atención es de Lunes a Viernes de 9:00 AM a 6:00 PM", category: "Información" },
+  { id: "q6", title: "Ubicación (/ubicacion)", message: "Puedes encontrarnos en [dirección]. También hacemos envíos a nivel nacional.", category: "Información" },
+  { id: "q12", title: "Envíos (/envios)", message: "Realizamos envíos a nivel nacional. El tiempo de entrega es de 3 a 5 días hábiles.", category: "Información" },
 
-  // Despedidas
-  { id: "q7", title: "Gracias", message: "¡Gracias por contactarnos! Que tengas un excelente día.", category: "Despedidas" },
-  { id: "q8", title: "Estamos para ayudar", message: "Estamos aquí para ayudarte. No dudes en escribirnos si tienes más preguntas.", category: "Despedidas" },
+  // Despedidas - Use with /despedida, /ayuda
+  { id: "q7", title: "Despedida (/despedida)", message: "¡Gracias por contactarnos! Que tengas un excelente día.", category: "Despedidas" },
+  { id: "q8", title: "Estamos para ayudar (/ayuda)", message: "Estamos aquí para ayudarte. No dudes en escribirnos si tienes más preguntas.", category: "Despedidas" },
 
-  // Follow-up
-  { id: "q9", title: "¿Te ayudó?", message: "¿Esta información resolvió tu consulta? ¿Hay algo más en lo que pueda ayudarte?", category: "Follow-up" },
-  { id: "q10", title: "Seguimiento", message: "Te estaremos contactando pronto para darle seguimiento a tu solicitud.", category: "Follow-up" },
+  // Follow-up - Use with /resuelto, /seguimiento
+  { id: "q9", title: "¿Te ayudó? (/resuelto)", message: "¿Esta información resolvió tu consulta? ¿Hay algo más en lo que pueda ayudarte?", category: "Follow-up" },
+  { id: "q10", title: "Seguimiento (/seguimiento)", message: "Te estaremos contactando pronto para darle seguimiento a tu solicitud.", category: "Follow-up" },
 ];
 
 interface QuickRepliesProps {
@@ -87,6 +89,7 @@ export default function QuickReplies({ onSelectReply }: QuickRepliesProps) {
           >
             <div className="bg-gradient-to-r from-emerald-50 to-white px-4 py-3 border-b border-slate-200">
               <h4 className="text-sm font-bold text-slate-900">⚡ Respuestas Rápidas</h4>
+              <p className="text-xs text-slate-500 mt-1">Busca por comando (/hola, /horario, etc.) o por texto</p>
               <input
                 type="text"
                 value={searchTerm}
