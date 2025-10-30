@@ -1,5 +1,6 @@
 import express, { type Request, type Response } from "express";
 import { logDebug, logError } from "../../utils/file-logger";
+import axios from "axios";
 
 const router = express.Router();
 
@@ -30,21 +31,15 @@ router.get("/media/:id", async (req: Request, res: Response) => {
   try {
     logDebug(`[Media Proxy] Fetching metadata for media ID: ${mediaId}`);
 
-    // Step 1: Get metadata (URL, mime_type, etc.)
+    // Step 1: Get metadata usando axios
     const metaUrl = `${GRAPH_API_BASE}/${GRAPH_API_VERSION}/${mediaId}`;
-    const metaResponse = await fetch(metaUrl, {
+    const metaResponse = await axios.get(metaUrl, {
       headers: {
         Authorization: `Bearer ${ACCESS_TOKEN}`,
       },
     });
 
-    if (!metaResponse.ok) {
-      logError(`[Media Proxy] Failed to get metadata: HTTP ${metaResponse.status}`);
-      res.status(metaResponse.status).json({ error: "Failed to get media metadata" });
-      return;
-    }
-
-    const metadata = (await metaResponse.json()) as {
+    const metadata = metaResponse.data as {
       url?: string;
       mime_type?: string;
       file_size?: number;
@@ -59,54 +54,23 @@ router.get("/media/:id", async (req: Request, res: Response) => {
     }
 
     logDebug(`[Media Proxy] Downloading from: ${metadata.url.substring(0, 50)}...`);
+    logDebug("[Media Proxy] Using axios with responseType: arraybuffer");
 
-    // Step 2: Download binary file
-    // Try multiple methods to handle Meta's weird authentication
-    let binaryResponse: Response | null = null;
-
-    // Method 1: With Authorization header
-    logDebug("[Media Proxy] Attempt 1: With Authorization Bearer");
-    binaryResponse = await fetch(metadata.url, {
+    // Step 2: Download binary file usando axios
+    // Según Stack Overflow, axios funciona donde fetch falla
+    const binaryResponse = await axios.get(metadata.url, {
       headers: {
         Authorization: `Bearer ${ACCESS_TOKEN}`,
         "User-Agent": "curl/7.64.1",
       },
+      responseType: "arraybuffer",
+      maxRedirects: 5,
+      timeout: 30000,
     });
 
-    // Method 2: Without Authorization (signed URL)
-    if (!binaryResponse.ok && binaryResponse.status === 404) {
-      logDebug("[Media Proxy] Attempt 2: Without Authorization (signed URL)");
-      binaryResponse = await fetch(metadata.url, {
-        headers: {
-          "User-Agent": "curl/7.64.1",
-        },
-      });
-    }
+    logDebug(`[Media Proxy] ✅ Download successful with axios`);
 
-    // Method 3: Authorization without Bearer prefix
-    if (!binaryResponse.ok && binaryResponse.status === 401) {
-      logDebug("[Media Proxy] Attempt 3: Authorization without Bearer");
-      binaryResponse = await fetch(metadata.url, {
-        headers: {
-          Authorization: ACCESS_TOKEN,
-          "User-Agent": "curl/7.64.1",
-        },
-      });
-    }
-
-    if (!binaryResponse.ok) {
-      const errorText = await binaryResponse.text();
-      logError(`[Media Proxy] Failed to download: HTTP ${binaryResponse.status}`, errorText);
-      res.status(binaryResponse.status).json({
-        error: "Failed to download media",
-        details: errorText,
-      });
-      return;
-    }
-
-    logDebug(`[Media Proxy] Download successful, streaming to client`);
-
-    // Step 3: Set proper headers and stream to client
+    // Step 3: Set proper headers and send to client
     const mimeType = metadata.mime_type || "application/octet-stream";
     res.setHeader("Content-Type", mimeType);
 
@@ -123,18 +87,24 @@ router.get("/media/:id", async (req: Request, res: Response) => {
     // Cache for 1 hour (media doesn't change)
     res.setHeader("Cache-Control", "public, max-age=3600");
 
-    // Stream the binary data to the client
-    const arrayBuffer = await binaryResponse.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
+    // Send the binary data
+    const buffer = Buffer.from(binaryResponse.data);
     logDebug(`[Media Proxy] Sent ${buffer.length} bytes to client`);
     res.send(buffer);
   } catch (error) {
-    logError("[Media Proxy] Exception:", error);
-    res.status(500).json({
-      error: "Internal server error",
-      message: error instanceof Error ? error.message : String(error),
-    });
+    if (axios.isAxiosError(error)) {
+      logError(`[Media Proxy] Axios error: HTTP ${error.response?.status}`, error.response?.data);
+      res.status(error.response?.status || 500).json({
+        error: "Failed to download media",
+        details: error.message,
+      });
+    } else {
+      logError("[Media Proxy] Exception:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 });
 

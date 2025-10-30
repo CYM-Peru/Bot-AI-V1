@@ -5,6 +5,7 @@ import type { BitrixService } from "./services/bitrix";
 import { attachmentStorage } from "./storage";
 import type { Attachment, MessageType } from "./models";
 import { logDebug, logError } from "../utils/file-logger";
+import axios from "axios";
 
 interface HandleIncomingArgs {
   entryId: string;
@@ -108,27 +109,34 @@ async function translateMessage(message: WhatsAppMessage): Promise<{
         logError(`[CRM][Media] No se pudo extraer info de media del mensaje tipo ${message.type}`);
         return { type: "document", text: null, attachment: null };
       }
-
-      // WORKAROUND: No descargar media porque la IP está bloqueada por Meta
-      // En su lugar, guardar el media_id como referencia
-      logDebug(`[CRM][Media] Guardando ${message.type} con ID: ${mediaInfo.id} (sin descargar)`);
-
-      const typeEmoji = message.type === "image" ? "🖼️" :
-                        message.type === "video" ? "🎥" :
-                        message.type === "audio" ? "🎵" :
-                        message.type === "document" ? "📎" : "📄";
-
+      logDebug(`[CRM][Media] Descargando ${message.type} con ID: ${mediaInfo.id} (usando axios)`);
+      const downloaded = await downloadMedia(mediaInfo.id, mediaInfo.mimeType ?? undefined);
+      if (!downloaded) {
+        logError(`[CRM][Media] Falló descarga de ${message.type} con ID: ${mediaInfo.id}`);
+        return {
+          type: mapType(message.type),
+          text: mediaInfo.caption ?? null,
+          attachment: null,
+        };
+      }
+      logDebug(`[CRM][Media] Descarga exitosa: ${downloaded.filename} (${downloaded.mime}, ${downloaded.buffer.length} bytes)`);
+      const stored = await attachmentStorage.saveBuffer({
+        buffer: downloaded.buffer,
+        filename: downloaded.filename,
+        mime: downloaded.mime,
+      });
+      logDebug(`[CRM][Media] Guardado en storage: ${stored.url}`);
       return {
         type: mapType(message.type),
         text: mediaInfo.caption ?? null,
         attachment: {
-          id: mediaInfo.id, // Usar media_id como ID
+          id: stored.id,
           msgId: null,
-          filename: `${typeEmoji} Adjunto de WhatsApp`,
-          mime: mediaInfo.mimeType ?? "application/octet-stream",
-          size: 0,
-          url: `/api/crm/media/${mediaInfo.id}`, // URL del proxy (puede fallar pero intentará)
-          thumbUrl: null,
+          filename: downloaded.filename,
+          mime: downloaded.mime,
+          size: stored.size,
+          url: stored.url,
+          thumbUrl: stored.url,
           createdAt: Date.now(),
         },
       };
@@ -187,56 +195,49 @@ async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buff
   const baseUrl = process.env.WHATSAPP_API_BASE_URL ?? "https://graph.facebook.com";
   const version = process.env.WHATSAPP_API_VERSION ?? "v20.0";
   try {
+    // Step 1: Get metadata usando axios
     const metaUrl = `${baseUrl}/${version}/${mediaId}`;
     logDebug(`[CRM][Media] Obteniendo metadata de: ${metaUrl}`);
-    const metaResponse = await fetch(metaUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+
+    const metaResponse = await axios.get(metaUrl, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
     });
-    if (!metaResponse.ok) {
-      logError(`[CRM][Media] Error obteniendo metadata: HTTP ${metaResponse.status}`);
-      const errorText = await metaResponse.text();
-      logError(`[CRM][Media] Respuesta de error:`, errorText);
-      return null;
-    }
-    const meta = (await metaResponse.json()) as { url?: string; mime_type?: string; file_size?: number; id?: string }; // eslint-disable-line @typescript-eslint/consistent-type-assertions
+
+    const meta = metaResponse.data as { url?: string; mime_type?: string; file_size?: number; id?: string };
     if (!meta.url) {
       logError("[CRM][Media] Metadata no contiene URL del archivo");
       return null;
     }
-    logDebug(`[CRM][Media] URL completa de descarga: ${meta.url}`);
 
-    // Intentar varias formas de autenticación según la API de WhatsApp
-    logDebug(`[CRM][Media] Intentando descarga (método 1: sin Bearer prefix)...`);
-    let mediaResponse = await fetch(meta.url, {
-      headers: { Authorization: accessToken }, // Sin "Bearer"
+    logDebug(`[CRM][Media] URL completa de descarga: ${meta.url}`);
+    logDebug(`[CRM][Media] Descargando con axios (responseType: arraybuffer)...`);
+
+    // Step 2: Download usando axios con arraybuffer
+    // Según reportes de Stack Overflow, axios funciona donde fetch falla
+    const mediaResponse = await axios.get(meta.url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "User-Agent": "curl/7.64.1",
+      },
+      responseType: "arraybuffer",
+      maxRedirects: 5,
+      timeout: 30000, // 30 segundos
     });
 
-    // Si falla, intentar con Bearer
-    if (!mediaResponse.ok) {
-      logDebug(`[CRM][Media] Método 1 falló (${mediaResponse.status}), intentando con Bearer prefix...`);
-      mediaResponse = await fetch(meta.url, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-    }
-
-    // Si aún falla con 404, intentar sin header (URLs firmadas)
-    if (!mediaResponse.ok && mediaResponse.status === 404) {
-      logDebug(`[CRM][Media] Método 2 falló con 404, intentando sin Authorization header...`);
-      mediaResponse = await fetch(meta.url);
-    }
-
-    if (!mediaResponse.ok) {
-      logError(`[CRM][Media] Error descargando archivo: HTTP ${mediaResponse.status}`);
-      const errorBody = await mediaResponse.text();
-      logError(`[CRM][Media] Cuerpo de error: ${errorBody}`);
-      return null;
-    }
-    const arrayBuffer = await mediaResponse.arrayBuffer();
+    const buffer = Buffer.from(mediaResponse.data);
     const mime = meta.mime_type ?? mimeHint ?? "application/octet-stream";
     const filename = `${mediaId}`;
-    return { buffer: Buffer.from(arrayBuffer), filename, mime };
+
+    logDebug(`[CRM][Media] ✅ Descarga exitosa con axios: ${buffer.length} bytes`);
+    return { buffer, filename, mime };
   } catch (error) {
-    logError("[CRM] Unable to download WhatsApp media", error);
+    if (axios.isAxiosError(error)) {
+      logError(`[CRM][Media] Axios error: HTTP ${error.response?.status}`, error.response?.data);
+    } else {
+      logError("[CRM][Media] Error descargando media", error);
+    }
     return null;
   }
 }
