@@ -194,27 +194,31 @@ async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buff
     return null;
   }
 
-  // USAR PROXY LOCAL (media-proxy-3080) para descargar media
-  const proxyUrl = `http://127.0.0.1:3080/media/${mediaId}`;
-  logDebug(`[CRM][Media] Descargando desde proxy local: ${proxyUrl}`);
+  // USAR CLOUDFLARE WORKER para descargar media (más confiable)
+  const workerUrl = "https://rapid-surf-b867.cpalomino.workers.dev/download";
+  logDebug(`[CRM][Media] Descargando desde Cloudflare Worker: ${mediaId}`);
 
   try {
-    const proxyResponse = await axios.get(proxyUrl, {
+    const workerResponse = await axios.post(workerUrl, {
+      mediaId: mediaId,
+      accessToken: whatsappEnv.accessToken,
+      apiVersion: whatsappEnv.apiVersion || "v20.0"
+    }, {
       responseType: "arraybuffer",
       timeout: 30000, // 30 segundos
     });
 
-    const buffer = Buffer.from(proxyResponse.data);
-    const mime = proxyResponse.headers['content-type'] || mimeHint || "application/octet-stream";
+    const buffer = Buffer.from(workerResponse.data);
+    const mime = workerResponse.headers['content-type'] || mimeHint || "application/octet-stream";
     const filename = `${mediaId}`;
 
-    logDebug(`[CRM][Media] ✅ Descarga exitosa desde proxy: ${buffer.length} bytes`);
+    logDebug(`[CRM][Media] ✅ Descarga exitosa desde Cloudflare: ${buffer.length} bytes`);
     return { buffer, filename, mime };
   } catch (error) {
     if (axios.isAxiosError(error)) {
-      logError(`[CRM][Media] Proxy error: HTTP ${error.response?.status}`, error.response?.data);
+      logError(`[CRM][Media] Cloudflare Worker error: HTTP ${error.response?.status}`, error.response?.data);
     } else {
-      logError("[CRM][Media] Error descargando desde proxy", error);
+      logError("[CRM][Media] Error descargando desde Cloudflare Worker", error);
     }
     return null;
   }
