@@ -5,6 +5,7 @@ import type { BitrixService } from "./services/bitrix";
 import { attachmentStorage } from "./storage";
 import type { Attachment, MessageType } from "./models";
 import { logDebug, logError } from "../utils/file-logger";
+import { getWhatsAppEnv } from "../utils/env";
 import axios from "axios";
 
 interface HandleIncomingArgs {
@@ -187,13 +188,13 @@ async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buff
     logError("[CRM][Media] downloadMedia: mediaId vacío");
     return null;
   }
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-  if (!accessToken) {
+  const whatsappEnv = getWhatsAppEnv();
+  if (!whatsappEnv.accessToken) {
     logError("[CRM][Media] downloadMedia: WHATSAPP_ACCESS_TOKEN no configurado");
     return null;
   }
-  const baseUrl = process.env.WHATSAPP_API_BASE_URL ?? "https://graph.facebook.com";
-  const version = process.env.WHATSAPP_API_VERSION ?? "v20.0";
+  const baseUrl = whatsappEnv.baseUrl;
+  const version = whatsappEnv.apiVersion;
   try {
     // Step 1: Get metadata usando axios
     const metaUrl = `${baseUrl}/${version}/${mediaId}`;
@@ -201,7 +202,7 @@ async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buff
 
     const metaResponse = await axios.get(metaUrl, {
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${whatsappEnv.accessToken}`,
       },
     });
 
@@ -218,7 +219,7 @@ async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buff
     // Según reportes de Stack Overflow, axios funciona donde fetch falla
     const mediaResponse = await axios.get(meta.url, {
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${whatsappEnv.accessToken}`,
         "User-Agent": "curl/7.64.1",
       },
       responseType: "arraybuffer",

@@ -1,12 +1,9 @@
 import express, { type Request, type Response } from "express";
 import { logDebug, logError } from "../../utils/file-logger";
+import { getWhatsAppEnv } from "../../utils/env";
 import axios from "axios";
 
 const router = express.Router();
-
-const GRAPH_API_BASE = process.env.WHATSAPP_API_BASE_URL || "https://graph.facebook.com";
-const GRAPH_API_VERSION = process.env.WHATSAPP_API_VERSION || "v20.0";
-const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
 
 /**
  * GET /crm/media/:id
@@ -22,7 +19,8 @@ router.get("/media/:id", async (req: Request, res: Response) => {
     return;
   }
 
-  if (!ACCESS_TOKEN) {
+  const whatsappEnv = getWhatsAppEnv();
+  if (!whatsappEnv.accessToken) {
     logError("[Media Proxy] WHATSAPP_ACCESS_TOKEN not configured");
     res.status(500).json({ error: "Server not configured" });
     return;
@@ -32,10 +30,10 @@ router.get("/media/:id", async (req: Request, res: Response) => {
     logDebug(`[Media Proxy] Fetching metadata for media ID: ${mediaId}`);
 
     // Step 1: Get metadata usando axios
-    const metaUrl = `${GRAPH_API_BASE}/${GRAPH_API_VERSION}/${mediaId}`;
+    const metaUrl = `${whatsappEnv.baseUrl}/${whatsappEnv.apiVersion}/${mediaId}`;
     const metaResponse = await axios.get(metaUrl, {
       headers: {
-        Authorization: `Bearer ${ACCESS_TOKEN}`,
+        Authorization: `Bearer ${whatsappEnv.accessToken}`,
       },
     });
 
@@ -60,7 +58,7 @@ router.get("/media/:id", async (req: Request, res: Response) => {
     // Según Stack Overflow, axios funciona donde fetch falla
     const binaryResponse = await axios.get(metadata.url, {
       headers: {
-        Authorization: `Bearer ${ACCESS_TOKEN}`,
+        Authorization: `Bearer ${whatsappEnv.accessToken}`,
         "User-Agent": "curl/7.64.1",
       },
       responseType: "arraybuffer",
