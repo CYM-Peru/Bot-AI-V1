@@ -1619,7 +1619,7 @@ export default function App(): JSX.Element {
           errorTargetId: null,
         },
         scheduler: normalizeSchedulerData(undefined),
-        delay: { seconds: 5, note: "Espera de 5 segundos" },
+        delay: { delaySeconds: 5, note: "Espera de 5 segundos" },
         end: { note: "Fin del flujo" },
       };
 
@@ -2098,7 +2098,7 @@ export default function App(): JSX.Element {
             transfer: { target: "open_channel", destination: "ventas" },
             handoff: { queue: "agentes", note: "Pasar a un agente humano" },
             scheduler: normalizeSchedulerData(undefined),
-            delay: { seconds: 5, note: "Espera de 5 segundos" },
+            delay: { delaySeconds: 5, note: "Espera de 5 segundos" },
             ia_rag: {
               model: "gpt-4",
               prompt: "Responde la pregunta del usuario basándote en el contexto",
@@ -3870,8 +3870,8 @@ export default function App(): JSX.Element {
                             max="300"
                             className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-sky-300"
                             placeholder="5"
-                            value={selected.action?.data?.seconds ?? 5}
-                            onChange={(e)=>updateSelected({ action:{ kind:"delay", data:{ ...(selected.action?.data||{}), seconds:parseInt(e.target.value)||5 } } })}
+                            value={selected.action?.data?.delaySeconds ?? 5}
+                            onChange={(e)=>updateSelected({ action:{ kind:"delay", data:{ ...(selected.action?.data||{}), delaySeconds:parseInt(e.target.value)||5 } } })}
                           />
                           <p className="text-[10px] text-slate-400">Entre 1 y 300 segundos (5 minutos máximo)</p>
                         </div>
