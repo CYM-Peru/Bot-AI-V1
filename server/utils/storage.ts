@@ -8,9 +8,6 @@ const secretsRoot = process.env.BACKEND_SECRETS_DIR
 const dataRoot = process.env.BACKEND_DATA_DIR
   ? path.resolve(process.env.BACKEND_DATA_DIR)
   : path.join(DEFAULT_ROOT, ".data");
-const logsRoot = process.env.LOGS_DIR
-  ? path.resolve(process.env.LOGS_DIR)
-  : path.join(process.cwd(), "logs");
 
 function ensureDirSync(dirPath: string, mode: number) {
   if (!fs.existsSync(dirPath)) {
@@ -28,7 +25,6 @@ function ensureDirSync(dirPath: string, mode: number) {
 export function ensureStorageSetup() {
   ensureDirSync(secretsRoot, 0o700);
   ensureDirSync(dataRoot, 0o700);
-  ensureDirSync(logsRoot, 0o755); // Logs can be slightly more permissive
 }
 
 export function getSecretsPath(fileName: string) {
