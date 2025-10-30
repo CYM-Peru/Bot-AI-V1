@@ -1545,6 +1545,7 @@ export default function App(): JSX.Element {
       | "question"
       | "validation"
       | "scheduler"
+      | "delay"
       | "end",
   ) {
     let createdId: string | null = null;
@@ -1618,6 +1619,7 @@ export default function App(): JSX.Element {
           errorTargetId: null,
         },
         scheduler: normalizeSchedulerData(undefined),
+        delay: { seconds: 5, note: "Espera de 5 segundos" },
         end: { note: "Fin del flujo" },
       };
 
@@ -1634,6 +1636,7 @@ export default function App(): JSX.Element {
         question: "Pregunta",
         validation: "Validación",
         scheduler: "Scheduler",
+        delay: "Delay",
         end: "Fin del flujo",
       };
 
@@ -1650,6 +1653,7 @@ export default function App(): JSX.Element {
         question: "ask",
         validation: "condition",
         scheduler: "scheduler",
+        delay: "delay",
         end: "end",
       };
 
@@ -2014,7 +2018,11 @@ export default function App(): JSX.Element {
           webhook_out: "Webhook OUT",
           webhook_in: "Webhook IN",
           transfer: "Transferencia",
+          handoff: "Handoff (Humano)",
           scheduler: "Scheduler",
+          delay: "Delay (Espera)",
+          ia_rag: "IA · RAG",
+          tool: "Tool/Acción externa",
           end: "Fin del flujo",
         };
 
@@ -2031,7 +2039,11 @@ export default function App(): JSX.Element {
             webhook_out: "webhook_out",
             webhook_in: "webhook_in",
             transfer: "transfer",
+            handoff: "handoff",
             scheduler: "scheduler",
+            delay: "delay",
+            ia_rag: "ia_rag",
+            tool: "tool",
             end: "end",
           };
 
@@ -2084,7 +2096,21 @@ export default function App(): JSX.Element {
             },
             webhook_in: { path: "/hooks/inbound", secret: "", sample: "{ id: 123, text: 'hola' }" },
             transfer: { target: "open_channel", destination: "ventas" },
+            handoff: { queue: "agentes", note: "Pasar a un agente humano" },
             scheduler: normalizeSchedulerData(undefined),
+            delay: { seconds: 5, note: "Espera de 5 segundos" },
+            ia_rag: {
+              model: "gpt-4",
+              prompt: "Responde la pregunta del usuario basándote en el contexto",
+              knowledgeBase: "default",
+              temperature: 0.7
+            },
+            tool: {
+              toolName: "custom_action",
+              endpoint: "https://api.ejemplo.com/action",
+              method: "POST",
+              params: {}
+            },
             end: { note: "Fin del flujo" },
           };
 
@@ -3683,28 +3709,181 @@ export default function App(): JSX.Element {
                     )}
 
                     {selected.action?.kind==="transfer" && (
-                      <div className="space-y-2">
-                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Destino" value={selected.action?.data?.destination ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"transfer", data:{ ...(selected.action?.data||{}), destination:e.target.value } } })} />
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-500">Tipo de transferencia</label>
+                          <select className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                            value={selected.action?.data?.target ?? "open_channel"}
+                            onChange={(e)=>updateSelected({ action:{ kind:"transfer", data:{ ...(selected.action?.data||{}), target:e.target.value } } })}>
+                            <option value="open_channel">Canal abierto</option>
+                            <option value="specific_agent">Agente específico</option>
+                            <option value="department">Departamento</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-500">Destino</label>
+                          <input
+                            className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                            placeholder="Ej: ventas, soporte, agente_001"
+                            value={selected.action?.data?.destination ?? ""}
+                            onChange={(e)=>updateSelected({ action:{ kind:"transfer", data:{ ...(selected.action?.data||{}), destination:e.target.value } } })}
+                          />
+                          <p className="text-[10px] text-slate-400">Especifica el nombre del departamento o agente al que se transferirá</p>
+                        </div>
                       </div>
                     )}
 
                     {selected.action?.kind==="handoff" && (
-                      <div className="space-y-2">
-                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Cola" value={selected.action?.data?.queue ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"handoff", data:{ ...(selected.action?.data||{}), queue:e.target.value } } })} />
-                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Nota" value={selected.action?.data?.note ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"handoff", data:{ ...(selected.action?.data||{}), note:e.target.value } } })} />
+                      <div className="space-y-3">
+                        <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-800">
+                          🤝 El Handoff transfiere la conversación a un agente humano. El bot dejará de responder automáticamente.
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-500">Cola de agentes</label>
+                          <input
+                            className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                            placeholder="Ej: agentes, soporte, ventas"
+                            value={selected.action?.data?.queue ?? ""}
+                            onChange={(e)=>updateSelected({ action:{ kind:"handoff", data:{ ...(selected.action?.data||{}), queue:e.target.value } } })}
+                          />
+                          <p className="text-[10px] text-slate-400">Nombre de la cola donde se asignará la conversación</p>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-500">Nota interna (opcional)</label>
+                          <textarea
+                            className="w-full border rounded px-3 py-2 text-xs resize-y min-h-[60px] focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                            placeholder="Información adicional para el agente..."
+                            value={selected.action?.data?.note ?? ""}
+                            onChange={(e)=>updateSelected({ action:{ kind:"handoff", data:{ ...(selected.action?.data||{}), note:e.target.value } } })}
+                          />
+                        </div>
                       </div>
                     )}
 
                     {selected.action?.kind==="ia_rag" && (
-                      <div className="space-y-2">
-                        <textarea className="w-full border rounded px-2 py-1 text-xs h-24" placeholder="Prompt" value={selected.action?.data?.prompt ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"ia_rag", data:{ ...(selected.action?.data||{}), prompt:e.target.value } } })} />
+                      <div className="space-y-3">
+                        <div className="p-3 rounded-lg bg-purple-50 border border-purple-200 text-[11px] text-purple-800">
+                          🤖 IA · RAG usa inteligencia artificial para responder consultando tu base de conocimiento
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-500">Modelo</label>
+                          <select
+                            className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-purple-300"
+                            value={selected.action?.data?.model ?? "gpt-4"}
+                            onChange={(e)=>updateSelected({ action:{ kind:"ia_rag", data:{ ...(selected.action?.data||{}), model:e.target.value } } })}>
+                            <option value="gpt-4">GPT-4</option>
+                            <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                            <option value="claude-3">Claude 3</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-500">Prompt del sistema</label>
+                          <textarea
+                            className="w-full border rounded px-3 py-2 text-xs resize-y min-h-[80px] focus:outline-none focus:ring-2 focus:ring-purple-300"
+                            placeholder="Ej: Responde la pregunta del usuario basándote en el contexto..."
+                            value={selected.action?.data?.prompt ?? ""}
+                            onChange={(e)=>updateSelected({ action:{ kind:"ia_rag", data:{ ...(selected.action?.data||{}), prompt:e.target.value } } })}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-500">Base de conocimiento</label>
+                          <input
+                            className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-purple-300"
+                            placeholder="default"
+                            value={selected.action?.data?.knowledgeBase ?? "default"}
+                            onChange={(e)=>updateSelected({ action:{ kind:"ia_rag", data:{ ...(selected.action?.data||{}), knowledgeBase:e.target.value } } })}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-500">Temperatura (0-1)</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="1"
+                            className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-purple-300"
+                            value={selected.action?.data?.temperature ?? 0.7}
+                            onChange={(e)=>updateSelected({ action:{ kind:"ia_rag", data:{ ...(selected.action?.data||{}), temperature:parseFloat(e.target.value) } } })}
+                          />
+                          <p className="text-[10px] text-slate-400">Mayor = más creativo, Menor = más preciso</p>
+                        </div>
                       </div>
                     )}
 
                     {selected.action?.kind==="tool" && (
-                      <div className="space-y-2">
-                        <input className="w-full border rounded px-2 py-1 text-xs" placeholder="Nombre del tool" value={selected.action?.data?.name ?? ""} onChange={(e)=>updateSelected({ action:{ kind:"tool", data:{ ...(selected.action?.data||{}), name:e.target.value } } })} />
-                        <textarea className="w-full border rounded px-2 py-1 text-xs h-24 font-mono" placeholder='Args JSON' value={JSON.stringify(selected.action?.data?.args ?? {}, null, 2)} onChange={(e)=>{ let val={}; try{ val=JSON.parse(e.target.value||"{}"); }catch{} updateSelected({ action:{ kind:"tool", data:{ ...(selected.action?.data||{}), args:val } } }); }} />
+                      <div className="space-y-3">
+                        <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-[11px] text-blue-800">
+                          🔧 Tool/Acción externa ejecuta una función personalizada o integración externa
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-500">Nombre del tool</label>
+                          <input
+                            className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300"
+                            placeholder="Ej: custom_action, api_call, process_data"
+                            value={selected.action?.data?.toolName ?? selected.action?.data?.name ?? ""}
+                            onChange={(e)=>updateSelected({ action:{ kind:"tool", data:{ ...(selected.action?.data||{}), toolName:e.target.value, name:e.target.value } } })}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-500">Endpoint (opcional)</label>
+                          <input
+                            className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300"
+                            placeholder="https://api.ejemplo.com/action"
+                            value={selected.action?.data?.endpoint ?? ""}
+                            onChange={(e)=>updateSelected({ action:{ kind:"tool", data:{ ...(selected.action?.data||{}), endpoint:e.target.value } } })}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-500">Método</label>
+                          <select
+                            className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300"
+                            value={selected.action?.data?.method ?? "POST"}
+                            onChange={(e)=>updateSelected({ action:{ kind:"tool", data:{ ...(selected.action?.data||{}), method:e.target.value } } })}>
+                            <option value="POST">POST</option>
+                            <option value="GET">GET</option>
+                            <option value="PUT">PUT</option>
+                            <option value="PATCH">PATCH</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-500">Parámetros (JSON)</label>
+                          <textarea
+                            className="w-full border rounded px-3 py-2 text-xs resize-y min-h-[80px] font-mono focus:outline-none focus:ring-2 focus:ring-blue-300"
+                            placeholder='{\n  "param1": "value1",\n  "param2": "value2"\n}'
+                            value={JSON.stringify(selected.action?.data?.params ?? selected.action?.data?.args ?? {}, null, 2)}
+                            onChange={(e)=>{ let val={}; try{ val=JSON.parse(e.target.value||"{}"); }catch{} updateSelected({ action:{ kind:"tool", data:{ ...(selected.action?.data||{}), params:val, args:val } } }); }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {selected.action?.kind==="delay" && (
+                      <div className="space-y-3">
+                        <div className="p-3 rounded-lg bg-sky-50 border border-sky-200 text-[11px] text-sky-800">
+                          ⏱️ Delay pausa el flujo durante el tiempo especificado antes de continuar al siguiente nodo
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-500">Tiempo de espera (segundos)</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="300"
+                            className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-sky-300"
+                            placeholder="5"
+                            value={selected.action?.data?.seconds ?? 5}
+                            onChange={(e)=>updateSelected({ action:{ kind:"delay", data:{ ...(selected.action?.data||{}), seconds:parseInt(e.target.value)||5 } } })}
+                          />
+                          <p className="text-[10px] text-slate-400">Entre 1 y 300 segundos (5 minutos máximo)</p>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-500">Nota interna (opcional)</label>
+                          <textarea
+                            className="w-full border rounded px-3 py-2 text-xs resize-y min-h-[60px] focus:outline-none focus:ring-2 focus:ring-sky-300"
+                            placeholder="Ej: Esperar para simular que un agente está escribiendo..."
+                            value={selected.action?.data?.note ?? ""}
+                            onChange={(e)=>updateSelected({ action:{ kind:"delay", data:{ ...(selected.action?.data||{}), note:e.target.value } } })}
+                          />
+                        </div>
                       </div>
                     )}
                   </div>
