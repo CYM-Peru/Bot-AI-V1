@@ -2323,6 +2323,15 @@ export default function App(): JSX.Element {
     });
   }
 
+  // Handle successful login - show splash then authenticate
+  const handleLoginSuccess = () => {
+    setShowWelcomeSplash(true);
+    // Check auth after showing splash
+    setTimeout(() => {
+      checkAuth();
+    }, 100);
+  };
+
   // Show loading spinner while checking authentication
   if (isLoading) {
     return (
@@ -2334,15 +2343,6 @@ export default function App(): JSX.Element {
       </div>
     );
   }
-
-  // Handle successful login - show splash then authenticate
-  const handleLoginSuccess = () => {
-    setShowWelcomeSplash(true);
-    // Check auth after showing splash
-    setTimeout(() => {
-      checkAuth();
-    }, 100);
-  };
 
   // Show login page if not authenticated
   if (!isAuthenticated) {
