@@ -11,6 +11,11 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): void {
+  // If headers already sent, delegate to default Express error handler
+  if (res.headersSent) {
+    return _next(err);
+  }
+
   // Default to 500 if no status code
   let statusCode = 500;
   let errorCode = "internal_error";
