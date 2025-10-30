@@ -5,6 +5,7 @@ import type { Bitrix24Client } from "../../src/integrations/bitrix24";
 import { createAttachmentsRouter } from "./routes/attachments";
 import { createMessagesRouter } from "./routes/messages";
 import { createConversationsRouter } from "./routes/conversations";
+import mediaRouter from "./routes/media";
 import { createBitrixService } from "./services/bitrix";
 import { handleIncomingWhatsAppMessage } from "./inbound";
 import type { CrmRealtimeManager } from "./ws";
@@ -28,6 +29,7 @@ export function registerCrmModule(options: RegisterCrmOptions) {
   router.use("/attachments", createAttachmentsRouter());
   router.use("/messages", createMessagesRouter(realtime, bitrixService));
   router.use("/conversations", createConversationsRouter(realtime, bitrixService));
+  router.use(mediaRouter); // Media proxy endpoint: /api/crm/media/:id
 
   options.app.use("/api/crm", router);
 
