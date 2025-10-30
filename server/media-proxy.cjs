@@ -7,15 +7,24 @@
 
 const express = require('express');
 const axios = require('axios');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.MEDIA_PROXY_PORT || 3080;
 const ACCESS_TOKEN = process.env.META_WABA_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
+const APP_SECRET = process.env.FB_APP_SECRET;
 const API_VERSION = process.env.FB_GRAPH_VERSION || 'v20.0';
 
 if (!ACCESS_TOKEN) {
   console.error('ERROR: META_WABA_TOKEN o WHATSAPP_ACCESS_TOKEN no configurado');
   process.exit(1);
+}
+
+// Generar appsecret_proof si tenemos el app secret
+let appsecretProof = null;
+if (APP_SECRET) {
+  appsecretProof = crypto.createHmac('sha256', APP_SECRET).update(ACCESS_TOKEN).digest('hex');
+  console.log(`[Proxy] App Secret configurado - usando appsecret_proof`);
 }
 
 console.log(`[Proxy] Iniciando con API version: ${API_VERSION}`);
@@ -29,8 +38,14 @@ app.get('/media/:mediaId', async (req, res) => {
 
   try {
     // Step 1: Obtener metadata de Facebook
-    const metaUrl = `https://graph.facebook.com/${API_VERSION}/${mediaId}`;
-    console.log(`[Proxy] Obteniendo metadata: ${metaUrl}`);
+    let metaUrl = `https://graph.facebook.com/${API_VERSION}/${mediaId}`;
+
+    // Agregar appsecret_proof si está disponible
+    if (appsecretProof) {
+      metaUrl += `?appsecret_proof=${appsecretProof}`;
+    }
+
+    console.log(`[Proxy] Obteniendo metadata: ${metaUrl.replace(appsecretProof || '', 'XXX')}`);
 
     const metaResponse = await axios.get(metaUrl, {
       headers: {
@@ -51,7 +66,14 @@ app.get('/media/:mediaId', async (req, res) => {
     console.log(`[Proxy] URL de descarga: ${metadata.url.substring(0, 60)}...`);
 
     // Step 2: Descargar el archivo
-    const mediaResponse = await axios.get(metadata.url, {
+    // Agregar appsecret_proof a la URL de descarga también
+    let downloadUrl = metadata.url;
+    if (appsecretProof && !downloadUrl.includes('appsecret_proof')) {
+      const separator = downloadUrl.includes('?') ? '&' : '?';
+      downloadUrl += `${separator}appsecret_proof=${appsecretProof}`;
+    }
+
+    const mediaResponse = await axios.get(downloadUrl, {
       headers: {
         'Authorization': `Bearer ${ACCESS_TOKEN}`,
         'User-Agent': 'curl/7.64.1',
