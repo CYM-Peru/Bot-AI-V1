@@ -90,16 +90,30 @@ function createWhatsAppHandler() {
     },
     resolveFlow: async (context) => {
       const phoneNumber = context.message.from;
+      const phoneNumberId = context.value.metadata?.phone_number_id;
       const defaultFlowId = process.env.DEFAULT_FLOW_ID || "default-flow";
+
+      let flowId = defaultFlowId;
+
+      // Try to find flow assigned to this WhatsApp number
+      if (phoneNumberId && flowProvider instanceof LocalStorageFlowProvider) {
+        const assignedFlow = await flowProvider.findFlowByWhatsAppNumber(phoneNumberId);
+        if (assignedFlow) {
+          flowId = assignedFlow.id;
+          console.log(`[WhatsApp] Using assigned flow ${flowId} for number ${phoneNumberId}`);
+        } else {
+          console.log(`[WhatsApp] No assignment found for number ${phoneNumberId}, using default flow ${defaultFlowId}`);
+        }
+      }
 
       // Log conversation start
       const sessionId = `whatsapp_${phoneNumber}`;
-      botLogger.logConversationStarted(sessionId, defaultFlowId);
-      metricsTracker.startConversation(sessionId, defaultFlowId);
+      botLogger.logConversationStarted(sessionId, flowId);
+      metricsTracker.startConversation(sessionId, flowId);
 
       return {
         sessionId,
-        flowId: defaultFlowId,
+        flowId,
         contactId: phoneNumber,
         channel: "whatsapp",
       };
