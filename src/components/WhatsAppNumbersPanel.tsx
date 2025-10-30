@@ -66,6 +66,14 @@ export function WhatsAppNumbersPanel({ numbers, onUpdate }: WhatsAppNumbersPanel
         </button>
       </div>
 
+      {/* Info notice */}
+      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+        <p className="text-xs text-blue-800">
+          <strong>💡 Tip:</strong> Los números configurados en "Conexiones → WhatsApp" se agregan automáticamente aquí.
+          También puedes agregar números manualmente para organización.
+        </p>
+      </div>
+
       {/* Add new number form */}
       {showAdd && (
         <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
