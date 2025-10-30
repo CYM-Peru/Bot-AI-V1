@@ -4,6 +4,7 @@ import { Avatar } from "./Avatar";
 import BitrixContactCard from "./BitrixContactCard";
 import Composer from "./Composer";
 import MessageList from "./MessageList";
+import TemplateSelector from "./TemplateSelector";
 import type { Attachment, Conversation, Message } from "./types";
 
 interface ChatWindowProps {
@@ -17,6 +18,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
   const [replyTo, setReplyTo] = useState<{ message: Message; attachments: Attachment[] } | null>(null);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
+  const [showTemplateSelector, setShowTemplateSelector] = useState(false);
   const [transferType, setTransferType] = useState<"advisor" | "bot">("advisor");
   const [advisors, setAdvisors] = useState<Array<{ id: string; name: string }>>([]);
   const [bots, setBots] = useState<Array<{ id: string; name: string }>>([]);
@@ -134,6 +136,60 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
     }
   };
 
+  const [accepting, setAccepting] = useState(false);
+
+  const handleAccept = async () => {
+    if (!conversation || accepting) return;
+    setAccepting(true);
+    try {
+      const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/accept`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      if (response.ok) {
+        console.log('[CRM] Conversación aceptada exitosamente:', conversation.id);
+        // Conversation will be updated via WebSocket
+      } else {
+        const error = await response.json();
+        alert(`Error: ${error.reason || 'No se pudo aceptar la conversación'}`);
+      }
+    } catch (error) {
+      console.error('[CRM] Error al aceptar conversación:', error);
+      alert('Error al aceptar la conversación');
+    } finally {
+      setAccepting(false);
+    }
+  };
+
+  const handleSendTemplate = async (templateName: string, language: string, components?: any[]) => {
+    if (!conversation) return;
+
+    try {
+      const response = await fetch(apiUrl("/api/crm/templates/send"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          phone: conversation.phone,
+          templateName,
+          language,
+          components,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to send template");
+      }
+
+      console.log('[CRM] Template sent successfully');
+    } catch (error) {
+      console.error('[CRM] Error sending template:', error);
+      throw error;
+    }
+  };
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-col gap-3 flex-shrink-0 border-b border-slate-200 bg-gradient-to-br from-emerald-50 to-white px-6 py-4 shadow-sm">
@@ -168,9 +224,32 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Status badge */}
             <div className="text-xs px-3 py-1 rounded-full font-medium bg-white border border-slate-200">
-              {conversation.status === "archived" ? "🗂️ Archivada" : "✓ Activa"}
+              {conversation.status === "archived"
+                ? "🗂️ Archivada"
+                : conversation.status === "attending"
+                ? "✓ Atendiendo"
+                : "⏱️ En cola"}
             </div>
+
+            {/* Accept button - only for queued conversations */}
+            {conversation.status === "active" && (
+              <button
+                onClick={handleAccept}
+                disabled={accepting}
+                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-emerald-500 to-emerald-600 border-0 rounded-lg shadow-md hover:from-emerald-600 hover:to-emerald-700 transition-all transform hover:scale-105 ${
+                  accepting ? "opacity-50 cursor-not-allowed" : ""
+                }`}
+                title="Aceptar conversación de la cola"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {accepting ? "Aceptando..." : "Aceptar"}
+              </button>
+            )}
+
             {conversation.status !== "archived" && (
               <>
                 <button
@@ -202,6 +281,16 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   Info
+                </button>
+                <button
+                  onClick={() => setShowTemplateSelector(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-white border border-indigo-200 rounded-lg hover:bg-indigo-50 hover:border-indigo-300 transition"
+                  title="Enviar plantilla de WhatsApp"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Plantillas
                 </button>
                 <button
                   onClick={handleArchive}
@@ -382,6 +471,15 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
             </div>
           </div>
         </div>
+      )}
+
+      {/* Template Selector Modal */}
+      {showTemplateSelector && conversation && (
+        <TemplateSelector
+          phone={conversation.phone}
+          onSend={handleSendTemplate}
+          onClose={() => setShowTemplateSelector(false)}
+        />
       )}
     </div>
   );

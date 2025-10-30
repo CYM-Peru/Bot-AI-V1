@@ -127,3 +127,58 @@ export async function sendTemplateMessage(
   } as const;
   return postToWhatsApp(config, payload);
 }
+
+export interface WhatsAppTemplate {
+  name: string;
+  language: string;
+  status: string;
+  category: string;
+  components?: Array<{
+    type: string;
+    format?: string;
+    text?: string;
+    example?: {
+      body_text?: string[][];
+      header_text?: string[];
+      header_handle?: string[];
+    };
+    buttons?: Array<{
+      type: string;
+      text: string;
+      url?: string;
+      phone_number?: string;
+    }>;
+  }>;
+}
+
+/**
+ * Fetch message templates from WhatsApp Business API
+ * Note: Requires the WABA ID, not the phone number ID
+ */
+export async function fetchMessageTemplates(
+  wabaId: string,
+  accessToken: string,
+): Promise<{ ok: boolean; templates: WhatsAppTemplate[] }> {
+  try {
+    const url = `${DEFAULT_GRAPH_BASE_URL}/${DEFAULT_GRAPH_VERSION}/${wabaId}/message_templates`;
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      console.error("[WhatsApp] Failed to fetch templates:", response.statusText);
+      return { ok: false, templates: [] };
+    }
+
+    const data = await response.json();
+    const templates = (data.data || []).filter((t: WhatsAppTemplate) => t.status === "APPROVED");
+
+    return { ok: true, templates };
+  } catch (error) {
+    console.error("[WhatsApp] Error fetching templates:", error);
+    return { ok: false, templates: [] };
+  }
+}

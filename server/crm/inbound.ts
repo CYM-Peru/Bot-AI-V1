@@ -1,5 +1,6 @@
 import type { ChangeValue, WhatsAppMessage } from "../../src/api/whatsapp-webhook";
 import { crmDb } from "./db";
+import { metricsTracker } from "./metrics-tracker";
 import type { CrmRealtimeManager } from "./ws";
 import type { BitrixService } from "./services/bitrix";
 import { attachmentStorage } from "./storage";
@@ -26,6 +27,13 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
     conversation = crmDb.createConversation(phone);
   }
 
+  // Auto-unarchive if client writes back
+  if (conversation.status === "archived") {
+    crmDb.updateConversationMeta(conversation.id, { status: "active" });
+    conversation = crmDb.getConversationById(conversation.id)!;
+    logDebug(`[CRM] Conversación ${conversation.id} auto-desarchivada al recibir mensaje`);
+  }
+
   const { type, text, attachment } = await translateMessage(args.message);
 
   const storedMessage = crmDb.appendMessage({
@@ -38,6 +46,9 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
     repliedToId: null,
     status: "delivered",
   });
+
+  // Track incoming message for metrics
+  metricsTracker.recordMessage(conversation.id, false);
 
   let storedAttachment: Attachment | null = null;
   if (attachment) {
@@ -193,51 +204,32 @@ async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buff
     logError("[CRM][Media] downloadMedia: WHATSAPP_ACCESS_TOKEN no configurado");
     return null;
   }
-  const baseUrl = whatsappEnv.baseUrl;
-  const version = whatsappEnv.apiVersion;
+
+  // USAR CLOUDFLARE WORKER para descargar media (más confiable)
+  const workerUrl = "https://rapid-surf-b867.cpalomino.workers.dev/download";
+  logDebug(`[CRM][Media] Descargando desde Cloudflare Worker: ${mediaId}`);
+
   try {
-    // Step 1: Get metadata usando axios
-    const metaUrl = `${baseUrl}/${version}/${mediaId}`;
-    logDebug(`[CRM][Media] Obteniendo metadata de: ${metaUrl}`);
-
-    const metaResponse = await axios.get(metaUrl, {
-      headers: {
-        Authorization: `Bearer ${whatsappEnv.accessToken}`,
-      },
-    });
-
-    const meta = metaResponse.data as { url?: string; mime_type?: string; file_size?: number; id?: string };
-    if (!meta.url) {
-      logError("[CRM][Media] Metadata no contiene URL del archivo");
-      return null;
-    }
-
-    logDebug(`[CRM][Media] URL completa de descarga: ${meta.url}`);
-    logDebug(`[CRM][Media] Descargando con axios (responseType: arraybuffer)...`);
-
-    // Step 2: Download usando axios con arraybuffer
-    // Según reportes de Stack Overflow, axios funciona donde fetch falla
-    const mediaResponse = await axios.get(meta.url, {
-      headers: {
-        Authorization: `Bearer ${whatsappEnv.accessToken}`,
-        "User-Agent": "curl/7.64.1",
-      },
+    const workerResponse = await axios.post(workerUrl, {
+      mediaId: mediaId,
+      accessToken: whatsappEnv.accessToken,
+      apiVersion: whatsappEnv.apiVersion || "v20.0"
+    }, {
       responseType: "arraybuffer",
-      maxRedirects: 5,
       timeout: 30000, // 30 segundos
     });
 
-    const buffer = Buffer.from(mediaResponse.data);
-    const mime = meta.mime_type ?? mimeHint ?? "application/octet-stream";
+    const buffer = Buffer.from(workerResponse.data);
+    const mime = workerResponse.headers['content-type'] || mimeHint || "application/octet-stream";
     const filename = `${mediaId}`;
 
-    logDebug(`[CRM][Media] ✅ Descarga exitosa con axios: ${buffer.length} bytes`);
+    logDebug(`[CRM][Media] ✅ Descarga exitosa desde Cloudflare: ${buffer.length} bytes`);
     return { buffer, filename, mime };
   } catch (error) {
     if (axios.isAxiosError(error)) {
-      logError(`[CRM][Media] Axios error: HTTP ${error.response?.status}`, error.response?.data);
+      logError(`[CRM][Media] Cloudflare Worker error: HTTP ${error.response?.status}`, error.response?.data);
     } else {
-      logError("[CRM][Media] Error descargando media", error);
+      logError("[CRM][Media] Error descargando desde Cloudflare Worker", error);
     }
     return null;
   }

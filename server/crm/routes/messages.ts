@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { crmDb } from "../db";
+import { metricsTracker } from "../metrics-tracker";
 import type { CrmRealtimeManager } from "../ws";
 import type { BitrixService } from "../services/bitrix";
 import { sendOutboundMessage } from "../services/whatsapp";
@@ -57,15 +58,35 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
       status: payload.isInternal ? "sent" : "pending",
     });
 
+    // Link attachment and re-fetch to get updated msgId
+    let linkedAttachment = attachments[0] ?? null;
     if (attachments.length > 0 && payload.attachmentId) {
       crmDb.linkAttachmentToMessage(payload.attachmentId, message.id);
+      // Re-fetch to get the attachment with msgId set
+      linkedAttachment = crmDb.getAttachment(payload.attachmentId) ?? linkedAttachment;
     }
 
-    socketManager.emitNewMessage({ message, attachment: attachments[0] ?? null });
+    socketManager.emitNewMessage({ message, attachment: linkedAttachment });
+
+    // Track message for metrics (only outgoing non-internal messages)
+    if (!payload.isInternal) {
+      metricsTracker.recordMessage(conversation.id, true);
+    }
 
     // Auto-cambiar a "attending" cuando el asesor responde (excepto notas internas)
+    // Y asignar al asesor si la conversación estaba en cola
     if (!payload.isInternal && conversation.status === "active") {
-      crmDb.updateConversationMeta(conversation.id, { status: "attending" });
+      const advisorId = req.user?.email || "unknown";
+      const now = Date.now();
+
+      crmDb.updateConversationMeta(conversation.id, {
+        status: "attending",
+        assignedTo: advisorId,
+        assignedAt: now,
+      });
+
+      // Start tracking metrics for this conversation
+      metricsTracker.startConversation(conversation.id, advisorId);
     }
 
     socketManager.emitConversationUpdate({ conversation: crmDb.getConversationById(conversation.id)! });
@@ -139,10 +160,9 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
           : undefined,
       );
 
-      if (status === "sent") {
-        const updatedMsg = { ...message, status };
-        socketManager.emitMessageUpdate({ message: updatedMsg, attachment: attachments[0] ?? null });
-      }
+      // SIEMPRE emitir update (sent o failed) para que el frontend actualice el mensaje
+      const updatedMsg = { ...message, status };
+      socketManager.emitMessageUpdate({ message: updatedMsg, attachment: linkedAttachment });
     }
 
     if (!conversation.bitrixId && conversation.phone) {
@@ -167,7 +187,7 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
       providerStatus: providerResult?.providerStatus ?? 0,
       echo: { convId: conversation.id, phone: conversation.phone, text: payload.text ?? null },
       message: { ...message, status },
-      attachment: attachments[0] ?? null,
+      attachment: linkedAttachment,
       error: providerResult?.error ?? null,
     });
   });

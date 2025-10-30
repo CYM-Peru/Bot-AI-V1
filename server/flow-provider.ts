@@ -69,6 +69,40 @@ export class LocalStorageFlowProvider implements FlowProvider {
     }
   }
 
+  async getAllFlows(): Promise<Flow[]> {
+    try {
+      const flowIds = await this.listFlows();
+      const flows: Flow[] = [];
+      for (const id of flowIds) {
+        const flow = await this.getFlow(id);
+        if (flow) flows.push(flow);
+      }
+      return flows;
+    } catch (error) {
+      console.error("[ERROR] Failed to get all flows:", error);
+      return [];
+    }
+  }
+
+  async findFlowByWhatsAppNumber(phoneNumberId: string): Promise<Flow | null> {
+    try {
+      const allFlows = await this.getAllFlows();
+      for (const flow of allFlows) {
+        const assignments = flow.channelAssignments || [];
+        const whatsappAssignment = assignments.find((a: any) => a.channelType === 'whatsapp');
+        if (whatsappAssignment && whatsappAssignment.whatsappNumbers) {
+          if (whatsappAssignment.whatsappNumbers.includes(phoneNumberId)) {
+            return flow;
+          }
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error("[ERROR] Failed to find flow by WhatsApp number:", error);
+      return null;
+    }
+  }
+
   async deleteFlow(flowId: string): Promise<void> {
     try {
       const filePath = this.getFlowPath(flowId);

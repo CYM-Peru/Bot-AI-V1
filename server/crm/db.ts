@@ -76,6 +76,9 @@ export class CRMDatabase {
       unread: 0,
       status: "active",
       lastMessagePreview: null,
+      assignedTo: null,
+      assignedAt: null,
+      queuedAt: now, // New conversations start in queue
     };
     this.store.conversations.push(conversation);
     this.save();
@@ -209,6 +212,75 @@ export class CRMDatabase {
     if (messageIds.length === 0) return [];
     const set = new Set(messageIds);
     return this.store.attachments.filter((attachment) => attachment.msgId && set.has(attachment.msgId));
+  }
+
+  // Queue management methods
+  acceptConversation(convId: string, advisorId: string): boolean {
+    const conversation = this.getConversationById(convId);
+    if (!conversation || conversation.status !== "active") {
+      return false;
+    }
+
+    const now = Date.now();
+    this.updateConversationMeta(convId, {
+      status: "attending",
+      assignedTo: advisorId,
+      assignedAt: now,
+    });
+
+    console.log(`[Queue] Conversation ${convId} accepted by advisor ${advisorId}`);
+    return true;
+  }
+
+  listQueuedConversations(): Conversation[] {
+    return this.store.conversations
+      .filter((conv) => conv.status === "active")
+      .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0)); // Oldest first
+  }
+
+  releaseConversation(convId: string): boolean {
+    const conversation = this.getConversationById(convId);
+    if (!conversation || conversation.status !== "attending") {
+      return false;
+    }
+
+    this.updateConversationMeta(convId, {
+      status: "active",
+      assignedTo: null,
+      assignedAt: null,
+    });
+
+    console.log(`[Queue] Conversation ${convId} released back to queue`);
+    return true;
+  }
+
+  checkTimeoutsAndReassign(timeoutMinutes: number): Conversation[] {
+    const now = Date.now();
+    const timeoutMs = timeoutMinutes * 60 * 1000;
+    const timedOut: Conversation[] = [];
+
+    for (const conversation of this.store.conversations) {
+      if (conversation.status === "attending" && conversation.assignedAt) {
+        const elapsed = now - conversation.assignedAt;
+        if (elapsed >= timeoutMs) {
+          // Check if there's been recent activity
+          const timeSinceLastMessage = now - conversation.lastMessageAt;
+
+          // Only reassign if no activity for the timeout period
+          if (timeSinceLastMessage >= timeoutMs) {
+            this.updateConversationMeta(conversation.id, {
+              status: "active",
+              assignedTo: null,
+              assignedAt: null,
+            });
+            timedOut.push(conversation);
+            console.log(`[Queue] Conversation ${conversation.id} timed out and returned to queue after ${timeoutMinutes} minutes`);
+          }
+        }
+      }
+    }
+
+    return timedOut;
   }
 }
 

@@ -11,6 +11,7 @@ interface MessageListProps {
 
 export default function MessageList({ messages, attachments, onReply }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const isInitialMount = useRef(true);
 
   const attachmentMap = useMemo(() => {
     const map = new Map<string, Attachment[]>();
@@ -31,8 +32,21 @@ export default function MessageList({ messages, attachments, onReply }: MessageL
     return map;
   }, [messages]);
 
+  // Scroll to bottom on mount (immediate) and when new messages arrive (smooth)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (isInitialMount.current) {
+      // First render: scroll immediately without animation
+      bottomRef.current?.scrollIntoView({ behavior: "auto" });
+      isInitialMount.current = false;
+
+      // Also scroll after images load (with a small delay)
+      setTimeout(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "auto" });
+      }, 300);
+    } else {
+      // Subsequent updates: smooth scroll
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages.length]);
 
   return (
@@ -40,7 +54,7 @@ export default function MessageList({ messages, attachments, onReply }: MessageL
       <div className="mx-auto flex max-w-3xl flex-col gap-3">
         {messages.map((message) => (
           <MessageBubble
-            key={message.id}
+            key={`${message.id}-${message.status}-${message.mediaUrl || 'no-media'}`}
             message={message}
             attachments={attachmentMap.get(message.id) ?? []}
             repliedTo={message.repliedToId ? messageMap.get(message.repliedToId) ?? null : null}
