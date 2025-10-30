@@ -126,6 +126,11 @@ export default function CRMPage() {
     });
 
     socket.on("crm:msg:update", ({ message, attachment }) => {
+      console.log("[CRM][Frontend] Recibido messageUpdate:", {
+        msgId: message.id,
+        mediaUrl: message.mediaUrl,
+        attachmentId: attachment?.id
+      });
       setConversationData((prev) => updateConversationData(prev, message.convId, (state) => ({
         messages: state.messages.map((item) => (item.id === message.id ? message : item)),
         attachments: attachment
