@@ -224,9 +224,11 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
                   {formatDate(conversation.lastMessageAt)}
                 </p>
                 {/* Tags */}
-                <div className="mt-2">
-                  <ConversationTags conversationId={conversation.id} />
-                </div>
+                {conversation?.id && (
+                  <div className="mt-2">
+                    <ConversationTags conversationId={conversation.id} />
+                  </div>
+                )}
               </div>
             </div>
           </div>
