@@ -27,9 +27,15 @@ import { QueueScheduler } from "./queue-scheduler";
 import { authLimiter, apiLimiter, webhookLimiter, flowLimiter } from "./middleware/rate-limit";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler";
 import logger from "./utils/logger";
+import { validateBody, validateParams } from "./middleware/validate";
+import { flowSchema, flowIdSchema } from "./schemas/validation";
+import { validateEnv } from "./utils/validate-env";
 
 // Load environment variables
 dotenv.config();
+
+// Validate environment variables (exits if validation fails)
+validateEnv();
 
 ensureStorageSetup();
 
@@ -209,7 +215,7 @@ app.all("/api/meta/webhook", webhookLimiter, async (req: Request, res: Response)
 });
 
 // API endpoint to create/update flows
-app.post("/api/flows/:flowId", flowLimiter, express.json(), async (req: Request, res: Response) => {
+app.post("/api/flows/:flowId", flowLimiter, validateParams(flowIdSchema), validateBody(flowSchema), async (req: Request, res: Response) => {
   try {
     const { flowId } = req.params;
     const flow = req.body;
@@ -224,7 +230,7 @@ app.post("/api/flows/:flowId", flowLimiter, express.json(), async (req: Request,
 });
 
 // API endpoint to get a flow
-app.get("/api/flows/:flowId", async (req: Request, res: Response) => {
+app.get("/api/flows/:flowId", validateParams(flowIdSchema), async (req: Request, res: Response) => {
   try {
     const { flowId } = req.params;
     const flow = await flowProvider.getFlow(flowId);

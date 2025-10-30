@@ -4,6 +4,9 @@ import { verifyPassword } from "../auth/password";
 import { requireAuth } from "../auth/middleware";
 import { adminDb } from "../admin-db";
 import { authLimiter } from "../middleware/rate-limit";
+import { validateBody } from "../middleware/validate";
+import { loginSchema, updateProfileSchema, changePasswordSchema } from "../schemas/validation";
+import logger from "../utils/logger";
 
 export function createAuthRouter() {
   const router = Router();
@@ -12,14 +15,9 @@ export function createAuthRouter() {
    * POST /api/auth/login
    * Login con usuario y contraseña
    */
-  router.post("/login", authLimiter, async (req, res) => {
+  router.post("/login", authLimiter, validateBody(loginSchema), async (req, res) => {
     try {
       const { username, password } = req.body;
-
-      if (!username || !password) {
-        res.status(400).json({ error: "missing_credentials", message: "Username and password required" });
-        return;
-      }
 
       // Buscar usuario por username
       const user = adminDb.getUserByUsername(username);
@@ -64,7 +62,7 @@ export function createAuthRouter() {
         token, // También enviar en el body para clientes que prefieran localStorage
       });
     } catch (error) {
-      console.error("[Auth] Login error:", error);
+      logger.error("[Auth] Login error:", error);
       res.status(500).json({ error: "internal_error", message: "Login failed" });
     }
   });
@@ -110,14 +108,9 @@ export function createAuthRouter() {
    * PATCH /api/auth/profile
    * Actualizar perfil del usuario autenticado (nombre y email)
    */
-  router.patch("/profile", requireAuth, async (req, res) => {
+  router.patch("/profile", requireAuth, validateBody(updateProfileSchema), async (req, res) => {
     try {
       const { name, email } = req.body;
-
-      if (!name && !email) {
-        res.status(400).json({ error: "missing_fields", message: "At least one field (name or email) is required" });
-        return;
-      }
 
       if (!req.user) {
         res.status(401).json({ error: "unauthorized" });
@@ -156,7 +149,7 @@ export function createAuthRouter() {
         },
       });
     } catch (error) {
-      console.error("[Auth] Update profile error:", error);
+      logger.error("[Auth] Update profile error:", error);
       res.status(500).json({ error: "internal_error", message: "Failed to update profile" });
     }
   });
@@ -165,14 +158,9 @@ export function createAuthRouter() {
    * POST /api/auth/change-password
    * Cambiar contraseña del usuario autenticado
    */
-  router.post("/change-password", authLimiter, requireAuth, async (req, res) => {
+  router.post("/change-password", authLimiter, requireAuth, validateBody(changePasswordSchema), async (req, res) => {
     try {
       const { currentPassword, newPassword } = req.body;
-
-      if (!currentPassword || !newPassword) {
-        res.status(400).json({ error: "missing_fields", message: "Current and new password required" });
-        return;
-      }
 
       if (!req.user) {
         res.status(401).json({ error: "unauthorized" });
@@ -204,7 +192,7 @@ export function createAuthRouter() {
 
       res.json({ success: true, message: "Password changed successfully" });
     } catch (error) {
-      console.error("[Auth] Change password error:", error);
+      logger.error("[Auth] Change password error:", error);
       res.status(500).json({ error: "internal_error", message: "Failed to change password" });
     }
   });
