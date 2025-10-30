@@ -40,10 +40,13 @@ jobs:
             echo "No test:ci script, skipping"
           fi
 
-      - name: Build
+      - name: Build Frontend
         run: npm run build
 
-      - name: Upload dist to VPS
+      - name: Build Backend
+        run: npm run build:server
+
+      - name: Upload Frontend (dist) to VPS
         if: github.ref == 'refs/heads/main'
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -54,7 +57,18 @@ jobs:
           target: "/var/www/flow-builder"
           strip_components: 1
 
-      - name: Fix perms & Reload Nginx
+      - name: Upload Backend to VPS
+        if: github.ref == 'refs/heads/main'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_KEY }}
+          source: "server/*,src/*,package.json,tsconfig.server.json"
+          target: "${{ secrets.VPS_APP_PATH }}"
+          rm: false
+
+      - name: Deploy Backend & Reload Services
         if: github.ref == 'refs/heads/main'
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -62,7 +76,22 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_KEY }}
           script: |
+            # Fix frontend permissions
             chown -R www-data:www-data /var/www/flow-builder
             find /var/www/flow-builder -type d -exec chmod 755 {} \;
             find /var/www/flow-builder -type f -exec chmod 644 {} \;
+
+            # Deploy backend
+            cd ${{ secrets.VPS_APP_PATH }}
+            npm install --production=false
+            npm run build:server
+
+            # Restart backend service (adjust based on your process manager)
+            # Option 1: PM2 (uncomment if using PM2)
+            # pm2 restart bot-ai-server || pm2 start dist/server/index.js --name bot-ai-server
+
+            # Option 2: systemd (uncomment if using systemd)
+            # systemctl restart bot-ai.service
+
+            # Reload nginx
             nginx -t && systemctl reload nginx
