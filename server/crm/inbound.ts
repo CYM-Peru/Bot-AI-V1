@@ -231,11 +231,20 @@ async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buff
     }
 
     logDebug(`[CRM][Media] URL completa de descarga: ${meta.url}`);
+
+    // Agregar appsecret_proof a la URL de descarga si está disponible
+    let downloadUrl = meta.url;
+    if (appsecretProof) {
+      const separator = downloadUrl.includes('?') ? '&' : '?';
+      downloadUrl += `${separator}appsecret_proof=${appsecretProof}`;
+      logDebug(`[CRM][Media] Agregando appsecret_proof a URL de descarga`);
+    }
+
     logDebug(`[CRM][Media] Descargando con axios (responseType: arraybuffer)...`);
 
     // Step 2: Download usando axios con arraybuffer
     // Según reportes de Stack Overflow, axios funciona donde fetch falla
-    const mediaResponse = await axios.get(meta.url, {
+    const mediaResponse = await axios.get(downloadUrl, {
       headers: {
         Authorization: `Bearer ${whatsappEnv.accessToken}`,
         "User-Agent": "curl/7.64.1",

@@ -70,11 +70,20 @@ router.get("/media/:id", async (req: Request, res: Response) => {
     }
 
     logDebug(`[Media Proxy] Downloading from: ${metadata.url.substring(0, 50)}...`);
+
+    // Agregar appsecret_proof a la URL de descarga si está disponible
+    let downloadUrl = metadata.url;
+    if (appsecretProof) {
+      const separator = downloadUrl.includes('?') ? '&' : '?';
+      downloadUrl += `${separator}appsecret_proof=${appsecretProof}`;
+      logDebug(`[Media Proxy] Agregando appsecret_proof a URL de descarga`);
+    }
+
     logDebug("[Media Proxy] Using axios with responseType: arraybuffer");
 
     // Step 2: Download binary file usando axios
     // Según Stack Overflow, axios funciona donde fetch falla
-    const binaryResponse = await axios.get(metadata.url, {
+    const binaryResponse = await axios.get(downloadUrl, {
       headers: {
         Authorization: `Bearer ${whatsappEnv.accessToken}`,
         "User-Agent": "curl/7.64.1",
