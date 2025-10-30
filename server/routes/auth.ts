@@ -4,6 +4,8 @@ import { verifyPassword } from "../auth/password";
 import { requireAuth } from "../auth/middleware";
 import { adminDb } from "../admin-db";
 import { authLimiter } from "../middleware/rate-limit";
+import { validate } from "../middleware/validation";
+import { loginSchema, changePasswordSchema, updateProfileSchema } from "../validation/auth.schemas";
 
 export function createAuthRouter() {
   const router = Router();
@@ -12,7 +14,7 @@ export function createAuthRouter() {
    * POST /api/auth/login
    * Login con usuario y contraseña
    */
-  router.post("/login", authLimiter, async (req, res) => {
+  router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
     try {
       const { username, password } = req.body;
 
@@ -110,7 +112,7 @@ export function createAuthRouter() {
    * PATCH /api/auth/profile
    * Actualizar perfil del usuario autenticado (nombre y email)
    */
-  router.patch("/profile", requireAuth, async (req, res) => {
+  router.patch("/profile", requireAuth, validate(updateProfileSchema), async (req, res) => {
     try {
       const { name, email } = req.body;
 
@@ -165,7 +167,7 @@ export function createAuthRouter() {
    * POST /api/auth/change-password
    * Cambiar contraseña del usuario autenticado
    */
-  router.post("/change-password", authLimiter, requireAuth, async (req, res) => {
+  router.post("/change-password", authLimiter, requireAuth, validate(changePasswordSchema), async (req, res) => {
     try {
       const { currentPassword, newPassword } = req.body;
 
