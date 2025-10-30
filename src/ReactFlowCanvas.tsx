@@ -366,15 +366,17 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
       'menu',
       'message',
       'buttons',
-      'ask',
       'question',
       'attachment',
       'webhook_out',
       'webhook_in',
       'transfer',
+      'handoff',
       'scheduler',
-      'condition',
+      'delay',
       'validation',
+      'ia_rag',
+      'tool',
       'end',
     ],
     [],
@@ -521,10 +523,11 @@ function QuickCreatePopover({ position, options, onSelect, onDismiss }: QuickCre
   // Organize options by category
   const categorizedOptions = {
     estructura: options.filter(opt => opt === 'menu'),
-    mensajes: options.filter(opt => ['message', 'buttons', 'ask', 'question', 'attachment'].includes(opt)),
-    integraciones: options.filter(opt => ['webhook_out', 'webhook_in', 'transfer', 'scheduler'].includes(opt)),
-    logica: options.filter(opt => ['condition', 'validation'].includes(opt)),
-    control: options.filter(opt => opt === 'end'),
+    mensajes: options.filter(opt => ['message', 'buttons', 'question', 'attachment'].includes(opt)),
+    integraciones: options.filter(opt => ['webhook_out', 'webhook_in', 'transfer', 'handoff', 'scheduler'].includes(opt)),
+    logica: options.filter(opt => ['validation'].includes(opt)),
+    ia: options.filter(opt => ['ia_rag', 'tool'].includes(opt)),
+    control: options.filter(opt => ['delay', 'end'].includes(opt)),
   };
 
   return (
@@ -596,6 +599,21 @@ function QuickCreatePopover({ position, options, onSelect, onDismiss }: QuickCre
             ))}
           </div>
         )}
+        {categorizedOptions.ia.length > 0 && (
+          <div className="p-2">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide px-2 py-1">Inteligencia Artificial</div>
+            {categorizedOptions.ia.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-purple-50 rounded"
+                onClick={() => onSelect(option)}
+              >
+                {renderOptionLabel(option)}
+              </button>
+            ))}
+          </div>
+        )}
         {categorizedOptions.control.length > 0 && (
           <div className="p-2">
             <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide px-2 py-1">Control</div>
@@ -624,10 +642,8 @@ function renderOptionLabel(option: ConnectionCreationKind): string {
       return '💬 Mensaje';
     case 'buttons':
       return '🔘 Botones';
-    case 'ask':
-      return '❓ Pregunta (Legacy)';
     case 'question':
-      return '❓ Pregunta';
+      return '❓ Pregunta al cliente';
     case 'attachment':
       return '📎 Adjunto';
     case 'webhook_out':
@@ -636,14 +652,20 @@ function renderOptionLabel(option: ConnectionCreationKind): string {
       return '📥 Webhook IN';
     case 'transfer':
       return '👤 Transferir';
+    case 'handoff':
+      return '🤝 Handoff (Humano)';
     case 'scheduler':
       return '⏰ Scheduler';
-    case 'condition':
-      return '🔀 Condición (Legacy)';
+    case 'delay':
+      return '⏱️ Delay (Espera)';
     case 'validation':
-      return '🛡️ Validación';
+      return '🛡️ Validación Bitrix';
+    case 'ia_rag':
+      return '🤖 IA · RAG';
+    case 'tool':
+      return '🔧 Tool/Acción externa';
     case 'end':
-      return '🛑 Fin del flujo';
+      return '🏁 Finalizar flujo';
     default:
       return option;
   }
