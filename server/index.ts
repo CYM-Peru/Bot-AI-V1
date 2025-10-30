@@ -4,7 +4,6 @@ import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import { createServer } from "http";
 import path from "path";
-import { fileURLToPath } from "url";
 import { RuntimeEngine } from "../src/runtime/engine";
 import { NodeExecutor } from "../src/runtime/executor";
 import { WhatsAppWebhookHandler } from "../src/api/whatsapp-webhook";
@@ -32,10 +31,8 @@ dotenv.config();
 
 ensureStorageSetup();
 
-// Get __dirname equivalent for ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const distPath = path.join(__dirname, "..", "dist");
+// Use process.cwd() for reliable path resolution in dev and prod
+const distPath = path.join(process.cwd(), "dist");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
