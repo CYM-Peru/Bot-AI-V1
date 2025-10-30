@@ -110,7 +110,7 @@ export const envSchema = z.object({
   META_WABA_PHONE_NUMBER_ID: z.string().optional(),
 
   // JWT
-  JWT_SECRET: z.string().min(32, "JWT secret must be at least 32 characters for security"),
+  JWT_SECRET: z.string().min(16, "JWT secret must be at least 16 characters for security"),
 
   // Storage
   SESSION_STORAGE_TYPE: z.enum(["file", "redis"]).optional().default("file"),
