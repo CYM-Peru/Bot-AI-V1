@@ -74,8 +74,19 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
     }
 
     // Auto-cambiar a "attending" cuando el asesor responde (excepto notas internas)
+    // Y asignar al asesor si la conversación estaba en cola
     if (!payload.isInternal && conversation.status === "active") {
-      crmDb.updateConversationMeta(conversation.id, { status: "attending" });
+      const advisorId = req.user?.email || "unknown";
+      const now = Date.now();
+
+      crmDb.updateConversationMeta(conversation.id, {
+        status: "attending",
+        assignedTo: advisorId,
+        assignedAt: now,
+      });
+
+      // Start tracking metrics for this conversation
+      metricsTracker.startConversation(conversation.id, advisorId);
     }
 
     socketManager.emitConversationUpdate({ conversation: crmDb.getConversationById(conversation.id)! });

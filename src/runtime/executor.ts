@@ -121,7 +121,7 @@ export class NodeExecutor {
       case "transfer":
         return this.executeTransferNode(node);
       case "delay":
-        return this.executeDelayNode(flow, node, session);
+        return this.executeDelayNode(flow, node, session, message);
       case "end":
         return { responses: [], nextNodeId: null, awaitingUserInput: false, ended: true };
       default:
@@ -773,7 +773,24 @@ export class NodeExecutor {
     };
   }
 
-  private async executeDelayNode(flow: Flow, node: FlowNode, session: ConversationSession): Promise<ExecutionResult> {
+  private async executeDelayNode(flow: Flow, node: FlowNode, session: ConversationSession, message: IncomingMessage | null): Promise<ExecutionResult> {
+    // Check if this is a timer completion callback
+    if (message?.text === "__TIMER_COMPLETE__" && session.variables.__delay_next_node__) {
+      const resumeNodeId = session.variables.__delay_next_node__;
+      console.log(`[Executor] Timer complete, resuming flow at node ${resumeNodeId}`);
+
+      // Clear delay variables and continue to next node
+      return {
+        responses: [],
+        nextNodeId: resumeNodeId,
+        awaitingUserInput: false,
+        variables: {
+          __delay_next_node__: "",
+          __delay_timer_id__: "",
+        },
+      };
+    }
+
     const data = node.action?.data;
     const delaySeconds = typeof data?.delaySeconds === "number" ? data.delaySeconds : null;
 
@@ -852,6 +869,8 @@ export class NodeExecutor {
         delaySeconds
       );
 
+      // Store nextNodeId in session variables so timer can resume from there
+      // Keep session alive by staying on current node and awaiting (timer will resume it)
       return {
         responses: [
           {
@@ -865,9 +884,12 @@ export class NodeExecutor {
             },
           },
         ],
-        nextNodeId: null,
-        awaitingUserInput: false,
-        ended: true,
+        nextNodeId: node.id, // Stay on current node
+        awaitingUserInput: true, // Keep session alive
+        variables: {
+          __delay_next_node__: nextNodeId,
+          __delay_timer_id__: timerId,
+        },
       };
     } catch (error) {
       return {
