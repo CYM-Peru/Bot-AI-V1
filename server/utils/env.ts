@@ -16,6 +16,7 @@ export interface WhatsAppEnvConfig {
   displayNumber?: string;
   accessToken?: string;
   verifyToken?: string;
+  appSecret?: string;
 }
 
 interface WhatsAppSecrets {
@@ -23,6 +24,7 @@ interface WhatsAppSecrets {
   displayNumber?: string;
   accessToken?: string;
   verifyToken?: string;
+  appSecret?: string;
 }
 
 export interface BitrixEnvConfig {
@@ -45,9 +47,10 @@ export function getWhatsAppEnv(): WhatsAppEnvConfig {
   const phoneNumberId = readEnv("WSP_PHONE_NUMBER_ID") ?? readEnv("WHATSAPP_PHONE_NUMBER_ID") ?? secrets.phoneNumberId;
   const accessToken = readEnv("WSP_ACCESS_TOKEN") ?? readEnv("WHATSAPP_ACCESS_TOKEN") ?? secrets.accessToken;
   const verifyToken = readEnv("WSP_VERIFY_TOKEN") ?? readEnv("WHATSAPP_VERIFY_TOKEN") ?? secrets.verifyToken;
+  const appSecret = readEnv("WSP_APP_SECRET") ?? readEnv("WHATSAPP_APP_SECRET") ?? secrets.appSecret;
   const displayNumber = secrets.displayNumber;
 
-  return { baseUrl, apiVersion, phoneNumberId, displayNumber, accessToken, verifyToken };
+  return { baseUrl, apiVersion, phoneNumberId, displayNumber, accessToken, verifyToken, appSecret };
 }
 
 export function isWhatsAppConfigured(): boolean {

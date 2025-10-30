@@ -7,6 +7,7 @@ import type { Attachment, MessageType } from "./models";
 import { logDebug, logError } from "../utils/file-logger";
 import { getWhatsAppEnv } from "../utils/env";
 import axios from "axios";
+import crypto from "crypto";
 
 interface HandleIncomingArgs {
   entryId: string;
@@ -183,6 +184,13 @@ function getMediaInfo(message: WhatsAppMessage):
   }
 }
 
+/**
+ * Calcula el appsecret_proof requerido por WhatsApp para algunas peticiones
+ */
+function calculateAppSecretProof(accessToken: string, appSecret: string): string {
+  return crypto.createHmac('sha256', appSecret).update(accessToken).digest('hex');
+}
+
 async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buffer: Buffer; filename: string; mime: string } | null> {
   if (!mediaId) {
     logError("[CRM][Media] downloadMedia: mediaId vacío");
@@ -195,9 +203,19 @@ async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buff
   }
   const baseUrl = whatsappEnv.baseUrl;
   const version = whatsappEnv.apiVersion;
+
+  // Calcular appsecret_proof si tenemos app secret
+  const appsecretProof = whatsappEnv.appSecret
+    ? calculateAppSecretProof(whatsappEnv.accessToken, whatsappEnv.appSecret)
+    : undefined;
+
   try {
     // Step 1: Get metadata usando axios
-    const metaUrl = `${baseUrl}/${version}/${mediaId}`;
+    let metaUrl = `${baseUrl}/${version}/${mediaId}`;
+    if (appsecretProof) {
+      metaUrl += `?appsecret_proof=${appsecretProof}`;
+      logDebug(`[CRM][Media] Usando appsecret_proof para verificación`);
+    }
     logDebug(`[CRM][Media] Obteniendo metadata de: ${metaUrl}`);
 
     const metaResponse = await axios.get(metaUrl, {

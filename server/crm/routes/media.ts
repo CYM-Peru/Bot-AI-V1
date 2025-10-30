@@ -2,8 +2,16 @@ import express, { type Request, type Response } from "express";
 import { logDebug, logError } from "../../utils/file-logger";
 import { getWhatsAppEnv } from "../../utils/env";
 import axios from "axios";
+import crypto from "crypto";
 
 const router = express.Router();
+
+/**
+ * Calcula el appsecret_proof requerido por WhatsApp para algunas peticiones
+ */
+function calculateAppSecretProof(accessToken: string, appSecret: string): string {
+  return crypto.createHmac('sha256', appSecret).update(accessToken).digest('hex');
+}
 
 /**
  * GET /crm/media/:id
@@ -26,11 +34,21 @@ router.get("/media/:id", async (req: Request, res: Response) => {
     return;
   }
 
+  // Calcular appsecret_proof si tenemos app secret
+  const appsecretProof = whatsappEnv.appSecret
+    ? calculateAppSecretProof(whatsappEnv.accessToken, whatsappEnv.appSecret)
+    : undefined;
+
   try {
     logDebug(`[Media Proxy] Fetching metadata for media ID: ${mediaId}`);
 
     // Step 1: Get metadata usando axios
-    const metaUrl = `${whatsappEnv.baseUrl}/${whatsappEnv.apiVersion}/${mediaId}`;
+    let metaUrl = `${whatsappEnv.baseUrl}/${whatsappEnv.apiVersion}/${mediaId}`;
+    if (appsecretProof) {
+      metaUrl += `?appsecret_proof=${appsecretProof}`;
+      logDebug(`[Media Proxy] Usando appsecret_proof para verificación`);
+    }
+
     const metaResponse = await axios.get(metaUrl, {
       headers: {
         Authorization: `Bearer ${whatsappEnv.accessToken}`,
