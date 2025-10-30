@@ -28,9 +28,15 @@ import { QueueScheduler } from "./queue-scheduler";
 import { authLimiter, apiLimiter, webhookLimiter, flowLimiter } from "./middleware/rate-limit";
 import { validate } from "./middleware/validation";
 import { saveFlowSchema, getFlowSchema } from "./validation/flow.schemas";
+import { errorHandler, notFoundHandler, setupUnhandledRejectionHandler, setupUncaughtExceptionHandler, asyncHandler } from "./middleware/error-handler";
+import { NotFoundError, InternalServerError } from "./utils/errors";
 
 // Load environment variables
 dotenv.config();
+
+// Setup global error handlers for unhandled rejections and exceptions
+setupUnhandledRejectionHandler();
+setupUncaughtExceptionHandler();
 
 ensureStorageSetup();
 
@@ -218,48 +224,32 @@ app.all("/api/meta/webhook", webhookLimiter, async (req: Request, res: Response)
 });
 
 // API endpoint to create/update flows
-app.post("/api/flows/:flowId", flowLimiter, express.json(), validate(saveFlowSchema), async (req: Request, res: Response) => {
-  try {
-    const { flowId } = req.params;
-    const flow = req.body;
+app.post("/api/flows/:flowId", flowLimiter, express.json(), validate(saveFlowSchema), asyncHandler(async (req: Request, res: Response) => {
+  const { flowId } = req.params;
+  const flow = req.body;
 
-    await flowProvider.saveFlow(flowId, flow);
+  await flowProvider.saveFlow(flowId, flow);
 
-    res.json({ success: true, flowId });
-  } catch (error) {
-    logError("Failed to save flow", error);
-    res.status(500).json({ error: "Failed to save flow" });
-  }
-});
+  res.json({ success: true, flowId });
+}));
 
 // API endpoint to get a flow
-app.get("/api/flows/:flowId", validate(getFlowSchema), async (req: Request, res: Response) => {
-  try {
-    const { flowId } = req.params;
-    const flow = await flowProvider.getFlow(flowId);
+app.get("/api/flows/:flowId", validate(getFlowSchema), asyncHandler(async (req: Request, res: Response) => {
+  const { flowId } = req.params;
+  const flow = await flowProvider.getFlow(flowId);
 
-    if (!flow) {
-      res.status(404).json({ error: "Flow not found" });
-      return;
-    }
-
-    res.json(flow);
-  } catch (error) {
-    logError("Failed to get flow", error);
-    res.status(500).json({ error: "Failed to get flow" });
+  if (!flow) {
+    throw new NotFoundError("Flow not found");
   }
-});
+
+  res.json(flow);
+}));
 
 // API endpoint to list all flows
-app.get("/api/flows", async (req: Request, res: Response) => {
-  try {
-    const flows = await flowProvider.listFlows();
-    res.json({ flows });
-  } catch (error) {
-    logError("Failed to list flows", error);
-    res.status(500).json({ error: "Failed to list flows" });
-  }
-});
+app.get("/api/flows", asyncHandler(async (req: Request, res: Response) => {
+  const flows = await flowProvider.listFlows();
+  res.json({ flows });
+}));
 
 // ============================================
 // RUTAS PÚBLICAS (sin autenticación)
@@ -289,6 +279,12 @@ app.use(express.static("dist"));
 app.get(/^\/(?!api).*/, (_req: Request, res: Response) => {
   res.sendFile("index.html", { root: "dist" });
 });
+
+// 404 handler - must be after all routes
+app.use(notFoundHandler);
+
+// Global error handler - must be last
+app.use(errorHandler);
 
 // Start server
 server.listen(PORT, () => {
