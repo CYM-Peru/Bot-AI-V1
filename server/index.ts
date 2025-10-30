@@ -22,6 +22,7 @@ import { createAdminRouter } from "./routes/admin";
 import { createAuthRouter } from "./routes/auth";
 import { requireAuth } from "./auth/middleware";
 import { logDebug, logError } from "./utils/file-logger";
+import { TimerScheduler } from "./timer-scheduler";
 
 // Load environment variables
 dotenv.config();
@@ -55,10 +56,14 @@ const bitrix24Client = process.env.BITRIX24_WEBHOOK_URL
   ? new Bitrix24Client({ webhookUrl: process.env.BITRIX24_WEBHOOK_URL })
   : undefined;
 
+// Initialize TimerScheduler
+const timerScheduler = new TimerScheduler("./data");
+
 const webhookDispatcher = new HttpWebhookDispatcher();
 const executor = new NodeExecutor({
   webhookDispatcher,
   bitrix24Client,
+  timerScheduler,
 });
 
 const runtimeEngine = new RuntimeEngine({
@@ -66,6 +71,12 @@ const runtimeEngine = new RuntimeEngine({
   sessionStore,
   executor,
 });
+
+// Connect TimerScheduler to RuntimeEngine
+timerScheduler.setEngine(runtimeEngine);
+
+// Start timer checking (every 30 seconds)
+timerScheduler.startChecking(30000);
 
 // Conversational CRM module
 const crmSocketManager = initCrmWSS(server);

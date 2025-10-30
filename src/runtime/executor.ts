@@ -62,18 +62,33 @@ export interface WebhookDispatcher {
   callWebhook(config: WebhookCallConfig, context: { flow: Flow; node: FlowNode; session: ConversationSession }): Promise<WebhookCallResult>;
 }
 
+export interface TimerScheduler {
+  scheduleTimer(
+    sessionId: string,
+    flowId: string,
+    contactId: string,
+    channel: string,
+    nextNodeId: string,
+    nodeId: string,
+    delaySeconds: number
+  ): Promise<string>;
+}
+
 export interface ExecutorDependencies {
   webhookDispatcher?: WebhookDispatcher;
   bitrix24Client?: Bitrix24Client;
+  timerScheduler?: TimerScheduler;
 }
 
 export class NodeExecutor {
   private readonly webhookDispatcher?: WebhookDispatcher;
   private readonly bitrix24Client?: Bitrix24Client;
+  private readonly timerScheduler?: TimerScheduler;
 
   constructor(dependencies: ExecutorDependencies = {}) {
     this.webhookDispatcher = dependencies.webhookDispatcher;
     this.bitrix24Client = dependencies.bitrix24Client;
+    this.timerScheduler = dependencies.timerScheduler;
   }
 
   async execute(
@@ -105,6 +120,8 @@ export class NodeExecutor {
         return this.executeWebhookNode(flow, node, session);
       case "transfer":
         return this.executeTransferNode(node);
+      case "delay":
+        return this.executeDelayNode(flow, node, session);
       case "end":
         return { responses: [], nextNodeId: null, awaitingUserInput: false, ended: true };
       default:
@@ -733,7 +750,7 @@ export class NodeExecutor {
 
   private executeTransferNode(node: FlowNode): ExecutionResult {
     // Transfer node ends bot conversation and signals handoff to human agent
-    const transferMessage = node.action?.data?.text || node.description || "Transferring to agent...";
+    const transferMessage = node.action?.data?.text || node.description || "Transfering to agent...";
     return {
       responses: [
         {
@@ -754,5 +771,119 @@ export class NodeExecutor {
       awaitingUserInput: false,
       ended: true,
     };
+  }
+
+  private async executeDelayNode(flow: Flow, node: FlowNode, session: ConversationSession): Promise<ExecutionResult> {
+    const data = node.action?.data;
+    const delaySeconds = typeof data?.delaySeconds === "number" ? data.delaySeconds : null;
+
+    if (!delaySeconds || delaySeconds < 1) {
+      return {
+        responses: [
+          {
+            type: "system",
+            payload: { level: "error", message: "Delay node missing valid delay configuration", nodeId: node.id },
+          },
+        ],
+        nextNodeId: this.nextChild(node),
+        awaitingUserInput: false,
+      };
+    }
+
+    // Max delay: 4 days = 345600 seconds
+    if (delaySeconds > 345600) {
+      return {
+        responses: [
+          {
+            type: "system",
+            payload: { level: "error", message: "Delay exceeds maximum of 4 days", nodeId: node.id },
+          },
+        ],
+        nextNodeId: this.nextChild(node),
+        awaitingUserInput: false,
+      };
+    }
+
+    if (!this.timerScheduler) {
+      return {
+        responses: [
+          {
+            type: "system",
+            payload: {
+              level: "warn",
+              message: "Timer scheduler not configured. Delay was skipped.",
+              nodeId: node.id,
+            },
+          },
+        ],
+        nextNodeId: this.nextChild(node),
+        awaitingUserInput: false,
+      };
+    }
+
+    // Schedule the timer
+    const nextNodeId = this.nextChild(node);
+    if (!nextNodeId) {
+      return {
+        responses: [
+          {
+            type: "system",
+            payload: {
+              level: "error",
+              message: "Delay node has no next node to resume to",
+              nodeId: node.id,
+            },
+          },
+        ],
+        nextNodeId: null,
+        awaitingUserInput: false,
+        ended: true,
+      };
+    }
+
+    try {
+      const timerId = await this.timerScheduler.scheduleTimer(
+        session.id,
+        flow.id,
+        session.contactId,
+        session.channel,
+        nextNodeId,
+        node.id,
+        delaySeconds
+      );
+
+      return {
+        responses: [
+          {
+            type: "system",
+            payload: {
+              level: "info",
+              message: `Timer scheduled for ${delaySeconds} seconds`,
+              nodeId: node.id,
+              timerId,
+              delaySeconds,
+            },
+          },
+        ],
+        nextNodeId: null,
+        awaitingUserInput: false,
+        ended: true,
+      };
+    } catch (error) {
+      return {
+        responses: [
+          {
+            type: "system",
+            payload: {
+              level: "error",
+              message: error instanceof Error ? error.message : "Failed to schedule timer",
+              nodeId: node.id,
+            },
+          },
+        ],
+        nextNodeId: this.nextChild(node),
+        awaitingUserInput: false,
+      };
+    }
   }
 }
