@@ -106,6 +106,61 @@ export function createAuthRouter() {
   });
 
   /**
+   * PATCH /api/auth/profile
+   * Actualizar perfil del usuario autenticado (nombre y email)
+   */
+  router.patch("/profile", requireAuth, async (req, res) => {
+    try {
+      const { name, email } = req.body;
+
+      if (!name && !email) {
+        res.status(400).json({ error: "missing_fields", message: "At least one field (name or email) is required" });
+        return;
+      }
+
+      if (!req.user) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+      }
+
+      const user = adminDb.getUser(req.user.userId);
+
+      if (!user) {
+        res.status(404).json({ error: "user_not_found" });
+        return;
+      }
+
+      // Preparar datos de actualización
+      const updates: { name?: string; email?: string } = {};
+      if (name !== undefined) updates.name = name;
+      if (email !== undefined) updates.email = email;
+
+      // Actualizar usuario
+      const updated = await adminDb.updateUser(user.id, updates);
+
+      if (!updated) {
+        res.status(500).json({ error: "update_failed", message: "Failed to update profile" });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: "Profile updated successfully",
+        user: {
+          id: updated.id,
+          username: updated.username,
+          name: updated.name,
+          email: updated.email,
+          role: updated.role,
+        },
+      });
+    } catch (error) {
+      console.error("[Auth] Update profile error:", error);
+      res.status(500).json({ error: "internal_error", message: "Failed to update profile" });
+    }
+  });
+
+  /**
    * POST /api/auth/change-password
    * Cambiar contraseña del usuario autenticado
    */

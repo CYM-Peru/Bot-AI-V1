@@ -52,16 +52,30 @@ export default function MessageList({ messages, attachments, onReply }: MessageL
   return (
     <div className="min-h-full bg-slate-50 px-4 py-6">
       <div className="mx-auto flex max-w-3xl flex-col gap-3">
-        {messages.map((message) => (
-          <MessageBubble
-            key={`${message.id}-${message.status}-${message.mediaUrl || 'no-media'}`}
-            message={message}
-            attachments={attachmentMap.get(message.id) ?? []}
-            repliedTo={message.repliedToId ? messageMap.get(message.repliedToId) ?? null : null}
-            repliedAttachments={message.repliedToId ? attachmentMap.get(message.repliedToId) ?? [] : []}
-            onReply={() => onReply(message)}
-          />
-        ))}
+        {messages.map((message) => {
+          // Render system messages differently
+          if (message.type === "system") {
+            return (
+              <div key={message.id} className="flex justify-center my-2">
+                <div className="px-4 py-2 bg-blue-50 text-blue-700 text-xs rounded-full border border-blue-200 max-w-md text-center shadow-sm">
+                  {message.text}
+                </div>
+              </div>
+            );
+          }
+
+          // Render regular messages
+          return (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              attachments={attachmentMap.get(message.id) ?? []}
+              repliedTo={message.repliedToId ? messageMap.get(message.repliedToId) ?? null : null}
+              repliedAttachments={message.repliedToId ? attachmentMap.get(message.repliedToId) ?? [] : []}
+              onReply={() => onReply(message)}
+            />
+          );
+        })}
         <div ref={bottomRef} />
       </div>
     </div>

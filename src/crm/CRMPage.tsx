@@ -41,7 +41,7 @@ export default function CRMPage() {
     const saved = localStorage.getItem("crm:sound:volume");
     return saved ? parseFloat(saved) : 0.7;
   });
-  const [showMetrics, setShowMetrics] = useState(false);
+  const fetchedConversationsRef = useRef<Set<string>>(new Set());
 
   // Use notifications hook for current conversation
   const currentMessages = selectedConversationId ? conversationData[selectedConversationId]?.messages ?? [] : [];
@@ -158,22 +158,31 @@ export default function CRMPage() {
     const convId = selectedConversationId;
     if (!convId) return;
 
-    if (!conversationData[convId]) {
-      fetchMessages(convId)
-        .then((data) => {
-          setConversationData((prev) => ({
-            ...prev,
-            [convId]: {
-              messages: data.messages,
-              attachments: data.attachments,
-            },
-          }));
-        })
-        .catch((error) => {
-          console.error("[CRM] Error cargando mensajes", error);
-        });
+    // Skip if we've already fetched or are currently fetching this conversation
+    if (fetchedConversationsRef.current.has(convId)) {
+      return;
     }
-  }, [selectedConversationId, conversationData]);
+
+    // Mark as being fetched
+    fetchedConversationsRef.current.add(convId);
+
+    // Fetch messages for this conversation
+    fetchMessages(convId)
+      .then((data) => {
+        setConversationData((prev) => ({
+          ...prev,
+          [convId]: {
+            messages: data.messages,
+            attachments: data.attachments,
+          },
+        }));
+      })
+      .catch((error) => {
+        console.error("[CRM] Error cargando mensajes", error);
+        // Remove from set if fetch failed so it can be retried
+        fetchedConversationsRef.current.delete(convId);
+      });
+  }, [selectedConversationId]);
 
   useEffect(() => {
     const convId = selectedConversationId;

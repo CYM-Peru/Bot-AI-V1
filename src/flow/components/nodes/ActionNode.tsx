@@ -23,6 +23,7 @@ export function ActionNode(props: NodeProps<RuntimeNode>) {
         return 'integration' as const;
       case 'scheduler':
       case 'condition':
+      case 'delay':
         return 'validation' as const;
       default:
         return 'message' as const;
@@ -73,6 +74,27 @@ export function ActionNode(props: NodeProps<RuntimeNode>) {
           <div className="text-[11px] font-semibold text-slate-500">Horario</div>
           <p>Modo: {scheduler.mode === 'bitrix' ? 'Bitrix24' : 'Personalizado'}</p>
           <p className="text-[10px] text-slate-400">Configura los destinos dentro/fuera de horario desde el inspector.</p>
+        </div>
+      );
+    }
+    if (kind === 'delay') {
+      const delaySeconds = data.flowNode.action?.data?.delaySeconds;
+      const formatted = delaySeconds
+        ? delaySeconds < 60
+          ? `${delaySeconds} segundo${delaySeconds !== 1 ? 's' : ''}`
+          : delaySeconds < 3600
+          ? `${Math.floor(delaySeconds / 60)} minuto${Math.floor(delaySeconds / 60) !== 1 ? 's' : ''}`
+          : delaySeconds < 86400
+          ? `${Math.floor(delaySeconds / 3600)} hora${Math.floor(delaySeconds / 3600) !== 1 ? 's' : ''}`
+          : `${Math.floor(delaySeconds / 86400)} día${Math.floor(delaySeconds / 86400) !== 1 ? 's' : ''}`
+        : 'No configurado';
+      return (
+        <div className="space-y-1 text-xs text-slate-600">
+          <div className="text-[11px] font-semibold text-slate-500">⏱️ Timer/Espera</div>
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-2 leading-snug text-amber-700">
+            Esperar: <span className="font-semibold">{formatted}</span>
+          </p>
+          <p className="text-[10px] text-slate-400">Rango: 1 segundo - 4 días (345,600 segundos)</p>
         </div>
       );
     }
