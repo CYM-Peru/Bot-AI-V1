@@ -55,7 +55,7 @@ export function createAdminRouter(): Router {
    */
   router.post("/users", validateBody(createUserSchema), async (req, res) => {
     try {
-      const { username, email, password, name, role } = req.body;
+      const { username, email, password, name, role, status } = req.body;
 
       // Check if username already exists
       const existingUser = adminDb.getUserByUsername(username);
@@ -70,6 +70,7 @@ export function createAdminRouter(): Router {
         password,
         name,
         role,
+        status, // Will be "active" by default from schema
       });
 
       res.status(201).json({ user });

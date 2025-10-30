@@ -70,19 +70,21 @@ export const createUserSchema = z.object({
   email: z.string().email().max(255),
   password: z.string().min(6).max(1000),
   name: z.string().min(1).max(255),
-  role: z.enum(["admin", "advisor"]),
+  role: z.enum(["admin", "advisor", "asesor", "supervisor"]),
+  status: z.enum(["active", "inactive"]).optional().default("active"),
 });
 
 export const updateUserSchema = z.object({
   username: z.string().min(3).max(50).optional(),
   email: z.string().email().max(255).optional(),
   name: z.string().min(1).max(255).optional(),
-  role: z.enum(["admin", "advisor"]).optional(),
+  role: z.enum(["admin", "advisor", "asesor", "supervisor"]).optional(),
+  status: z.enum(["active", "inactive"]).optional(),
   isActive: z.boolean().optional(),
 });
 
 export const userIdSchema = z.object({
-  userId: z.string().min(1).max(100),
+  id: z.string().min(1).max(100),
 });
 
 /**
