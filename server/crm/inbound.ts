@@ -1,5 +1,6 @@
 import type { ChangeValue, WhatsAppMessage } from "../../src/api/whatsapp-webhook";
 import { crmDb } from "./db";
+import { metricsTracker } from "./metrics-tracker";
 import type { CrmRealtimeManager } from "./ws";
 import type { BitrixService } from "./services/bitrix";
 import { attachmentStorage } from "./storage";
@@ -45,6 +46,9 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
     repliedToId: null,
     status: "delivered",
   });
+
+  // Track incoming message for metrics
+  metricsTracker.recordMessage(conversation.id, false);
 
   let storedAttachment: Attachment | null = null;
   if (attachment) {

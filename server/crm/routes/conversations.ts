@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { crmDb } from "../db";
+import { metricsTracker } from "../metrics-tracker";
 import type { CrmRealtimeManager } from "../ws";
 import type { BitrixService } from "../services/bitrix";
 
@@ -99,6 +100,10 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
       return;
     }
     crmDb.archiveConversation(conversation.id);
+
+    // End metrics tracking for this conversation
+    metricsTracker.endConversation(conversation.id);
+
     const updated = crmDb.getConversationById(conversation.id);
     if (updated) {
       socketManager.emitConversationUpdate({ conversation: updated });
@@ -180,6 +185,9 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
       res.status(400).json({ error: "cannot_accept", reason: "Conversation is not in queue" });
       return;
     }
+
+    // Start tracking metrics for this conversation
+    metricsTracker.startConversation(conversation.id, advisorId);
 
     const updated = crmDb.getConversationById(conversation.id);
     if (updated) {
