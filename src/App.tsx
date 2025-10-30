@@ -2591,12 +2591,6 @@ export default function App(): JSX.Element {
                     >
                       <span>🛑</span> Finalizar flujo
                     </button>
-                    <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition flex items-center gap-2 whitespace-nowrap"
-                      onClick={seedDemo}
-                    >
-                      <span>⚡</span> Demo rápido
-                    </button>
                   </div>
                 </section>
               </div>

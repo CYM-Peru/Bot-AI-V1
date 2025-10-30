@@ -16,6 +16,7 @@ export type ActionKind =
   | "condition"
   | "validation"
   | "scheduler"
+  | "delay"
   | "end";
 
 export type MenuOption = {
