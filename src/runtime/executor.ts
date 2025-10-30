@@ -103,6 +103,8 @@ export class NodeExecutor {
         return this.executeSchedulerNode(flow, node, options.now ?? new Date());
       case "webhook_out":
         return this.executeWebhookNode(flow, node, session);
+      case "transfer":
+        return this.executeTransferNode(node);
       case "end":
         return { responses: [], nextNodeId: null, awaitingUserInput: false, ended: true };
       default:
