@@ -2,15 +2,45 @@
 
 Este documento describe cómo desplegar la solución para el problema de descarga de adjuntos de WhatsApp.
 
-## 📋 Problema Identificado
+## 🚨 ATENCIÓN: Fix de Seguridad Crítico Incluido (P1)
+
+**Este despliegue incluye un fix de seguridad crítico (P1)** que protege los endpoints del CRM.
+
+📄 Ver detalles completos en: [SECURITY-FIX.md](./SECURITY-FIX.md)
+
+**Resumen:** Los endpoints de CRM estaban expuestos sin autenticación. Ahora requieren JWT válido.
+
+---
+
+## 📋 Problemas Identificados
+
+### 1. **Problema de Descarga de Media**
 
 El código de descarga de media estaba leyendo **directamente** `process.env.WHATSAPP_ACCESS_TOKEN`, ignorando el archivo de secrets `data/secrets/whatsapp.json`.
 
-## ✅ Solución Implementada
+### 2. **🚨 Problema de Seguridad (P1 - CRÍTICO)**
+
+Los endpoints del CRM estaban **sin autenticación**, exponiendo:
+- Media de WhatsApp (`/api/crm/media/:id`)
+- Upload de archivos (`/api/crm/attachments/*`)
+- Mensajes y conversaciones (`/api/crm/messages/*`, `/api/crm/conversations/*`)
+
+Esto permitía a cualquiera acceder a archivos privados de WhatsApp sin login.
+
+## ✅ Soluciones Implementadas
+
+### 1. **Fix de Carga de Token**
 
 Modificados los archivos para usar `getWhatsAppEnv()` que busca el token en:
 1. Variables de entorno (.env): `WSP_ACCESS_TOKEN` o `WHATSAPP_ACCESS_TOKEN`
 2. Archivo de secrets: `data/secrets/whatsapp.json`
+
+### 2. **🔒 Fix de Seguridad**
+
+Aplicado middleware `requireAuth` a TODOS los endpoints del CRM excepto `/health`:
+- ✅ Ahora requieren JWT válido (usuario autenticado)
+- ✅ `/health` sigue público para monitoreo
+- ✅ Mayor seguridad sin afectar funcionalidad del frontend
 
 ## 🎯 Plan de Despliegue
 
