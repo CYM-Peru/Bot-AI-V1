@@ -148,6 +148,25 @@ export function createMetricsRouter() {
   });
 
   /**
+   * GET /metrics/:conversationId/tags
+   * Get tags for a conversation
+   */
+  router.get("/:conversationId/tags", (req, res) => {
+    try {
+      const { conversationId } = req.params;
+      const tags = metricsTracker.getConversationTags(conversationId);
+
+      res.json({ tags });
+    } catch (error) {
+      console.error("[Metrics] Error fetching tags:", error);
+      res.status(500).json({
+        error: "server_error",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
    * POST /metrics/:conversationId/tags
    * Add tags to a conversation
    */
@@ -169,6 +188,35 @@ export function createMetricsRouter() {
       res.json({ success: true });
     } catch (error) {
       console.error("[Metrics] Error adding tags:", error);
+      res.status(500).json({
+        error: "server_error",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
+   * DELETE /metrics/:conversationId/tags
+   * Remove tags from a conversation
+   */
+  router.delete("/:conversationId/tags", (req, res) => {
+    try {
+      const { conversationId } = req.params;
+      const { tags } = req.body;
+
+      if (!Array.isArray(tags)) {
+        res.status(400).json({
+          error: "invalid_tags",
+          message: "Tags must be an array",
+        });
+        return;
+      }
+
+      metricsTracker.removeTags(conversationId, tags);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[Metrics] Error removing tags:", error);
       res.status(500).json({
         error: "server_error",
         message: error instanceof Error ? error.message : "Unknown error",

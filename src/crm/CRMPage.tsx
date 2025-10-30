@@ -9,6 +9,7 @@ import { useSoundNotifications } from "./useSoundNotifications";
 import { useDarkMode } from "./DarkModeContext";
 import { useKeyboardShortcuts, KEYBOARD_SHORTCUTS } from "./useKeyboardShortcuts";
 import { AdvisorStatusButton } from "./AdvisorStatusButton";
+import MetricsDashboard from "./MetricsDashboard";
 
 interface ConversationState {
   messages: Message[];
@@ -40,6 +41,7 @@ export default function CRMPage() {
     const saved = localStorage.getItem("crm:sound:volume");
     return saved ? parseFloat(saved) : 0.7;
   });
+  const [showMetrics, setShowMetrics] = useState(false);
 
   // Use notifications hook for current conversation
   const currentMessages = selectedConversationId ? conversationData[selectedConversationId]?.messages ?? [] : [];
@@ -235,32 +237,49 @@ export default function CRMPage() {
       {/* CRM Header with Advisor Status */}
       <div className="flex items-center justify-between px-4 py-3 bg-white rounded-xl border border-slate-200 shadow-sm">
         <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold text-slate-800">Chat en vivo</h2>
-          <span className="text-xs text-slate-500">Gestiona tus conversaciones</span>
+          <h2 className="text-lg font-semibold text-slate-800">{showMetrics ? "Dashboard de Métricas" : "Chat en vivo"}</h2>
+          <span className="text-xs text-slate-500">{showMetrics ? "Analítica y KPIs" : "Gestiona tus conversaciones"}</span>
         </div>
-        <AdvisorStatusButton userId="user-1" />
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowMetrics(!showMetrics)}
+            className={`px-4 py-2 text-sm font-semibold rounded-lg transition ${
+              showMetrics
+                ? "bg-emerald-600 text-white"
+                : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            {showMetrics ? "💬 Volver a Chats" : "📊 Métricas"}
+          </button>
+          <AdvisorStatusButton userId="user-1" />
+        </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl relative">
-        <div className="w-[320px] flex-shrink-0 h-full">
-          {loadingConversations && conversations.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-sm text-slate-500">
-              Cargando conversaciones…
-            </div>
-          ) : (
-            <ConversationList
-              conversations={conversations}
-              selectedId={selectedConversationId}
-              onSelect={handleSelectConversation}
-            />
-          )}
+      {showMetrics ? (
+        <div className="flex-1 overflow-auto rounded-3xl border border-slate-200 bg-white shadow-xl">
+          <MetricsDashboard />
         </div>
-        <ChatWindow
-          conversation={selectedConversation}
-          messages={currentState?.messages ?? []}
-          attachments={currentState?.attachments ?? []}
-          onSend={handleSend}
-        />
+      ) : (
+        <div className="flex flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl relative">
+          <div className="w-[320px] flex-shrink-0 h-full">
+            {loadingConversations && conversations.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                Cargando conversaciones…
+              </div>
+            ) : (
+              <ConversationList
+                conversations={conversations}
+                selectedId={selectedConversationId}
+                onSelect={handleSelectConversation}
+              />
+            )}
+          </div>
+          <ChatWindow
+            conversation={selectedConversation}
+            messages={currentState?.messages ?? []}
+            attachments={currentState?.attachments ?? []}
+            onSend={handleSend}
+          />
 
         {/* Settings Button - Bottom left corner */}
         <div className="absolute bottom-4 left-4 z-10">
@@ -427,7 +446,8 @@ export default function CRMPage() {
             </div>
           </div>
         )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

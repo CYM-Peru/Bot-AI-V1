@@ -148,6 +148,25 @@ export class MetricsTracker {
   }
 
   /**
+   * Remove tags from conversation
+   */
+  removeTags(conversationId: string, tagsToRemove: string[]): void {
+    const metric = this.store.metrics.find((m) => m.conversationId === conversationId);
+    if (!metric) return;
+
+    metric.tags = metric.tags.filter((tag) => !tagsToRemove.includes(tag));
+    this.saveStore();
+  }
+
+  /**
+   * Get tags for a conversation
+   */
+  getConversationTags(conversationId: string): string[] {
+    const metric = this.store.metrics.find((m) => m.conversationId === conversationId);
+    return metric ? metric.tags : [];
+  }
+
+  /**
    * Get metrics for an advisor with date filters
    */
   getAdvisorMetrics(advisorId: string, startDate?: number, endDate?: number): ConversationMetric[] {
