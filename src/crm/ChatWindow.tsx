@@ -134,6 +134,32 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
     }
   };
 
+  const [accepting, setAccepting] = useState(false);
+
+  const handleAccept = async () => {
+    if (!conversation || accepting) return;
+    setAccepting(true);
+    try {
+      const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/accept`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      if (response.ok) {
+        console.log('[CRM] Conversación aceptada exitosamente:', conversation.id);
+        // Conversation will be updated via WebSocket
+      } else {
+        const error = await response.json();
+        alert(`Error: ${error.reason || 'No se pudo aceptar la conversación'}`);
+      }
+    } catch (error) {
+      console.error('[CRM] Error al aceptar conversación:', error);
+      alert('Error al aceptar la conversación');
+    } finally {
+      setAccepting(false);
+    }
+  };
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-col gap-3 flex-shrink-0 border-b border-slate-200 bg-gradient-to-br from-emerald-50 to-white px-6 py-4 shadow-sm">
@@ -168,9 +194,32 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Status badge */}
             <div className="text-xs px-3 py-1 rounded-full font-medium bg-white border border-slate-200">
-              {conversation.status === "archived" ? "🗂️ Archivada" : "✓ Activa"}
+              {conversation.status === "archived"
+                ? "🗂️ Archivada"
+                : conversation.status === "attending"
+                ? "✓ Atendiendo"
+                : "⏱️ En cola"}
             </div>
+
+            {/* Accept button - only for queued conversations */}
+            {conversation.status === "active" && (
+              <button
+                onClick={handleAccept}
+                disabled={accepting}
+                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-emerald-500 to-emerald-600 border-0 rounded-lg shadow-md hover:from-emerald-600 hover:to-emerald-700 transition-all transform hover:scale-105 ${
+                  accepting ? "opacity-50 cursor-not-allowed" : ""
+                }`}
+                title="Aceptar conversación de la cola"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {accepting ? "Aceptando..." : "Aceptar"}
+              </button>
+            )}
+
             {conversation.status !== "archived" && (
               <>
                 <button

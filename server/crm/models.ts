@@ -11,6 +11,9 @@ export interface Conversation {
   unread: number;
   status: ConversationStatus;
   lastMessagePreview: string | null;
+  assignedTo: string | null;       // Advisor email/ID who accepted the conversation
+  assignedAt: number | null;       // Timestamp when assigned
+  queuedAt: number | null;         // Timestamp when entered queue (first "active" status)
 }
 
 export type MessageDirection = "incoming" | "outgoing";

@@ -23,6 +23,7 @@ import { createAuthRouter } from "./routes/auth";
 import { requireAuth } from "./auth/middleware";
 import { logDebug, logError } from "./utils/file-logger";
 import { TimerScheduler } from "./timer-scheduler";
+import { QueueScheduler } from "./queue-scheduler";
 
 // Load environment variables
 dotenv.config();
@@ -85,6 +86,15 @@ const crmModule = registerCrmModule({
   socketManager: crmSocketManager,
   bitrixClient: bitrix24Client,
 });
+
+// Initialize Queue Scheduler for automatic conversation reassignment
+const queueScheduler = new QueueScheduler(crmSocketManager);
+
+// Start queue timeout checking (every minute)
+queueScheduler.startChecking(60000);
+
+// Set timeout rules: 10m, 30m, 1h, 2h, 4h, 8h, 12h
+queueScheduler.setTimeoutRules([10, 30, 60, 120, 240, 480, 720]);
 
 // Initialize WhatsApp Webhook Handler
 function createWhatsAppHandler() {
