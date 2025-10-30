@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { apiUrl } from "../lib/apiBase";
 
 interface ConversationTagsProps {
@@ -25,6 +25,38 @@ export default function ConversationTags({ conversationId, initialTags = [], onT
   const [inputValue, setInputValue] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Load existing tags when component mounts
+  useEffect(() => {
+    let ignore = false;
+
+    const loadTags = async () => {
+      try {
+        const response = await fetch(apiUrl(`/api/crm/metrics/${conversationId}/tags`), {
+          method: "GET",
+          credentials: "include",
+        });
+
+        if (response.ok && !ignore) {
+          const data = await response.json();
+          setTags(data.tags || []);
+        }
+      } catch (error) {
+        console.error("[Tags] Error loading tags:", error);
+      } finally {
+        if (!ignore) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadTags();
+
+    return () => {
+      ignore = true;
+    };
+  }, [conversationId]);
 
   const filteredSuggestions = SUGGESTED_TAGS.filter(
     (tag) => !tags.includes(tag) && tag.toLowerCase().includes(inputValue.toLowerCase())
@@ -62,10 +94,32 @@ export default function ConversationTags({ conversationId, initialTags = [], onT
     }
   };
 
-  const removeTag = (tagToRemove: string) => {
+  const removeTag = async (tagToRemove: string) => {
     const newTags = tags.filter((t) => t !== tagToRemove);
     setTags(newTags);
-    onTagsUpdate?.(newTags);
+
+    // Save to backend
+    setSaving(true);
+    try {
+      const response = await fetch(apiUrl(`/api/crm/metrics/${conversationId}/tags`), {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ tags: [tagToRemove] }),
+      });
+
+      if (response.ok) {
+        onTagsUpdate?.(newTags);
+      } else {
+        console.error("[Tags] Error removing tag");
+        setTags(tags); // Revert on error
+      }
+    } catch (error) {
+      console.error("[Tags] Error:", error);
+      setTags(tags); // Revert on error
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -76,6 +130,22 @@ export default function ConversationTags({ conversationId, initialTags = [], onT
       setShowSuggestions(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="text-xs text-slate-500 py-1">
+        <svg className="inline w-3 h-3 animate-spin mr-1" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+          <path
+            className="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+          ></path>
+        </svg>
+        Cargando etiquetas...
+      </div>
+    );
+  }
 
   return (
     <div className="relative">
