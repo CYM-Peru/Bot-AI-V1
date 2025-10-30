@@ -5,6 +5,9 @@
 
 import { Router } from "express";
 import { adminDb } from "../admin-db";
+import { validateBody, validateParams } from "../middleware/validate";
+import { createUserSchema, updateUserSchema, userIdSchema } from "../schemas/validation";
+import logger from "../utils/logger";
 
 export function createAdminRouter(): Router {
   const router = Router();
@@ -22,7 +25,7 @@ export function createAdminRouter(): Router {
       const users = adminDb.getAllUsers();
       res.json({ users });
     } catch (error) {
-      console.error("[Admin] Error getting users:", error);
+      logger.error("[Admin] Error getting users:", error);
       res.status(500).json({ error: "Failed to get users" });
     }
   });
@@ -31,7 +34,7 @@ export function createAdminRouter(): Router {
    * GET /api/admin/users/:id
    * Get user by ID
    */
-  router.get("/users/:id", (req, res) => {
+  router.get("/users/:id", validateParams(userIdSchema), (req, res) => {
     try {
       const { id } = req.params;
       const user = adminDb.getUserById(id);
@@ -41,7 +44,7 @@ export function createAdminRouter(): Router {
       }
       res.json({ user });
     } catch (error) {
-      console.error("[Admin] Error getting user:", error);
+      logger.error("[Admin] Error getting user:", error);
       res.status(500).json({ error: "Failed to get user" });
     }
   });
@@ -50,14 +53,9 @@ export function createAdminRouter(): Router {
    * POST /api/admin/users
    * Create new user
    */
-  router.post("/users", async (req, res) => {
+  router.post("/users", validateBody(createUserSchema), async (req, res) => {
     try {
-      const { username, email, password, name, role, status } = req.body;
-
-      if (!username || !email || !password) {
-        res.status(400).json({ error: "Username, email, and password are required" });
-        return;
-      }
+      const { username, email, password, name, role } = req.body;
 
       // Check if username already exists
       const existingUser = adminDb.getUserByUsername(username);
@@ -71,13 +69,12 @@ export function createAdminRouter(): Router {
         email,
         password,
         name,
-        role: role || "asesor",
-        status: status || "active",
+        role,
       });
 
       res.status(201).json({ user });
     } catch (error) {
-      console.error("[Admin] Error creating user:", error);
+      logger.error("[Admin] Error creating user:", error);
       res.status(500).json({ error: "Failed to create user" });
     }
   });
@@ -86,19 +83,12 @@ export function createAdminRouter(): Router {
    * PUT /api/admin/users/:id
    * Update user
    */
-  router.put("/users/:id", async (req, res) => {
+  router.put("/users/:id", validateParams(userIdSchema), validateBody(updateUserSchema), async (req, res) => {
     try {
       const { id } = req.params;
-      const { username, email, password, name, role, status } = req.body;
+      const updates = req.body;
 
-      const user = await adminDb.updateUser(id, {
-        username,
-        email,
-        password,
-        name,
-        role,
-        status,
-      });
+      const user = await adminDb.updateUser(id, updates);
 
       if (!user) {
         res.status(404).json({ error: "User not found" });
@@ -107,7 +97,7 @@ export function createAdminRouter(): Router {
 
       res.json({ user });
     } catch (error) {
-      console.error("[Admin] Error updating user:", error);
+      logger.error("[Admin] Error updating user:", error);
       res.status(500).json({ error: "Failed to update user" });
     }
   });
@@ -116,7 +106,7 @@ export function createAdminRouter(): Router {
    * DELETE /api/admin/users/:id
    * Delete user
    */
-  router.delete("/users/:id", (req, res) => {
+  router.delete("/users/:id", validateParams(userIdSchema), (req, res) => {
     try {
       const { id } = req.params;
       const deleted = adminDb.deleteUser(id);
@@ -128,7 +118,7 @@ export function createAdminRouter(): Router {
 
       res.json({ success: true });
     } catch (error) {
-      console.error("[Admin] Error deleting user:", error);
+      logger.error("[Admin] Error deleting user:", error);
       res.status(500).json({ error: "Failed to delete user" });
     }
   });
@@ -146,7 +136,7 @@ export function createAdminRouter(): Router {
       const roles = adminDb.getAllRoles();
       res.json({ roles });
     } catch (error) {
-      console.error("[Admin] Error getting roles:", error);
+      logger.error("[Admin] Error getting roles:", error);
       res.status(500).json({ error: "Failed to get roles" });
     }
   });
