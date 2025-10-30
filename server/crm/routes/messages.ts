@@ -114,7 +114,6 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
             caption: payload.text ?? undefined,
             filename: attachment.filename ?? undefined,
           });
-          console.log(`[CRM] Resultado de sendOutboundMessage:`, { ok: outbound.ok, status: outbound.status, error: outbound.error });
           providerResult = {
             ok: outbound.ok,
             providerStatus: outbound.status,
@@ -136,7 +135,6 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
     let status = message.status;
     if (!payload.isInternal) {
       status = providerResult?.ok ? "sent" : "failed";
-      console.log(`[CRM] Actualizando mensaje status a: ${status}, providerResult.ok=${providerResult?.ok}`);
       crmDb.updateMessageStatus(
         message.id,
         status,
@@ -147,7 +145,6 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
 
       // SIEMPRE emitir update (sent o failed) para que el frontend actualice el mensaje
       const updatedMsg = { ...message, status };
-      console.log(`[CRM] Emitiendo messageUpdate para mensaje ${message.id}`);
       socketManager.emitMessageUpdate({ message: updatedMsg, attachment: linkedAttachment });
     }
 

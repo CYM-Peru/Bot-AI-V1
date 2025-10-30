@@ -126,19 +126,7 @@ export default function CRMPage() {
     });
 
     socket.on("crm:msg:update", ({ message, attachment }) => {
-      console.log("[CRM][Frontend] Recibido messageUpdate:", {
-        msgId: message.id,
-        mediaUrl: message.mediaUrl,
-        attachmentId: attachment?.id,
-        attachmentUrl: attachment?.url,
-        attachmentMsgId: attachment?.msgId
-      });
       setConversationData((prev) => updateConversationData(prev, message.convId, (state) => {
-        console.log("[CRM][Frontend] Actualizando attachments:", {
-          attachmentsBefore: state.attachments.length,
-          newAttachment: attachment,
-          attachmentsAfter: attachment ? state.attachments.filter((item) => item.id !== attachment.id).length + 1 : state.attachments.length
-        });
         return {
           messages: state.messages.map((item) => (item.id === message.id ? message : item)),
           attachments: attachment

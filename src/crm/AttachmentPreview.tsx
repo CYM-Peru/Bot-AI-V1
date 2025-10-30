@@ -10,14 +10,6 @@ export default function AttachmentPreview({ attachment, compact = false }: Attac
   const [showModal, setShowModal] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  console.log("[AttachmentPreview] Renderizando attachment:", {
-    id: attachment.id,
-    filename: attachment.filename,
-    url: attachment.url,
-    thumbUrl: attachment.thumbUrl,
-    mime: attachment.mime
-  });
-
   const isImage = attachment.mime.startsWith("image/");
   const isVideo = attachment.mime.startsWith("video/");
   const isAudio = attachment.mime.startsWith("audio/");

@@ -114,7 +114,6 @@ export class CrmRealtimeGateway {
   }
 
   emitMessageUpdate(payload: CRMEmitMessage) {
-    console.log(`[CRM][WS] emitMessageUpdate - mensaje ${payload.message.id}, mediaUrl=${payload.message.mediaUrl}, attachment=${payload.attachment?.id}`);
     this.broadcast("crm:msg:update", payload);
   }
 
