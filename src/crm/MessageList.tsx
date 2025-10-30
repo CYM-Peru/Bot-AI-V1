@@ -40,7 +40,7 @@ export default function MessageList({ messages, attachments, onReply }: MessageL
       <div className="mx-auto flex max-w-3xl flex-col gap-3">
         {messages.map((message) => (
           <MessageBubble
-            key={message.id}
+            key={`${message.id}-${message.status}-${message.mediaUrl || 'no-media'}`}
             message={message}
             attachments={attachmentMap.get(message.id) ?? []}
             repliedTo={message.repliedToId ? messageMap.get(message.repliedToId) ?? null : null}
