@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { AppError } from "../utils/errors";
+import logger from "../utils/logger";
 
 /**
  * Global error handler middleware
@@ -28,8 +29,8 @@ export function errorHandler(
     message = err.message;
   }
 
-  // Log error to console (simple logging for now)
-  console.error(`[ERROR] ${statusCode} - ${errorCode}: ${message}`, {
+  // Log error with Winston
+  logger.error(`${statusCode} - ${errorCode}: ${message}`, {
     path: req.path,
     method: req.method,
     error: err.message,

@@ -26,6 +26,7 @@ import { TimerScheduler } from "./timer-scheduler";
 import { QueueScheduler } from "./queue-scheduler";
 import { authLimiter, apiLimiter, webhookLimiter, flowLimiter } from "./middleware/rate-limit";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler";
+import logger from "./utils/logger";
 
 // Load environment variables
 dotenv.config();
@@ -127,9 +128,9 @@ function createWhatsAppHandler() {
         const assignedFlow = await flowProvider.findFlowByWhatsAppNumber(phoneNumberId);
         if (assignedFlow) {
           flowId = assignedFlow.id;
-          console.log(`[WhatsApp] Using assigned flow ${flowId} for number ${phoneNumberId}`);
+          logger.info(`[WhatsApp] Using assigned flow ${flowId} for number ${phoneNumberId}`);
         } else {
-          console.log(`[WhatsApp] No assignment found for number ${phoneNumberId}, using default flow ${defaultFlowId}`);
+          logger.info(`[WhatsApp] No assignment found for number ${phoneNumberId}, using default flow ${defaultFlowId}`);
         }
       }
 
@@ -166,9 +167,9 @@ let whatsappHandler = createWhatsAppHandler();
 
 // Register reload callback for dynamic credential updates
 registerReloadCallback(() => {
-  console.log('[WhatsApp] Reloading handler with updated credentials...');
+  logger.info('[WhatsApp] Reloading handler with updated credentials...');
   whatsappHandler = createWhatsAppHandler();
-  console.log('[WhatsApp] Handler reloaded successfully');
+  logger.info('[WhatsApp] Handler reloaded successfully');
 });
 
 const healthHandler = (_req: Request, res: Response) => {
@@ -217,7 +218,7 @@ app.post("/api/flows/:flowId", flowLimiter, express.json(), async (req: Request,
 
     res.json({ success: true, flowId });
   } catch (error) {
-    console.error("[ERROR] Failed to save flow:", error);
+    logger.error("[ERROR] Failed to save flow:", error);
     res.status(500).json({ error: "Failed to save flow" });
   }
 });
@@ -235,7 +236,7 @@ app.get("/api/flows/:flowId", async (req: Request, res: Response) => {
 
     res.json(flow);
   } catch (error) {
-    console.error("[ERROR] Failed to get flow:", error);
+    logger.error("[ERROR] Failed to get flow:", error);
     res.status(500).json({ error: "Failed to get flow" });
   }
 });
@@ -246,7 +247,7 @@ app.get("/api/flows", async (req: Request, res: Response) => {
     const flows = await flowProvider.listFlows();
     res.json({ flows });
   } catch (error) {
-    console.error("[ERROR] Failed to list flows:", error);
+    logger.error("[ERROR] Failed to list flows:", error);
     res.status(500).json({ error: "Failed to list flows" });
   }
 });
@@ -296,35 +297,35 @@ server.listen(PORT, () => {
   logDebug(`⚙️  Access Token configurado: ${whatsappEnv.accessToken ? "SI" : "NO"}`);
   logDebug(`⚙️  Phone Number ID: ${whatsappEnv.phoneNumberId ? whatsappEnv.phoneNumberId : "NO CONFIGURADO"}`);
 
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📱 WhatsApp webhook: http://localhost:${PORT}/api/meta/webhook`);
-  console.log(`🏥 Health check: http://localhost:${PORT}/health`);
-  console.log(`\n⚙️  Configuration:`);
-  console.log(`   - Verify Token: ${verifyToken ? "✓" : "✗"}`);
-  console.log(`   - Access Token: ${whatsappEnv.accessToken ? "✓" : "✗"}`);
-  console.log(`   - Phone Number ID: ${whatsappEnv.phoneNumberId ? "✓" : "✗"}`);
-  console.log(`   - Default Flow ID: ${process.env.DEFAULT_FLOW_ID || "default-flow"}`);
-  console.log(`   - Session Storage: ${process.env.SESSION_STORAGE_TYPE || "file"}`);
-  console.log(`   - Bitrix24: ${bitrix24Client ? "✓" : "✗"}`);
-  console.log(`\n📊 Additional Endpoints:`);
-  console.log(`   - Logs: GET http://localhost:${PORT}/api/logs`);
-  console.log(`   - Stats: GET http://localhost:${PORT}/api/stats`);
-  console.log(`   - Metrics: GET http://localhost:${PORT}/api/metrics`);
-  console.log(`   - Active Conversations: GET http://localhost:${PORT}/api/conversations/active`);
-  console.log(`   - Validate Flow: POST http://localhost:${PORT}/api/validate`);
-  console.log(`   - Simulate Start: POST http://localhost:${PORT}/api/simulate/start`);
-  console.log(`   - Simulate Message: POST http://localhost:${PORT}/api/simulate/message`);
+  logger.info(`🚀 Server running on port ${PORT}`);
+  logger.info(`📱 WhatsApp webhook: http://localhost:${PORT}/api/meta/webhook`);
+  logger.info(`🏥 Health check: http://localhost:${PORT}/health`);
+  logger.info(`⚙️  Configuration:`);
+  logger.info(`   - Verify Token: ${verifyToken ? "✓" : "✗"}`);
+  logger.info(`   - Access Token: ${whatsappEnv.accessToken ? "✓" : "✗"}`);
+  logger.info(`   - Phone Number ID: ${whatsappEnv.phoneNumberId ? "✓" : "✗"}`);
+  logger.info(`   - Default Flow ID: ${process.env.DEFAULT_FLOW_ID || "default-flow"}`);
+  logger.info(`   - Session Storage: ${process.env.SESSION_STORAGE_TYPE || "file"}`);
+  logger.info(`   - Bitrix24: ${bitrix24Client ? "✓" : "✗"}`);
+  logger.info(`📊 Additional Endpoints:`);
+  logger.info(`   - Logs: GET http://localhost:${PORT}/api/logs`);
+  logger.info(`   - Stats: GET http://localhost:${PORT}/api/stats`);
+  logger.info(`   - Metrics: GET http://localhost:${PORT}/api/metrics`);
+  logger.info(`   - Active Conversations: GET http://localhost:${PORT}/api/conversations/active`);
+  logger.info(`   - Validate Flow: POST http://localhost:${PORT}/api/validate`);
+  logger.info(`   - Simulate Start: POST http://localhost:${PORT}/api/simulate/start`);
+  logger.info(`   - Simulate Message: POST http://localhost:${PORT}/api/simulate/message`);
 });
 
 export { server };
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
-  console.log("SIGTERM received, shutting down gracefully...");
+  logger.info("SIGTERM received, shutting down gracefully...");
   process.exit(0);
 });
 
 process.on("SIGINT", () => {
-  console.log("SIGINT received, shutting down gracefully...");
+  logger.info("SIGINT received, shutting down gracefully...");
   process.exit(0);
 });
