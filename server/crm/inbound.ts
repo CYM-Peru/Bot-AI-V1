@@ -26,6 +26,13 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
     conversation = crmDb.createConversation(phone);
   }
 
+  // Auto-unarchive if client writes back
+  if (conversation.status === "archived") {
+    crmDb.updateConversationMeta(conversation.id, { status: "active" });
+    conversation = crmDb.getConversationById(conversation.id)!;
+    logDebug(`[CRM] Conversación ${conversation.id} auto-desarchivada al recibir mensaje`);
+  }
+
   const { type, text, attachment } = await translateMessage(args.message);
 
   const storedMessage = crmDb.appendMessage({
