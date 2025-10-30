@@ -23,6 +23,7 @@ import { BotChannelAssignment } from "./components/BotChannelAssignment";
 import { WhatsAppNumbersPanel } from "./components/WhatsAppNumbersPanel";
 import { useAuth } from "./hooks/useAuth";
 import LoginPage from "./components/LoginPage";
+import WelcomeSplash from "./components/WelcomeSplash";
 const CRMWorkspace = React.lazy(() => import("./crm"));
 import {
   ConnectionCreationKind,
@@ -292,6 +293,7 @@ type Toast = { id: number; message: string; type: "success" | "error" };
 export default function App(): JSX.Element {
   // Authentication state
   const { isAuthenticated, isLoading, checkAuth } = useAuth();
+  const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
 
   const [flow, setFlowState] = useState<Flow>(demoFlow);
   const [positionsState, setPositionsState] = useState<Record<string, { x: number; y: number }>>({});
@@ -2305,12 +2307,31 @@ export default function App(): JSX.Element {
     );
   }
 
+  // Handle successful login - show splash then authenticate
+  const handleLoginSuccess = () => {
+    setShowWelcomeSplash(true);
+    // Check auth after showing splash
+    setTimeout(() => {
+      checkAuth();
+    }, 100);
+  };
+
   // Show login page if not authenticated
   if (!isAuthenticated) {
-    return <LoginPage onLoginSuccess={checkAuth} />;
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
   }
 
-  // Main application (only shown when authenticated)
+  // Show welcome splash after login
+  if (showWelcomeSplash) {
+    return (
+      <WelcomeSplash
+        userName="Admin"
+        onComplete={() => setShowWelcomeSplash(false)}
+      />
+    );
+  }
+
+  // Main application (only shown when authenticated and splash completed)
   return (
     <div className="mx-auto max-w-[1500px] px-3 md:px-6 py-4 md:py-6 space-y-4 bg-slate-50">
       {toast && (
@@ -2323,7 +2344,9 @@ export default function App(): JSX.Element {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs px-3 py-1 rounded-full border bg-slate-50">Builder · Beta</span>
-          <h1 className="text-lg md:text-2xl font-semibold truncate">{flow.name}</h1>
+          <h1 className="text-xl md:text-3xl font-bold truncate bg-gradient-to-r from-emerald-600 to-blue-600 bg-clip-text text-transparent tracking-tight" style={{ fontFamily: "'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif" }}>
+            {flow.name}
+          </h1>
 
           {/* Tab Navigation */}
           <div className="flex gap-2 md:ml-4 flex-wrap">
