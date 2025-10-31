@@ -1392,18 +1392,37 @@ export default function App(): JSX.Element {
   }, []);
 
   const handleConfirmSave = useCallback(async (flowName: string) => {
-    // Update flow name
-    setFlow((prev) => ({ ...prev, name: flowName }));
+    // Generate a unique ID from the flow name
+    const generateFlowId = (name: string): string => {
+      // Convert to lowercase, replace spaces/special chars with hyphens
+      const baseId = name
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Remove accents
+        .replace(/[^a-z0-9]+/g, '-') // Replace non-alphanumeric with hyphens
+        .replace(/^-+|-+$/g, '') // Remove leading/trailing hyphens
+        .slice(0, 50); // Limit length
+
+      // Add timestamp to ensure uniqueness
+      const timestamp = Date.now().toString(36);
+      return `${baseId}-${timestamp}`;
+    };
+
+    const newFlowId = generateFlowId(flowName);
+
+    // Update flow with new name and ID
+    setFlow((prev) => ({ ...prev, id: newFlowId, name: flowName }));
+    setWorkspaceId(newFlowId);
 
     // Wait for next tick to ensure state is updated
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    // Perform the save
+    // Perform the save with new ID
     await performSave("Flujo guardado");
 
     // Close modal
     setShowSaveModal(false);
-  }, [performSave]);
+  }, [performSave, setWorkspaceId]);
 
   const handleExport = useCallback(() => {
     if (typeof window === "undefined") {
