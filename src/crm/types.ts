@@ -1,5 +1,7 @@
 export type ConversationStatus = "active" | "attending" | "archived";
 
+export type ChannelType = "whatsapp" | "facebook" | "instagram" | "tiktok";
+
 export interface Conversation {
   id: string;
   phone: string;
@@ -14,6 +16,9 @@ export interface Conversation {
   assignedTo?: string | null;     // Advisor email/ID who accepted the conversation
   assignedAt?: number | null;     // Timestamp when assigned
   queuedAt?: number | null;       // Timestamp when entered queue
+  channel?: ChannelType;          // Channel type (whatsapp, facebook, instagram, tiktok)
+  channelConnectionId?: string | null; // ID of the WhatsApp connection
+  displayNumber?: string | null;   // Real phone number like "+51 918 131 082"
 }
 
 export type MessageDirection = "incoming" | "outgoing";

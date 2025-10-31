@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import type { Conversation } from "./types";
+import { useMemo, useState, useEffect } from "react";
+import type { Conversation, ChannelType } from "./types";
 import { Avatar } from "./Avatar";
 
 interface ConversationListProps {
@@ -12,6 +12,14 @@ type FilterType = "all" | "unread" | "attending" | "archived";
 type SortType = "recent" | "unread" | "name";
 type DateFilter = "all" | "today" | "week" | "month" | "custom";
 
+interface WhatsAppConnection {
+  id: string;
+  alias: string;
+  phoneNumberId: string;
+  displayNumber: string | null;
+  isActive: boolean;
+}
+
 export default function ConversationList({ conversations, selectedId, onSelect }: ConversationListProps) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterType>("all");
@@ -20,6 +28,24 @@ export default function ConversationList({ conversations, selectedId, onSelect }
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [customDateStart, setCustomDateStart] = useState("");
   const [customDateEnd, setCustomDateEnd] = useState("");
+
+  // New multi-channel filters
+  const [advisorFilter, setAdvisorFilter] = useState<string>("all");
+  const [channelFilter, setChannelFilter] = useState<ChannelType | "all">("all");
+  const [connectionFilter, setConnectionFilter] = useState<string>("all");
+  const [whatsappConnections, setWhatsappConnections] = useState<WhatsAppConnection[]>([]);
+
+  // Load WhatsApp connections for filter dropdown
+  useEffect(() => {
+    fetch('/api/connections/whatsapp/list')
+      .then(res => res.json())
+      .then(data => {
+        if (data.ok) {
+          setWhatsappConnections(data.connections);
+        }
+      })
+      .catch(err => console.error('Error loading WhatsApp connections:', err));
+  }, []);
 
   const filtered = useMemo(() => {
     let result = [...conversations];
@@ -62,6 +88,30 @@ export default function ConversationList({ conversations, selectedId, onSelect }
       });
     }
 
+    // Apply advisor filter
+    if (advisorFilter !== "all") {
+      if (advisorFilter === "me") {
+        // TODO: Get current user email from auth context
+        // For now, filter by conversations with any assignment
+        result = result.filter((item) => item.assignedTo);
+      } else if (advisorFilter === "unassigned") {
+        result = result.filter((item) => !item.assignedTo);
+      } else {
+        // Filter by specific advisor email
+        result = result.filter((item) => item.assignedTo === advisorFilter);
+      }
+    }
+
+    // Apply channel filter
+    if (channelFilter !== "all") {
+      result = result.filter((item) => item.channel === channelFilter);
+    }
+
+    // Apply WhatsApp connection filter
+    if (connectionFilter !== "all") {
+      result = result.filter((item) => item.channelConnectionId === connectionFilter);
+    }
+
     // Apply sort
     if (sort === "recent") {
       result.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
@@ -76,7 +126,7 @@ export default function ConversationList({ conversations, selectedId, onSelect }
     }
 
     return result;
-  }, [conversations, search, filter, sort, dateFilter, customDateStart, customDateEnd]);
+  }, [conversations, search, filter, sort, dateFilter, customDateStart, customDateEnd, advisorFilter, channelFilter, connectionFilter]);
 
   const unreadCount = conversations.filter((c) => c.unread > 0 && c.status !== "archived").length;
   const attendingCount = conversations.filter((c) => c.status === "attending").length;
@@ -189,16 +239,68 @@ export default function ConversationList({ conversations, selectedId, onSelect }
             </div>
           )}
 
-          {(dateFilter !== "all" || customDateStart || customDateEnd) && (
+          {/* Advisor Filter */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Asesor</label>
+            <select
+              value={advisorFilter}
+              onChange={(e) => setAdvisorFilter(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:border-blue-400 focus:outline-none focus:ring focus:ring-blue-100"
+            >
+              <option value="all">Todos los asesores</option>
+              <option value="me">Mis chats</option>
+              <option value="unassigned">Sin asignar</option>
+            </select>
+          </div>
+
+          {/* Channel Filter */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Canal</label>
+            <select
+              value={channelFilter}
+              onChange={(e) => setChannelFilter(e.target.value as ChannelType | "all")}
+              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:border-blue-400 focus:outline-none focus:ring focus:ring-blue-100"
+            >
+              <option value="all">Todos los canales</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="facebook">Facebook</option>
+              <option value="instagram">Instagram</option>
+              <option value="tiktok">TikTok</option>
+            </select>
+          </div>
+
+          {/* WhatsApp Connection Filter - Only show when WhatsApp channel is selected */}
+          {(channelFilter === "whatsapp" || channelFilter === "all") && whatsappConnections.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Número WhatsApp</label>
+              <select
+                value={connectionFilter}
+                onChange={(e) => setConnectionFilter(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:border-blue-400 focus:outline-none focus:ring focus:ring-blue-100"
+              >
+                <option value="all">Todos los números</option>
+                {whatsappConnections.map((conn) => (
+                  <option key={conn.id} value={conn.id}>
+                    {conn.alias} - {conn.displayNumber || conn.phoneNumberId}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {(dateFilter !== "all" || customDateStart || customDateEnd || advisorFilter !== "all" || channelFilter !== "all" || connectionFilter !== "all") && (
             <button
               onClick={() => {
                 setDateFilter("all");
                 setCustomDateStart("");
                 setCustomDateEnd("");
+                setAdvisorFilter("all");
+                setChannelFilter("all");
+                setConnectionFilter("all");
               }}
               className="w-full px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition"
             >
-              Limpiar filtros de fecha
+              Limpiar todos los filtros
             </button>
           )}
         </div>
