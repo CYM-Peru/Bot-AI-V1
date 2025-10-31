@@ -345,8 +345,8 @@ export default function ConversationList({ conversations, selectedId, onSelect }
                   <button
                     type="button"
                     onClick={() => onSelect(conversation)}
-                    style={{ borderLeftColor: channelColor }}
-                    className={`flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-emerald-50 border-l-4 ${
+                    style={{ borderLeft: `4px solid ${channelColor}` }}
+                    className={`flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-emerald-50 ${
                       isActive ? "bg-emerald-50" : "bg-white"
                     }`}
                   >

@@ -61,17 +61,51 @@ export class CRMDatabase {
     return this.store.conversations.find((item) => item.phone === phone);
   }
 
-  createConversation(phone: string, contactName?: string | null, avatarUrl?: string | null): Conversation {
-    const existing = this.getConversationByPhone(phone);
+  /**
+   * Get conversation by phone AND channel (prevents mixing channels)
+   * CRITICAL: Same phone number in different channels = different conversations
+   */
+  getConversationByPhoneAndChannel(
+    phone: string,
+    channel: import("./models").ChannelType = "whatsapp",
+    channelConnectionId?: string | null
+  ): Conversation | undefined {
+    return this.store.conversations.find((item) => {
+      const phoneMatch = item.phone === phone;
+      const channelMatch = item.channel === channel;
+
+      // For WhatsApp, also match by specific connection ID to separate multiple WhatsApp numbers
+      if (channel === "whatsapp" && channelConnectionId) {
+        return phoneMatch && channelMatch && item.channelConnectionId === channelConnectionId;
+      }
+
+      // For other channels, just match phone + channel
+      return phoneMatch && channelMatch;
+    });
+  }
+
+  createConversation(
+    phone: string,
+    options?: {
+      contactName?: string | null;
+      avatarUrl?: string | null;
+      channel?: import("./models").ChannelType;
+      channelConnectionId?: string | null;
+      displayNumber?: string | null;
+    }
+  ): Conversation {
+    // CRITICAL FIX: Check by phone + channel + connectionId (not just phone)
+    const channel = options?.channel ?? "whatsapp";
+    const existing = this.getConversationByPhoneAndChannel(phone, channel, options?.channelConnectionId);
     if (existing) return existing;
     const now = Date.now();
     const conversation: Conversation = {
       id: randomUUID(),
       phone,
-      contactName: contactName ?? null,
+      contactName: options?.contactName ?? null,
       bitrixId: null,
       bitrixDocument: null,
-      avatarUrl: avatarUrl ?? null,
+      avatarUrl: options?.avatarUrl ?? null,
       lastMessageAt: now,
       unread: 0,
       status: "active",
@@ -80,6 +114,9 @@ export class CRMDatabase {
       assignedAt: null,
       queuedAt: now, // New conversations start in queue
       queueId: null, // Will be assigned when bot transfers or manually assigned
+      channel: channel,
+      channelConnectionId: options?.channelConnectionId ?? null,
+      displayNumber: options?.displayNumber ?? null,
     };
     this.store.conversations.push(conversation);
     this.save();
