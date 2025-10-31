@@ -57,7 +57,9 @@ export function ValidationNode(props: NodeProps<RuntimeNode>) {
                 {(validation.keywordGroups ?? []).length === 0 && (
                   <span className="text-[11px] text-slate-500">Sin criterios configurados</span>
                 )}
-                {(validation.keywordGroups ?? []).map((group) => (
+                {(validation.keywordGroups ?? [])
+                  .filter((group): group is import('../../types').ValidationKeywordGroup => group != null && typeof group === 'object' && 'id' in group)
+                  .map((group) => (
                   <span
                     key={group.id}
                     className="inline-flex items-center gap-1 rounded-full bg-white/80 px-3 py-1 text-[11px] text-slate-600"

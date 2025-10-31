@@ -102,9 +102,12 @@ export function createButtonOption(index: number, overrides: Partial<ButtonOptio
 }
 
 export function normalizeButtonsData(data?: Partial<ButtonsActionData> | null): ButtonsActionData {
-  const items = (data?.items ?? []).map((item, idx) => ({
-    ...createButtonOption(idx, item),
-  }));
+  // Filter out null/undefined items before mapping
+  const items = (data?.items ?? [])
+    .filter((item): item is ButtonOption => item != null && typeof item === 'object')
+    .map((item, idx) => ({
+      ...createButtonOption(idx, item),
+    }));
   const ensuredItems = items.length > 0 ? items : [createButtonOption(0)];
   const maxButtons = data?.maxButtons ?? DEFAULT_BUTTON_LIMIT;
   const moreTargetId = data?.moreTargetId ?? null;
@@ -156,9 +159,12 @@ export function convertButtonsOverflowToList(
 export function getMenuOptions(node: FlowNode): MenuOption[] {
   if (node.type !== 'menu') return [];
   const options = node.menuOptions && node.menuOptions.length > 0 ? node.menuOptions : [createMenuOption(0)];
-  return options.map((option, idx) => ({
-    ...createMenuOption(idx, option),
-  }));
+  // Filter out null/undefined options before mapping
+  return options
+    .filter((option): option is MenuOption => option != null && typeof option === 'object')
+    .map((option, idx) => ({
+      ...createMenuOption(idx, option),
+    }));
 }
 
 export function getButtonsData(node: FlowNode): ButtonsActionData | null {
