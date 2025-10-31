@@ -563,6 +563,13 @@ export default function App(): JSX.Element {
   }, [replaceFlow, showToast]);
 
   const handleSelectFlow = useCallback(async (flowId: string) => {
+    // Validar que flowId sea válido antes de continuar
+    if (!flowId || flowId === 'undefined' || flowId === 'null') {
+      console.error('Attempted to select flow with invalid ID:', flowId);
+      showToast('ID de flujo inválido', 'error');
+      return;
+    }
+
     try {
       const response = await fetch(`/api/flows/${flowId}`);
       if (!response.ok) {
