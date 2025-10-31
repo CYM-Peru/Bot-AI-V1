@@ -165,6 +165,7 @@ export type WhatsAppNumberAssignment = {
   numberId: string;        // Unique ID for the WhatsApp number
   displayName: string;     // Friendly name (e.g., "Ventas", "Soporte")
   phoneNumber: string;     // Actual WhatsApp number
+  queueId?: string;        // CRITICAL: Queue ID for bot transfers - prevents conversations from going to limbo
 };
 
 export type FlowChannelAssignment = {

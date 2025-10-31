@@ -14,6 +14,7 @@ export interface Conversation {
   assignedTo: string | null;       // Advisor email/ID who accepted the conversation
   assignedAt: number | null;       // Timestamp when assigned
   queuedAt: number | null;         // Timestamp when entered queue (first "active" status)
+  queueId: string | null;          // CRITICAL: Queue ID - prevents conversations from going to limbo when bot transfers
 }
 
 export type MessageDirection = "incoming" | "outgoing";
