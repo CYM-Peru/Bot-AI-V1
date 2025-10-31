@@ -1,6 +1,7 @@
 import { type Flow } from "../src/flow/types";
 import { type FlowProvider } from "../src/runtime/engine";
 import { promises as fs } from "fs";
+import { mkdirSync } from "fs";
 import path from "path";
 
 /**
@@ -131,7 +132,7 @@ export class LocalStorageFlowProvider implements FlowProvider {
 
   private ensureStorageDir(): void {
     try {
-      fs.mkdir(this.storageDir, { recursive: true });
+      mkdirSync(this.storageDir, { recursive: true });
     } catch (error) {
       console.error("[ERROR] Failed to create storage directory:", error);
     }
