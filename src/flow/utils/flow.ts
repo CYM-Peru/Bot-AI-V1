@@ -438,6 +438,65 @@ export function normalizeFlow(flow: Flow): Flow {
   return { ...flow, version, nodes };
 }
 
+/**
+ * Validates that a flow has the correct structure before saving/loading
+ * Returns an object with { valid: boolean, errors: string[] }
+ */
+export function validateFlowStructure(flow: unknown): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  // Check if flow is an object
+  if (!flow || typeof flow !== 'object') {
+    errors.push('Flow must be an object');
+    return { valid: false, errors };
+  }
+
+  const f = flow as Record<string, unknown>;
+
+  // Check required fields
+  if (!f.id || typeof f.id !== 'string') {
+    errors.push('Flow must have a valid id (string)');
+  }
+
+  if (!f.name || typeof f.name !== 'string') {
+    errors.push('Flow must have a valid name (string)');
+  }
+
+  if (!f.nodes || typeof f.nodes !== 'object') {
+    errors.push('Flow must have a nodes object');
+    return { valid: false, errors };
+  }
+
+  // Validate all nodes have id and type
+  const nodes = f.nodes as Record<string, unknown>;
+  for (const [nodeId, node] of Object.entries(nodes)) {
+    if (!node || typeof node !== 'object') {
+      errors.push(`Node "${nodeId}" is not a valid object`);
+      continue;
+    }
+
+    const n = node as Record<string, unknown>;
+
+    if (!n.id || typeof n.id !== 'string') {
+      errors.push(`Node "${nodeId}" is missing a valid id`);
+    }
+
+    if (!n.type || typeof n.type !== 'string') {
+      errors.push(`Node "${nodeId}" is missing a valid type`);
+    }
+
+    // Verify the node's id matches the key in the nodes object
+    if (n.id && n.id !== nodeId) {
+      errors.push(`Node "${nodeId}" has mismatched id: "${n.id}"`);
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
 export function applyHandleAssignment(
   flow: Flow,
   sourceId: string,

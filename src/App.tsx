@@ -47,6 +47,7 @@ import {
   normalizeFlow,
   normalizeSchedulerData,
   sanitizeTimeWindow,
+  validateFlowStructure,
 } from "./flow/utils/flow";
 import type {
   ActionKind,
@@ -569,9 +570,19 @@ export default function App(): JSX.Element {
         throw new Error(`Failed to load flow: ${response.status}`);
       }
       const flowData = await response.json();
-      replaceFlow(flowData.flow || flowData, flowData.positions || {});
+      const flow = flowData.flow || flowData;
+
+      // Validate flow structure before loading
+      const validation = validateFlowStructure(flow);
+      if (!validation.valid) {
+        console.error('Flow validation errors:', validation.errors);
+        showToast(`Flujo corrupto: ${validation.errors[0]}`, 'error');
+        throw new Error(`Flow validation failed: ${validation.errors.join(', ')}`);
+      }
+
+      replaceFlow(flow, flowData.positions || {});
       setDirty(false);
-      showToast(`Flujo "${flowData.flow?.name || flowData.name || flowId}" cargado`, 'success');
+      showToast(`Flujo "${flow.name || flowId}" cargado`, 'success');
     } catch (error) {
       console.error('Error loading flow:', error);
       showToast('Error al cargar el flujo', 'error');
@@ -1345,6 +1356,15 @@ export default function App(): JSX.Element {
 
   const performSave = useCallback(async (message?: string) => {
     const payload: PersistedState = { flow: flowRef.current, positions: positionsRef.current };
+
+    // Validate flow structure before saving
+    const validation = validateFlowStructure(payload.flow);
+    if (!validation.valid) {
+      console.error('Flow validation errors:', validation.errors);
+      showToast(`Error: ${validation.errors[0]}`, "error");
+      throw new Error(`Flow validation failed: ${validation.errors.join(', ')}`);
+    }
+
     try {
       await saveFlow(workspaceIdRef.current, payload);
       setDirty(false);
