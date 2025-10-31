@@ -14,6 +14,7 @@ import { MetricsPanel } from "./components/MetricsPanel";
 import { NodeSearchModal } from "./components/NodeSearchModal";
 import { TemplateSelector } from "./components/TemplateSelector";
 import { FlowsGallery } from "./components/FlowsGallery";
+import { SaveFlowModal } from "./components/SaveFlowModal";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import type { FlowTemplate } from "./templates/flowTemplates";
 import { toPng } from './utils/htmlToImage';
@@ -373,6 +374,7 @@ export default function App(): JSX.Element {
   // Template selector
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
   const [showFlowsGallery, setShowFlowsGallery] = useState(false);
+  const [showSaveModal, setShowSaveModal] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -1386,8 +1388,22 @@ export default function App(): JSX.Element {
   }, [debouncedManualSave]);
 
   const handleSaveClick = useCallback(() => {
-    debouncedManualSave();
-  }, [debouncedManualSave]);
+    setShowSaveModal(true);
+  }, []);
+
+  const handleConfirmSave = useCallback(async (flowName: string) => {
+    // Update flow name
+    setFlow((prev) => ({ ...prev, name: flowName }));
+
+    // Wait for next tick to ensure state is updated
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    // Perform the save
+    await performSave("Flujo guardado");
+
+    // Close modal
+    setShowSaveModal(false);
+  }, [performSave]);
 
   const handleExport = useCallback(() => {
     if (typeof window === "undefined") {
@@ -4077,6 +4093,14 @@ export default function App(): JSX.Element {
           currentFlowId={workspaceIdRef.current}
           onSelectFlow={handleSelectFlow}
           onClose={() => setShowFlowsGallery(false)}
+        />
+      )}
+
+      {showSaveModal && (
+        <SaveFlowModal
+          currentFlowName={flow.name || ""}
+          onSave={handleConfirmSave}
+          onCancel={() => setShowSaveModal(false)}
         />
       )}
     </div>
