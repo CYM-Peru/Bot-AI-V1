@@ -76,6 +76,7 @@ export class WhatsAppConnectionManager {
 
   /**
    * Create a new WhatsApp connection
+   * AUTOMATICALLY fetches displayNumber from Meta if not provided
    */
   static async createConnection(data: Omit<WhatsAppConnection, 'id' | 'createdAt' | 'updatedAt'>): Promise<WhatsAppConnection> {
     const store = await loadStore();
@@ -86,9 +87,20 @@ export class WhatsAppConnectionManager {
       throw new Error(`Connection with phoneNumberId ${data.phoneNumberId} already exists`);
     }
 
+    // AUTOMATIC: If displayNumber not provided, fetch from Meta
+    let displayNumber = data.displayNumber;
+    if (!displayNumber) {
+      console.log(`[WhatsApp Manager] Auto-fetching displayNumber from Meta for ${data.phoneNumberId}...`);
+      displayNumber = await this.fetchDisplayNumberFromMeta(data.phoneNumberId, data.accessToken);
+      if (displayNumber) {
+        console.log(`[WhatsApp Manager] ✅ Auto-fetched: ${displayNumber}`);
+      }
+    }
+
     const now = Date.now();
     const connection: WhatsAppConnection = {
       ...data,
+      displayNumber,
       id: randomUUID(),
       createdAt: now,
       updatedAt: now,
@@ -103,6 +115,7 @@ export class WhatsAppConnectionManager {
 
   /**
    * Update an existing WhatsApp connection
+   * AUTOMATICALLY refreshes displayNumber if phoneNumberId or accessToken changes
    */
   static async updateConnection(
     id: string,
@@ -115,16 +128,34 @@ export class WhatsAppConnectionManager {
       return null;
     }
 
+    const oldConnection = store.connections[index];
+
     // If updating phoneNumberId, check it doesn't conflict
-    if (data.phoneNumberId && data.phoneNumberId !== store.connections[index].phoneNumberId) {
+    if (data.phoneNumberId && data.phoneNumberId !== oldConnection.phoneNumberId) {
       const existing = store.connections.find((conn) => conn.phoneNumberId === data.phoneNumberId);
       if (existing) {
         throw new Error(`Connection with phoneNumberId ${data.phoneNumberId} already exists`);
       }
     }
 
+    // AUTOMATIC: If phoneNumberId or accessToken changed, refresh displayNumber from Meta
+    const phoneNumberChanged = data.phoneNumberId && data.phoneNumberId !== oldConnection.phoneNumberId;
+    const tokenChanged = data.accessToken && data.accessToken !== oldConnection.accessToken;
+
+    if ((phoneNumberChanged || tokenChanged) && !data.displayNumber) {
+      const phoneId = data.phoneNumberId || oldConnection.phoneNumberId;
+      const token = data.accessToken || oldConnection.accessToken;
+
+      console.log(`[WhatsApp Manager] Auto-refreshing displayNumber from Meta for ${phoneId}...`);
+      const fetchedDisplayNumber = await this.fetchDisplayNumberFromMeta(phoneId, token);
+      if (fetchedDisplayNumber) {
+        data.displayNumber = fetchedDisplayNumber;
+        console.log(`[WhatsApp Manager] ✅ Auto-refreshed: ${fetchedDisplayNumber}`);
+      }
+    }
+
     const updated: WhatsAppConnection = {
-      ...store.connections[index],
+      ...oldConnection,
       ...data,
       updatedAt: Date.now(),
     };
@@ -165,8 +196,31 @@ export class WhatsAppConnectionManager {
   }
 
   /**
+   * Fetch displayNumber from Meta Graph API
+   */
+  private static async fetchDisplayNumberFromMeta(phoneNumberId: string, accessToken: string): Promise<string | null> {
+    try {
+      const apiVersion = process.env.WHATSAPP_API_VERSION || 'v20.0';
+      const url = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}?access_token=${accessToken}`;
+
+      const response = await fetch(url);
+      if (!response.ok) {
+        console.warn(`[WhatsApp Manager] Failed to fetch displayNumber from Meta: ${response.status}`);
+        return null;
+      }
+
+      const data = await response.json() as { display_phone_number?: string };
+      return data.display_phone_number || null;
+    } catch (error) {
+      console.warn('[WhatsApp Manager] Error fetching displayNumber from Meta:', error);
+      return null;
+    }
+  }
+
+  /**
    * Migrate from old .env based config to new multi-connection format
    * This runs once to import existing credentials
+   * AUTOMATICALLY fetches displayNumber from Meta API
    */
   static async migrateFromEnv(): Promise<void> {
     const store = await loadStore();
@@ -185,11 +239,15 @@ export class WhatsAppConnectionManager {
       return;
     }
 
+    // AUTOMATIC: Fetch displayNumber from Meta
+    console.log('[WhatsApp Manager] Fetching displayNumber from Meta API...');
+    const displayNumber = await this.fetchDisplayNumberFromMeta(phoneNumberId, accessToken);
+
     const connection: WhatsAppConnection = {
       id: randomUUID(),
       alias: 'Principal',
       phoneNumberId,
-      displayNumber: null,
+      displayNumber,
       accessToken,
       verifyToken: verifyToken ?? null,
       isActive: true,
@@ -200,6 +258,11 @@ export class WhatsAppConnectionManager {
     store.connections.push(connection);
     await saveStore(store);
 
-    console.log('[WhatsApp Manager] ✅ Migrated credentials from .env to connections.json');
+    console.log(`[WhatsApp Manager] ✅ Migrated credentials from .env to connections.json`);
+    if (displayNumber) {
+      console.log(`[WhatsApp Manager] ✅ Auto-fetched displayNumber: ${displayNumber}`);
+    } else {
+      console.log('[WhatsApp Manager] ⚠️ Could not fetch displayNumber from Meta (will retry on verify)');
+    }
   }
 }
