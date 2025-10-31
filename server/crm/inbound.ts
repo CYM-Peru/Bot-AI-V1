@@ -9,6 +9,7 @@ import type { Attachment, MessageType } from "./models";
 import { logDebug, logError } from "../utils/file-logger";
 import { getWhatsAppEnv } from "../utils/env";
 import axios from "axios";
+import { WhatsAppConnectionManager } from "../connections/whatsapp-manager";
 
 interface HandleIncomingArgs {
   entryId: string;
@@ -23,9 +24,34 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
   if (!phone) {
     return;
   }
+
   let conversation = crmDb.getConversationByPhone(phone);
   if (!conversation) {
-    conversation = crmDb.createConversation(phone);
+    // Detect WhatsApp connection from webhook metadata
+    const phoneNumberId = args.value.metadata?.phone_number_id;
+    let channelConnectionId: string | null = null;
+    let displayNumber: string | null = null;
+
+    if (phoneNumberId) {
+      try {
+        const connection = await WhatsAppConnectionManager.getConnectionByPhoneNumberId(phoneNumberId);
+        if (connection) {
+          channelConnectionId = connection.id;
+          displayNumber = connection.displayNumber;
+          logDebug(`[CRM] Detected WhatsApp connection: ${connection.alias} (${connection.displayNumber || phoneNumberId})`);
+        } else {
+          logDebug(`[CRM] No connection found for phoneNumberId: ${phoneNumberId}`);
+        }
+      } catch (error) {
+        logError("[CRM] Error looking up WhatsApp connection:", error);
+      }
+    }
+
+    conversation = crmDb.createConversation(phone, {
+      channel: "whatsapp",
+      channelConnectionId,
+      displayNumber,
+    });
   }
 
   // Auto-unarchive if client writes back
@@ -247,7 +273,10 @@ export async function handleOutboundBotMessage(args: HandleOutboundBotArgs): Pro
 
   let conversation = crmDb.getConversationByPhone(phone);
   if (!conversation) {
-    conversation = crmDb.createConversation(phone);
+    // For bot messages, we don't have the webhook metadata, so we create with default channel
+    conversation = crmDb.createConversation(phone, {
+      channel: "whatsapp",
+    });
   }
 
   // Translate bot message to CRM format

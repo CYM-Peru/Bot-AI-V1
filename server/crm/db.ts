@@ -61,17 +61,26 @@ export class CRMDatabase {
     return this.store.conversations.find((item) => item.phone === phone);
   }
 
-  createConversation(phone: string, contactName?: string | null, avatarUrl?: string | null): Conversation {
+  createConversation(
+    phone: string,
+    options?: {
+      contactName?: string | null;
+      avatarUrl?: string | null;
+      channel?: import("./models").ChannelType;
+      channelConnectionId?: string | null;
+      displayNumber?: string | null;
+    }
+  ): Conversation {
     const existing = this.getConversationByPhone(phone);
     if (existing) return existing;
     const now = Date.now();
     const conversation: Conversation = {
       id: randomUUID(),
       phone,
-      contactName: contactName ?? null,
+      contactName: options?.contactName ?? null,
       bitrixId: null,
       bitrixDocument: null,
-      avatarUrl: avatarUrl ?? null,
+      avatarUrl: options?.avatarUrl ?? null,
       lastMessageAt: now,
       unread: 0,
       status: "active",
@@ -80,6 +89,9 @@ export class CRMDatabase {
       assignedAt: null,
       queuedAt: now, // New conversations start in queue
       queueId: null, // Will be assigned when bot transfers or manually assigned
+      channel: options?.channel ?? "whatsapp",
+      channelConnectionId: options?.channelConnectionId ?? null,
+      displayNumber: options?.displayNumber ?? null,
     };
     this.store.conversations.push(conversation);
     this.save();

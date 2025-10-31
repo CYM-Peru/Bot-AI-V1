@@ -30,6 +30,7 @@ import logger from "./utils/logger";
 import { validateBody, validateParams } from "./middleware/validate";
 import { flowSchema, flowIdSchema } from "./schemas/validation";
 import { validateEnv } from "./utils/validate-env";
+import { WhatsAppConnectionManager } from "./connections/whatsapp-manager";
 
 // Load environment variables
 dotenv.config();
@@ -38,6 +39,13 @@ dotenv.config();
 validateEnv();
 
 ensureStorageSetup();
+
+// Migrate WhatsApp credentials from .env to multi-connection format
+WhatsAppConnectionManager.migrateFromEnv().then(() => {
+  logger.info('[WhatsApp] Migration check completed');
+}).catch((error) => {
+  logger.error('[WhatsApp] Migration failed:', error);
+});
 
 const app = express();
 const PORT = process.env.PORT || 3000;

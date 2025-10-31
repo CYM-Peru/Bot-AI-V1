@@ -27,7 +27,15 @@ export class LocalStorageFlowProvider implements FlowProvider {
     try {
       const filePath = this.getFlowPath(flowId);
       const fileContent = await fs.readFile(filePath, "utf-8");
-      const flow = JSON.parse(fileContent) as Flow;
+      const parsed = JSON.parse(fileContent);
+
+      // Extract flow object if wrapped in { flow: {...}, positions: {} }
+      let flow: Flow;
+      if (parsed.flow && typeof parsed.flow === 'object') {
+        flow = parsed.flow as Flow;
+      } else {
+        flow = parsed as Flow;
+      }
 
       // Cache the flow
       this.flowCache.set(flowId, flow);
@@ -86,13 +94,21 @@ export class LocalStorageFlowProvider implements FlowProvider {
 
   async findFlowByWhatsAppNumber(phoneNumberId: string): Promise<Flow | null> {
     try {
+      this.clearCache();
       const allFlows = await this.getAllFlows();
       for (const flow of allFlows) {
         const assignments = flow.channelAssignments || [];
-        const whatsappAssignment = assignments.find((a: any) => a.channelType === 'whatsapp');
-        if (whatsappAssignment && whatsappAssignment.whatsappNumbers) {
-          if (whatsappAssignment.whatsappNumbers.includes(phoneNumberId)) {
-            return flow;
+        for (const assignment of assignments) {
+          // Support both 'channel' and 'channelType' properties
+          const isWhatsApp = (assignment as any).channelType === 'whatsapp' || (assignment as any).channel === 'whatsapp';
+          if (isWhatsApp) {
+            // Support both 'whatsappNumbers' (array) and 'phoneNumberId' (string)
+            if ((assignment as any).whatsappNumbers?.includes(phoneNumberId)) {
+              return flow;
+            }
+            if ((assignment as any).phoneNumberId === phoneNumberId) {
+              return flow;
+            }
           }
         }
       }
