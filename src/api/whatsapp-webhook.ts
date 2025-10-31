@@ -43,6 +43,10 @@ export interface WhatsAppWebhookHandlerOptions {
     value: ChangeValue;
     message: WhatsAppMessage;
   }) => Promise<void> | void;
+  onOutboundMessage?: (payload: {
+    phone: string;
+    message: OutboundMessage;
+  }) => Promise<void> | void;
   onBotTransfer?: (payload: {
     phone: string;
     queueId: string | null;
@@ -61,6 +65,7 @@ export class WhatsAppWebhookHandler {
   private readonly logger?: Logger;
 
   private readonly onIncomingMessage?: WhatsAppWebhookHandlerOptions["onIncomingMessage"];
+  private readonly onOutboundMessage?: WhatsAppWebhookHandlerOptions["onOutboundMessage"];
   private readonly onBotTransfer?: WhatsAppWebhookHandlerOptions["onBotTransfer"];
 
   constructor(options: WhatsAppWebhookHandlerOptions) {
@@ -70,6 +75,7 @@ export class WhatsAppWebhookHandler {
     this.resolveFlow = options.resolveFlow;
     this.logger = options.logger;
     this.onIncomingMessage = options.onIncomingMessage;
+    this.onOutboundMessage = options.onOutboundMessage;
     this.onBotTransfer = options.onBotTransfer;
   }
 
@@ -166,6 +172,7 @@ export class WhatsAppWebhookHandler {
     switch (message.type) {
       case "text": {
         await this.safeSend(() => sendTextMessage(this.apiConfig, to, message.text), message);
+        await this.onOutboundMessage?.({ phone: to, message });
         return;
       }
       case "buttons": {
@@ -178,9 +185,11 @@ export class WhatsAppWebhookHandler {
             type: "text",
             text: message.text,
           });
+          await this.onOutboundMessage?.({ phone: to, message });
           return;
         }
         await this.safeSend(() => sendButtonsMessage(this.apiConfig, to, message.text, buttons), message);
+        await this.onOutboundMessage?.({ phone: to, message });
         return;
       }
       case "media": {
@@ -189,11 +198,13 @@ export class WhatsAppWebhookHandler {
           () => sendMediaMessage(this.apiConfig, to, message.url, mediaType, message.caption),
           message,
         );
+        await this.onOutboundMessage?.({ phone: to, message });
         return;
       }
       case "menu": {
         const text = buildMenuText(message);
         await this.safeSend(() => sendTextMessage(this.apiConfig, to, text), message);
+        await this.onOutboundMessage?.({ phone: to, message });
         return;
       }
       case "system":

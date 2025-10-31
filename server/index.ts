@@ -168,6 +168,15 @@ function createWhatsAppHandler() {
         logError(`[WEBHOOK] Error en CRM handleIncomingWhatsApp:`, error);
       }
     },
+    onOutboundMessage: async (payload) => {
+      logDebug(`[WEBHOOK] onOutboundMessage llamado - Mensaje tipo: ${payload.message.type}, To: ${payload.phone}`);
+      try {
+        await crmModule.handleOutboundBot(payload);
+        logDebug(`[WEBHOOK] CRM procesó mensaje bot exitosamente`);
+      } catch (error) {
+        logError(`[WEBHOOK] Error en CRM handleOutboundBot:`, error);
+      }
+    },
     onBotTransfer: async (payload) => {
       // CRITICAL: Assign conversation to queue when bot transfers
       try {

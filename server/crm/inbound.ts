@@ -1,4 +1,5 @@
 import type { ChangeValue, WhatsAppMessage } from "../../src/api/whatsapp-webhook";
+import type { OutboundMessage } from "../../src/runtime/executor";
 import { crmDb } from "./db";
 import { metricsTracker } from "./metrics-tracker";
 import type { CrmRealtimeManager } from "./ws";
@@ -232,5 +233,97 @@ async function downloadMedia(mediaId: string, mimeHint?: string): Promise<{ buff
       logError("[CRM][Media] Error descargando desde Cloudflare Worker", error);
     }
     return null;
+  }
+}
+
+interface HandleOutboundBotArgs {
+  phone: string;
+  message: OutboundMessage;
+  socketManager: CrmRealtimeManager;
+}
+
+export async function handleOutboundBotMessage(args: HandleOutboundBotArgs): Promise<void> {
+  const { phone, message, socketManager } = args;
+
+  let conversation = crmDb.getConversationByPhone(phone);
+  if (!conversation) {
+    conversation = crmDb.createConversation(phone);
+  }
+
+  // Translate bot message to CRM format
+  const { type, text, mediaUrl } = translateBotMessage(message);
+
+  const storedMessage = crmDb.appendMessage({
+    convId: conversation.id,
+    direction: "outgoing",
+    type,
+    text,
+    mediaUrl,
+    mediaThumb: null,
+    repliedToId: null,
+    status: "sent", // Bot messages are already sent when we get here
+  });
+
+  // Track outgoing bot message for metrics
+  metricsTracker.recordMessage(conversation.id, true);
+
+  socketManager.emitNewMessage({ message: storedMessage, attachment: null });
+  const refreshed = crmDb.getConversationById(conversation.id);
+  if (refreshed) {
+    socketManager.emitConversationUpdate({ conversation: refreshed });
+  }
+
+  logDebug(`[CRM] Bot message stored in conversation ${conversation.id}`);
+}
+
+function translateBotMessage(message: OutboundMessage): {
+  type: MessageType;
+  text: string | null;
+  mediaUrl: string | null;
+} {
+  switch (message.type) {
+    case "text":
+      return { type: "text", text: message.text, mediaUrl: null };
+    case "buttons":
+      return { type: "text", text: message.text, mediaUrl: null };
+    case "menu": {
+      // Format menu as text with numbered options
+      const lines = [message.text];
+      message.options.forEach((option, index) => {
+        const label = option.label ?? option.value ?? `Opción ${index + 1}`;
+        lines.push(`${index + 1}. ${label}`);
+      });
+      return { type: "text", text: lines.join("\n"), mediaUrl: null };
+    }
+    case "media": {
+      const mediaType = mapMediaType(message.mediaType);
+      return {
+        type: mediaType,
+        text: message.caption ?? null,
+        mediaUrl: message.url,
+      };
+    }
+    case "system":
+      return { type: "system", text: JSON.stringify(message.payload), mediaUrl: null };
+    default:
+      return { type: "text", text: "[Mensaje desconocido]", mediaUrl: null };
+  }
+}
+
+function mapMediaType(mediaType: string): MessageType {
+  switch (mediaType) {
+    case "image":
+      return "image";
+    case "video":
+      return "video";
+    case "audio":
+      return "audio";
+    case "document":
+    case "file":
+      return "document";
+    case "sticker":
+      return "sticker";
+    default:
+      return "document";
   }
 }

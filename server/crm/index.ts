@@ -9,9 +9,10 @@ import { createTemplatesRouter } from "./routes/templates";
 import { createMetricsRouter } from "./routes/metrics";
 import mediaRouter from "./routes/media";
 import { createBitrixService } from "./services/bitrix";
-import { handleIncomingWhatsAppMessage } from "./inbound";
+import { handleIncomingWhatsAppMessage, handleOutboundBotMessage } from "./inbound";
 import type { CrmRealtimeManager } from "./ws";
 import { requireAuth } from "../auth/middleware";
+import type { OutboundMessage } from "../../src/runtime/executor";
 
 export interface RegisterCrmOptions {
   app: Application;
@@ -52,6 +53,12 @@ export function registerCrmModule(options: RegisterCrmOptions) {
         message: payload.message,
         socketManager: realtime,
         bitrixService,
+      }),
+    handleOutboundBot: (payload: { phone: string; message: OutboundMessage }) =>
+      handleOutboundBotMessage({
+        phone: payload.phone,
+        message: payload.message,
+        socketManager: realtime,
       }),
   };
 }
