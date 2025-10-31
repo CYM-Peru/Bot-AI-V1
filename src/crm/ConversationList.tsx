@@ -12,6 +12,52 @@ type FilterType = "all" | "unread" | "attending" | "archived";
 type SortType = "recent" | "unread" | "name";
 type DateFilter = "all" | "today" | "week" | "month" | "custom";
 
+interface WhatsAppConnection {
+  id: string;
+  alias: string;
+  phoneNumberId: string;
+  displayNumber: string | null;
+  isActive: boolean;
+}
+
+// Channel color palette - professional design
+const CHANNEL_COLORS = {
+  whatsapp: ['#25D366', '#128C7E', '#075E54', '#34B7F1', '#0E8A16'],
+  facebook: '#1877F2',
+  instagram: 'linear-gradient(45deg, #F58529, #DD2A7B, #8134AF)',
+  tiktok: '#000000',
+} as const;
+
+// Get color for a specific channel/connection
+function getChannelColor(channel: ChannelType | null, connectionId: string | null, connections: WhatsAppConnection[]): string {
+  if (!channel) return '#94a3b8'; // Default gray for unknown
+
+  if (channel === 'whatsapp' && connectionId) {
+    // Find index of this connection to assign color from palette
+    const index = connections.findIndex(c => c.id === connectionId);
+    if (index !== -1) {
+      return CHANNEL_COLORS.whatsapp[index % CHANNEL_COLORS.whatsapp.length];
+    }
+    return CHANNEL_COLORS.whatsapp[0];
+  }
+
+  if (channel === 'facebook') return CHANNEL_COLORS.facebook;
+  if (channel === 'instagram') return CHANNEL_COLORS.instagram;
+  if (channel === 'tiktok') return CHANNEL_COLORS.tiktok;
+
+  return '#94a3b8'; // Default gray
+}
+
+// Get icon/emoji for channel
+function getChannelIcon(channel: ChannelType | null): string {
+  if (!channel) return '📱';
+  if (channel === 'whatsapp') return '💬';
+  if (channel === 'facebook') return '📘';
+  if (channel === 'instagram') return '📸';
+  if (channel === 'tiktok') return '🎵';
+  return '📱';
+}
+
 export default function ConversationList({ conversations, selectedId, onSelect }: ConversationListProps) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterType>("all");
@@ -284,12 +330,23 @@ export default function ConversationList({ conversations, selectedId, onSelect }
                 ? `Doc: ${conversation.bitrixDocument}`
                 : conversation.phone;
 
+              // Get channel color and info
+              const channelColor = getChannelColor(conversation.channel, conversation.channelConnectionId, whatsappConnections);
+              const channelIcon = getChannelIcon(conversation.channel);
+
+              // Find connection alias for WhatsApp
+              const connection = conversation.channelConnectionId
+                ? whatsappConnections.find(c => c.id === conversation.channelConnectionId)
+                : null;
+              const channelLabel = connection?.alias || (conversation.channel === 'whatsapp' ? 'WhatsApp' : conversation.channel);
+
               return (
                 <li key={conversation.id}>
                   <button
                     type="button"
                     onClick={() => onSelect(conversation)}
-                    className={`flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-emerald-50 ${
+                    style={{ borderLeftColor: channelColor }}
+                    className={`flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-emerald-50 border-l-4 ${
                       isActive ? "bg-emerald-50" : "bg-white"
                     }`}
                   >
@@ -304,7 +361,18 @@ export default function ConversationList({ conversations, selectedId, onSelect }
                     {/* Content */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between text-sm font-semibold text-slate-800">
-                        <span className="truncate">{displayName}</span>
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                          <span className="truncate">{displayName}</span>
+                          {conversation.channel && (
+                            <span
+                              className="text-xs px-1.5 py-0.5 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: `${channelColor}15`, color: channelColor }}
+                              title={channelLabel}
+                            >
+                              {channelIcon}
+                            </span>
+                          )}
+                        </div>
                         <span className="text-xs font-medium text-slate-400 ml-2 flex-shrink-0">
                           {formatTimestamp(conversation.lastMessageAt)}
                         </span>
@@ -312,6 +380,11 @@ export default function ConversationList({ conversations, selectedId, onSelect }
                       <div className="flex items-center justify-between text-xs text-slate-500">
                         <div className="flex flex-col min-w-0 flex-1">
                           <span className="text-slate-400 text-[10px] truncate">{displaySubtext}</span>
+                          {connection && conversation.displayNumber && (
+                            <span className="text-slate-400 text-[9px] truncate" style={{ color: channelColor }}>
+                              {channelLabel} • {conversation.displayNumber}
+                            </span>
+                          )}
                           <span className="line-clamp-1 truncate">
                             {conversation.lastMessagePreview || "Sin mensajes"}
                           </span>
