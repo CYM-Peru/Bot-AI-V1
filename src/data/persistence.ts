@@ -66,8 +66,9 @@ export function createApiStrategy<T>({ baseUrl, fetchImpl }: ApiStrategyOptions)
   };
 }
 
-const useApi = typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_USE_FLOW_API === "true";
-const apiBase = typeof import.meta !== "undefined" ? (import.meta as any).env?.VITE_FLOW_API_BASE_URL : undefined;
+// Hardcoded to always use API strategy
+const useApi = true;
+const apiBase = "/api";
 
 let activeStrategy: PersistenceStrategy<any> = useApi && apiBase
   ? createApiStrategy({ baseUrl: apiBase })
