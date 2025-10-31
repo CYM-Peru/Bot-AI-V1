@@ -33,18 +33,31 @@ export const flowIdSchema = z.object({
   flowId: z.string().min(1, "Flow ID is required").max(100),
 });
 
-export const flowSchema = z.object({
-  id: z.string().min(1).max(100),
-  name: z.string().min(1).max(255),
-  nodes: z.array(z.any()),
-  edges: z.array(z.any()),
-  viewport: z.object({
-    x: z.number(),
-    y: z.number(),
-    zoom: z.number(),
-  }).optional(),
-  // Additional flow properties can be added here
-});
+// Accept both formats: direct flow object OR { flow, positions }
+export const flowSchema = z.union([
+  // Format 1: Direct flow object
+  z.object({
+    id: z.string().min(1).max(100),
+    name: z.string().min(1).max(255),
+    nodes: z.any(), // Can be array or object
+    edges: z.array(z.any()).optional(),
+    viewport: z.object({
+      x: z.number(),
+      y: z.number(),
+      zoom: z.number(),
+    }).optional(),
+  }),
+  // Format 2: Wrapper with flow and positions
+  z.object({
+    flow: z.object({
+      id: z.string().min(1).max(100),
+      name: z.string().min(1).max(255),
+      nodes: z.any(),
+      edges: z.array(z.any()).optional(),
+    }),
+    positions: z.any().optional(),
+  }),
+]);
 
 /**
  * Session Schemas
