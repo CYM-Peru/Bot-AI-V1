@@ -13,6 +13,7 @@ import { testWebhookOut, generateWebhookInUrl, type WebhookResponse } from "./fl
 import { MetricsPanel } from "./components/MetricsPanel";
 import { NodeSearchModal } from "./components/NodeSearchModal";
 import { TemplateSelector } from "./components/TemplateSelector";
+import { FlowsGallery } from "./components/FlowsGallery";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import type { FlowTemplate } from "./templates/flowTemplates";
 import { toPng } from './utils/htmlToImage';
@@ -370,6 +371,7 @@ export default function App(): JSX.Element {
 
   // Template selector
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
+  const [showFlowsGallery, setShowFlowsGallery] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -558,6 +560,22 @@ export default function App(): JSX.Element {
     replaceFlow(template.flow, {});
     setDirty(true);
     showToast(`Template "${template.name}" cargado`, 'success');
+  }, [replaceFlow, showToast]);
+
+  const handleSelectFlow = useCallback(async (flowId: string) => {
+    try {
+      const response = await fetch(`/api/flows/${flowId}`);
+      if (!response.ok) {
+        throw new Error(`Failed to load flow: ${response.status}`);
+      }
+      const flowData = await response.json();
+      replaceFlow(flowData.flow || flowData, flowData.positions || {});
+      setDirty(false);
+      showToast(`Flujo "${flowData.flow?.name || flowData.name || flowId}" cargado`, 'success');
+    } catch (error) {
+      console.error('Error loading flow:', error);
+      showToast('Error al cargar el flujo', 'error');
+    }
   }, [replaceFlow, showToast]);
 
   const handleExportPNG = useCallback(async () => {
@@ -2520,6 +2538,14 @@ export default function App(): JSX.Element {
             <LogOut className="w-4 h-4" />
             Salir
           </button>
+          <button
+            className="btn btn--ghost"
+            onClick={() => setShowFlowsGallery(true)}
+            type="button"
+            title="Ver todos los flujos guardados"
+          >
+            📁 Ver Flujos
+          </button>
           <button className="btn btn--ghost" onClick={handleExportPNG} type="button">
             📸 Exportar PNG
           </button>
@@ -4022,6 +4048,15 @@ export default function App(): JSX.Element {
         <TemplateSelector
           onSelect={handleSelectTemplate}
           onClose={() => setShowTemplateSelector(false)}
+        />
+      )}
+
+      {/* Modal de galería de flujos */}
+      {showFlowsGallery && (
+        <FlowsGallery
+          currentFlowId={workspaceIdRef.current}
+          onSelectFlow={handleSelectFlow}
+          onClose={() => setShowFlowsGallery(false)}
         />
       )}
     </div>

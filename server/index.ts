@@ -215,7 +215,7 @@ app.all("/api/meta/webhook", webhookLimiter, async (req: Request, res: Response)
 });
 
 // API endpoint to create/update flows
-app.post("/api/flows/:flowId", flowLimiter, validateParams(flowIdSchema), validateBody(flowSchema), async (req: Request, res: Response) => {
+const saveFlowHandler = async (req: Request, res: Response) => {
   try {
     const { flowId } = req.params;
     const flow = req.body;
@@ -227,7 +227,11 @@ app.post("/api/flows/:flowId", flowLimiter, validateParams(flowIdSchema), valida
     logger.error("[ERROR] Failed to save flow:", error);
     res.status(500).json({ error: "Failed to save flow" });
   }
-});
+};
+
+// Support both POST and PUT for flow creation/update
+app.post("/api/flows/:flowId", flowLimiter, validateParams(flowIdSchema), validateBody(flowSchema), saveFlowHandler);
+app.put("/api/flows/:flowId", flowLimiter, validateParams(flowIdSchema), validateBody(flowSchema), saveFlowHandler);
 
 // API endpoint to get a flow
 app.get("/api/flows/:flowId", validateParams(flowIdSchema), async (req: Request, res: Response) => {
@@ -250,11 +254,52 @@ app.get("/api/flows/:flowId", validateParams(flowIdSchema), async (req: Request,
 // API endpoint to list all flows
 app.get("/api/flows", async (req: Request, res: Response) => {
   try {
-    const flows = await flowProvider.listFlows();
-    res.json({ flows });
+    const flowIds = await flowProvider.listFlows();
+
+    // Get full flow data for each flow (for gallery)
+    const fullFlows = await Promise.all(
+      flowIds.map(async (id) => {
+        try {
+          const flow = await flowProvider.getFlow(id);
+          return flow;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    // Filter out null values and return
+    const validFlows = fullFlows.filter((f) => f !== null);
+    res.json({ flows: validFlows });
   } catch (error) {
     logger.error("[ERROR] Failed to list flows:", error);
     res.status(500).json({ error: "Failed to list flows" });
+  }
+});
+
+// API endpoint to delete a flow
+app.delete("/api/flows/:flowId", validateParams(flowIdSchema), async (req: Request, res: Response) => {
+  try {
+    const { flowId } = req.params;
+
+    // Check if flow exists before deleting
+    const flow = await flowProvider.getFlow(flowId);
+    if (!flow) {
+      res.status(404).json({ error: "Flow not found" });
+      return;
+    }
+
+    // Delete the flow
+    if (flowProvider instanceof LocalStorageFlowProvider) {
+      await flowProvider.deleteFlow(flowId);
+      logger.info(`[API] Flow ${flowId} deleted successfully`);
+      res.json({ success: true, flowId });
+    } else {
+      res.status(501).json({ error: "Delete not implemented for this storage type" });
+    }
+  } catch (error) {
+    logger.error("[ERROR] Failed to delete flow:", error);
+    res.status(500).json({ error: "Failed to delete flow" });
   }
 });
 
