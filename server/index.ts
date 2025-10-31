@@ -125,32 +125,34 @@ function createWhatsAppHandler() {
     resolveFlow: async (context) => {
       const phoneNumber = context.message.from;
       const phoneNumberId = context.value.metadata?.phone_number_id;
-      const defaultFlowId = process.env.DEFAULT_FLOW_ID || "default-flow";
-
-      let flowId = defaultFlowId;
 
       // Try to find flow assigned to this WhatsApp number
       if (phoneNumberId && flowProvider instanceof LocalStorageFlowProvider) {
         const assignedFlow = await flowProvider.findFlowByWhatsAppNumber(phoneNumberId);
         if (assignedFlow) {
-          flowId = assignedFlow.id;
-          logger.info(`[WhatsApp] Using assigned flow ${flowId} for number ${phoneNumberId}`);
+          const flowId = assignedFlow.id;
+          logger.info(`[WhatsApp] ✅ Flow assigned: ${flowId} for number ${phoneNumberId}`);
+
+          // Log conversation start
+          const sessionId = `whatsapp_${phoneNumber}`;
+          botLogger.logConversationStarted(sessionId, flowId);
+          metricsTracker.startConversation(sessionId, flowId);
+
+          return {
+            sessionId,
+            flowId,
+            contactId: phoneNumber,
+            channel: "whatsapp",
+          };
         } else {
-          logger.info(`[WhatsApp] No assignment found for number ${phoneNumberId}, using default flow ${defaultFlowId}`);
+          logger.info(`[WhatsApp] ℹ️  No flow assigned for number ${phoneNumberId} - message forwarded to CRM only`);
+          return null; // No bot execution, message goes to CRM for human agent
         }
       }
 
-      // Log conversation start
-      const sessionId = `whatsapp_${phoneNumber}`;
-      botLogger.logConversationStarted(sessionId, flowId);
-      metricsTracker.startConversation(sessionId, flowId);
-
-      return {
-        sessionId,
-        flowId,
-        contactId: phoneNumber,
-        channel: "whatsapp",
-      };
+      // If no phoneNumberId available, skip bot execution
+      logger.warn(`[WhatsApp] ⚠️  No phone number ID in metadata - skipping bot execution`);
+      return null;
     },
     logger: {
       info: (message, meta) => botLogger.info(message, meta),
@@ -164,6 +166,27 @@ function createWhatsAppHandler() {
         logDebug(`[WEBHOOK] CRM procesó mensaje exitosamente`);
       } catch (error) {
         logError(`[WEBHOOK] Error en CRM handleIncomingWhatsApp:`, error);
+      }
+    },
+    onBotTransfer: async (payload) => {
+      // CRITICAL: Assign conversation to queue when bot transfers
+      try {
+        const { crmDb } = await import('./crm/db');
+        const conversation = crmDb.getConversationByPhone(payload.phone);
+
+        if (!conversation) {
+          logger.warn(`[Bot Transfer] Conversation not found for phone: ${payload.phone}`);
+          return;
+        }
+
+        if (payload.queueId) {
+          crmDb.updateConversationQueue(conversation.id, payload.queueId);
+          logger.info(`[Bot Transfer] ✅ Conversation ${conversation.id} assigned to queue: ${payload.queueId}`);
+        } else {
+          logger.warn(`[Bot Transfer] ⚠️ No queueId provided - conversation ${conversation.id} may go to limbo`);
+        }
+      } catch (error) {
+        logError(`[Bot Transfer] Error assigning conversation to queue:`, error);
       }
     },
   });
@@ -215,7 +238,7 @@ app.all("/api/meta/webhook", webhookLimiter, async (req: Request, res: Response)
 });
 
 // API endpoint to create/update flows
-app.post("/api/flows/:flowId", flowLimiter, validateParams(flowIdSchema), validateBody(flowSchema), async (req: Request, res: Response) => {
+const saveFlowHandler = async (req: Request, res: Response) => {
   try {
     const { flowId } = req.params;
     const flow = req.body;
@@ -227,7 +250,11 @@ app.post("/api/flows/:flowId", flowLimiter, validateParams(flowIdSchema), valida
     logger.error("[ERROR] Failed to save flow:", error);
     res.status(500).json({ error: "Failed to save flow" });
   }
-});
+};
+
+// Support both POST and PUT for flow creation/update
+app.post("/api/flows/:flowId", flowLimiter, validateParams(flowIdSchema), validateBody(flowSchema), saveFlowHandler);
+app.put("/api/flows/:flowId", flowLimiter, validateParams(flowIdSchema), validateBody(flowSchema), saveFlowHandler);
 
 // API endpoint to get a flow
 app.get("/api/flows/:flowId", validateParams(flowIdSchema), async (req: Request, res: Response) => {
@@ -250,11 +277,52 @@ app.get("/api/flows/:flowId", validateParams(flowIdSchema), async (req: Request,
 // API endpoint to list all flows
 app.get("/api/flows", async (req: Request, res: Response) => {
   try {
-    const flows = await flowProvider.listFlows();
-    res.json({ flows });
+    const flowIds = await flowProvider.listFlows();
+
+    // Get full flow data for each flow (for gallery)
+    const fullFlows = await Promise.all(
+      flowIds.map(async (id) => {
+        try {
+          const flow = await flowProvider.getFlow(id);
+          return flow;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    // Filter out null values and return
+    const validFlows = fullFlows.filter((f) => f !== null);
+    res.json({ flows: validFlows });
   } catch (error) {
     logger.error("[ERROR] Failed to list flows:", error);
     res.status(500).json({ error: "Failed to list flows" });
+  }
+});
+
+// API endpoint to delete a flow
+app.delete("/api/flows/:flowId", validateParams(flowIdSchema), async (req: Request, res: Response) => {
+  try {
+    const { flowId } = req.params;
+
+    // Check if flow exists before deleting
+    const flow = await flowProvider.getFlow(flowId);
+    if (!flow) {
+      res.status(404).json({ error: "Flow not found" });
+      return;
+    }
+
+    // Delete the flow
+    if (flowProvider instanceof LocalStorageFlowProvider) {
+      await flowProvider.deleteFlow(flowId);
+      logger.info(`[API] Flow ${flowId} deleted successfully`);
+      res.json({ success: true, flowId });
+    } else {
+      res.status(501).json({ error: "Delete not implemented for this storage type" });
+    }
+  } catch (error) {
+    logger.error("[ERROR] Failed to delete flow:", error);
+    res.status(500).json({ error: "Failed to delete flow" });
   }
 });
 

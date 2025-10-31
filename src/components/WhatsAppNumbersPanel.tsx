@@ -1,5 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { WhatsAppNumberAssignment } from '../flow/types';
+
+interface Queue {
+  id: string;
+  name: string;
+  status: string;
+}
 
 interface WhatsAppNumbersPanelProps {
   numbers: WhatsAppNumberAssignment[];
@@ -10,23 +16,43 @@ export function WhatsAppNumbersPanel({ numbers, onUpdate }: WhatsAppNumbersPanel
   const [editing, setEditing] = useState<string | null>(null);
   const [editingData, setEditingData] = useState<WhatsAppNumberAssignment | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [queues, setQueues] = useState<Queue[]>([]);
   const [newNumber, setNewNumber] = useState({
     displayName: '',
     phoneNumber: '',
+    queueId: '',
   });
+
+  // Load available queues
+  useEffect(() => {
+    fetch('/api/admin/queues')
+      .then(res => res.json())
+      .then(data => {
+        setQueues(data.queues || []);
+      })
+      .catch(err => {
+        console.error('Failed to load queues:', err);
+      });
+  }, []);
 
   const handleAdd = () => {
     if (!newNumber.displayName || !newNumber.phoneNumber) {
       alert('Por favor completa todos los campos');
       return;
     }
+    if (!newNumber.queueId) {
+      if (!confirm('⚠️ ADVERTENCIA: Este número NO tiene cola asignada.\n\nSi usas un bot con este número, las conversaciones irán al LIMBO cuando el bot termine.\n\n¿Continuar sin cola?')) {
+        return;
+      }
+    }
     const number: WhatsAppNumberAssignment = {
       numberId: `wsp-${Date.now()}`,
       displayName: newNumber.displayName,
       phoneNumber: newNumber.phoneNumber,
+      queueId: newNumber.queueId || undefined,
     };
     onUpdate([...numbers, number]);
-    setNewNumber({ displayName: '', phoneNumber: '' });
+    setNewNumber({ displayName: '', phoneNumber: '', queueId: '' });
     setShowAdd(false);
   };
 
@@ -101,6 +127,24 @@ export function WhatsAppNumbersPanel({ numbers, onUpdate }: WhatsAppNumbersPanel
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">
+              Cola asignada <span className="text-red-600">*</span>
+            </label>
+            <select
+              value={newNumber.queueId}
+              onChange={(e) => setNewNumber({ ...newNumber, queueId: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">⚠️ Sin cola (bot NO funcionará)</option>
+              {queues.filter(q => q.status === 'active').map(q => (
+                <option key={q.id} value={q.id}>{q.name}</option>
+              ))}
+            </select>
+            <p className="text-xs text-amber-600 mt-1">
+              ⚠️ CRÍTICO: Sin cola, conversaciones del bot irán al limbo
+            </p>
+          </div>
           <div className="flex gap-2">
             <button
               onClick={handleAdd}
@@ -111,7 +155,7 @@ export function WhatsAppNumbersPanel({ numbers, onUpdate }: WhatsAppNumbersPanel
             <button
               onClick={() => {
                 setShowAdd(false);
-                setNewNumber({ displayName: '', phoneNumber: '' });
+                setNewNumber({ displayName: '', phoneNumber: '', queueId: '' });
               }}
               className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition"
             >
@@ -160,6 +204,26 @@ export function WhatsAppNumbersPanel({ numbers, onUpdate }: WhatsAppNumbersPanel
                     }
                     className="w-full px-2 py-1 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Cola asignada <span className="text-red-600">*</span>
+                  </label>
+                  <select
+                    value={editingData.queueId || ''}
+                    onChange={(e) =>
+                      setEditingData({ ...editingData, queueId: e.target.value || undefined })
+                    }
+                    className="w-full px-2 py-1 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">⚠️ Sin cola (bot NO funcionará)</option>
+                    {queues.filter(q => q.status === 'active').map(q => (
+                      <option key={q.id} value={q.id}>{q.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-amber-600 mt-1">
+                    ⚠️ CRÍTICO: Sin cola, conversaciones del bot irán al limbo
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   <button

@@ -79,6 +79,7 @@ export class CRMDatabase {
       assignedTo: null,
       assignedAt: null,
       queuedAt: now, // New conversations start in queue
+      queueId: null, // Will be assigned when bot transfers or manually assigned
     };
     this.store.conversations.push(conversation);
     this.save();
@@ -90,6 +91,20 @@ export class CRMDatabase {
     if (index === -1) return;
     this.store.conversations[index] = { ...this.store.conversations[index], ...update };
     this.save();
+  }
+
+  /**
+   * CRITICAL: Assign conversation to queue
+   * Prevents conversations from going to limbo when bot transfers
+   */
+  updateConversationQueue(convId: string, queueId: string) {
+    const conversation = this.getConversationById(convId);
+    if (!conversation) {
+      console.warn(`[CRM] Cannot assign queue - conversation ${convId} not found`);
+      return;
+    }
+    this.updateConversationMeta(convId, { queueId });
+    console.log(`[CRM] ✅ Conversation ${convId} assigned to queue: ${queueId}`);
   }
 
   appendMessage(input: {

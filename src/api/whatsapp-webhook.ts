@@ -30,7 +30,7 @@ export interface WhatsAppMessageContext {
   entryId: string;
 }
 
-export type FlowResolver = (context: WhatsAppMessageContext) => Promise<FlowResolution>;
+export type FlowResolver = (context: WhatsAppMessageContext) => Promise<FlowResolution | null>;
 
 export interface WhatsAppWebhookHandlerOptions {
   verifyToken: string;
@@ -42,6 +42,10 @@ export interface WhatsAppWebhookHandlerOptions {
     entryId: string;
     value: ChangeValue;
     message: WhatsAppMessage;
+  }) => Promise<void> | void;
+  onBotTransfer?: (payload: {
+    phone: string;
+    queueId: string | null;
   }) => Promise<void> | void;
 }
 
@@ -57,6 +61,7 @@ export class WhatsAppWebhookHandler {
   private readonly logger?: Logger;
 
   private readonly onIncomingMessage?: WhatsAppWebhookHandlerOptions["onIncomingMessage"];
+  private readonly onBotTransfer?: WhatsAppWebhookHandlerOptions["onBotTransfer"];
 
   constructor(options: WhatsAppWebhookHandlerOptions) {
     this.verifyToken = options.verifyToken;
@@ -65,6 +70,7 @@ export class WhatsAppWebhookHandler {
     this.resolveFlow = options.resolveFlow;
     this.logger = options.logger;
     this.onIncomingMessage = options.onIncomingMessage;
+    this.onBotTransfer = options.onBotTransfer;
   }
 
   async handle(request: Request): Promise<Response> {
@@ -121,8 +127,21 @@ export class WhatsAppWebhookHandler {
     try {
       const context: WhatsAppMessageContext = { entryId, value, message };
       const resolution = await this.resolveFlow(context);
-      const incoming = convertMessageToRuntime(message);
+
+      // Always process through CRM first
       await this.onIncomingMessage?.({ entryId, value, message });
+
+      // If no flow assigned, skip bot execution (message only goes to CRM)
+      if (!resolution) {
+        this.logger?.info?.("No flow assigned - message forwarded to CRM only", {
+          from: message.from,
+          phoneNumberId: value.metadata?.phone_number_id,
+        });
+        return;
+      }
+
+      // Execute bot flow if assigned
+      const incoming = convertMessageToRuntime(message);
       const result = await this.engine.processMessage({
         sessionId: resolution.sessionId,
         flowId: resolution.flowId,
@@ -178,7 +197,17 @@ export class WhatsAppWebhookHandler {
         return;
       }
       case "system":
-        this.logger?.info?.("System message skipped", { payload: message.payload });
+        this.logger?.info?.("System message received", { payload: message.payload });
+
+        // CRITICAL: Process bot transfer to prevent conversations going to limbo
+        if (message.payload?.action === "transfer_to_agent") {
+          const queueId = (message.payload as any).queueId as string | null;
+          this.logger?.info?.("Bot transfer detected", { to, queueId });
+
+          if (this.onBotTransfer) {
+            await this.onBotTransfer({ phone: to, queueId: queueId || null });
+          }
+        }
         return;
       default:
         this.logger?.warn?.("Unknown outbound message type", { type: (message as OutboundMessage).type });
