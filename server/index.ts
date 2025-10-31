@@ -125,32 +125,34 @@ function createWhatsAppHandler() {
     resolveFlow: async (context) => {
       const phoneNumber = context.message.from;
       const phoneNumberId = context.value.metadata?.phone_number_id;
-      const defaultFlowId = process.env.DEFAULT_FLOW_ID || "default-flow";
-
-      let flowId = defaultFlowId;
 
       // Try to find flow assigned to this WhatsApp number
       if (phoneNumberId && flowProvider instanceof LocalStorageFlowProvider) {
         const assignedFlow = await flowProvider.findFlowByWhatsAppNumber(phoneNumberId);
         if (assignedFlow) {
-          flowId = assignedFlow.id;
-          logger.info(`[WhatsApp] Using assigned flow ${flowId} for number ${phoneNumberId}`);
+          const flowId = assignedFlow.id;
+          logger.info(`[WhatsApp] ✅ Flow assigned: ${flowId} for number ${phoneNumberId}`);
+
+          // Log conversation start
+          const sessionId = `whatsapp_${phoneNumber}`;
+          botLogger.logConversationStarted(sessionId, flowId);
+          metricsTracker.startConversation(sessionId, flowId);
+
+          return {
+            sessionId,
+            flowId,
+            contactId: phoneNumber,
+            channel: "whatsapp",
+          };
         } else {
-          logger.info(`[WhatsApp] No assignment found for number ${phoneNumberId}, using default flow ${defaultFlowId}`);
+          logger.info(`[WhatsApp] ℹ️  No flow assigned for number ${phoneNumberId} - message forwarded to CRM only`);
+          return null; // No bot execution, message goes to CRM for human agent
         }
       }
 
-      // Log conversation start
-      const sessionId = `whatsapp_${phoneNumber}`;
-      botLogger.logConversationStarted(sessionId, flowId);
-      metricsTracker.startConversation(sessionId, flowId);
-
-      return {
-        sessionId,
-        flowId,
-        contactId: phoneNumber,
-        channel: "whatsapp",
-      };
+      // If no phoneNumberId available, skip bot execution
+      logger.warn(`[WhatsApp] ⚠️  No phone number ID in metadata - skipping bot execution`);
+      return null;
     },
     logger: {
       info: (message, meta) => botLogger.info(message, meta),

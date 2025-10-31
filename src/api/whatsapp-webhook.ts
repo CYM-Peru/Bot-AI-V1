@@ -30,7 +30,7 @@ export interface WhatsAppMessageContext {
   entryId: string;
 }
 
-export type FlowResolver = (context: WhatsAppMessageContext) => Promise<FlowResolution>;
+export type FlowResolver = (context: WhatsAppMessageContext) => Promise<FlowResolution | null>;
 
 export interface WhatsAppWebhookHandlerOptions {
   verifyToken: string;
@@ -121,8 +121,21 @@ export class WhatsAppWebhookHandler {
     try {
       const context: WhatsAppMessageContext = { entryId, value, message };
       const resolution = await this.resolveFlow(context);
-      const incoming = convertMessageToRuntime(message);
+
+      // Always process through CRM first
       await this.onIncomingMessage?.({ entryId, value, message });
+
+      // If no flow assigned, skip bot execution (message only goes to CRM)
+      if (!resolution) {
+        this.logger?.info?.("No flow assigned - message forwarded to CRM only", {
+          from: message.from,
+          phoneNumberId: value.metadata?.phone_number_id,
+        });
+        return;
+      }
+
+      // Execute bot flow if assigned
+      const incoming = convertMessageToRuntime(message);
       const result = await this.engine.processMessage({
         sessionId: resolution.sessionId,
         flowId: resolution.flowId,
