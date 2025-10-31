@@ -27,7 +27,17 @@ export class LocalStorageFlowProvider implements FlowProvider {
     try {
       const filePath = this.getFlowPath(flowId);
       const fileContent = await fs.readFile(filePath, "utf-8");
-      const flow = JSON.parse(fileContent) as Flow;
+      const parsed = JSON.parse(fileContent);
+
+      // Handle both formats: direct flow object OR { flow, positions } wrapper
+      let flow: Flow;
+      if (parsed.flow && typeof parsed.flow === 'object') {
+        // Format: { flow: {...}, positions: {...} }
+        flow = parsed.flow as Flow;
+      } else {
+        // Format: direct flow object
+        flow = parsed as Flow;
+      }
 
       // Cache the flow
       this.flowCache.set(flowId, flow);
