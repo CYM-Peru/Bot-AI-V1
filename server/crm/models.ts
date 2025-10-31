@@ -1,5 +1,7 @@
 export type ConversationStatus = "active" | "attending" | "archived";
 
+export type ChannelType = "whatsapp" | "facebook" | "instagram" | "tiktok";
+
 export interface Conversation {
   id: string;
   phone: string;
@@ -15,6 +17,9 @@ export interface Conversation {
   assignedAt: number | null;       // Timestamp when assigned
   queuedAt: number | null;         // Timestamp when entered queue (first "active" status)
   queueId: string | null;          // CRITICAL: Queue ID - prevents conversations from going to limbo when bot transfers
+  channel: ChannelType;            // CRITICAL: Channel type (whatsapp, facebook, etc)
+  channelConnectionId: string | null;  // CRITICAL: ID of the specific WhatsApp number/connection
+  displayNumber: string | null;    // Display number for this connection (e.g., "+51 1 6193636")
 }
 
 export type MessageDirection = "incoming" | "outgoing";

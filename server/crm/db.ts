@@ -61,9 +61,39 @@ export class CRMDatabase {
     return this.store.conversations.find((item) => item.phone === phone);
   }
 
-  createConversation(phone: string, contactName?: string | null, avatarUrl?: string | null): Conversation {
-    const existing = this.getConversationByPhone(phone);
+  /**
+   * Get conversation by phone, channel, and connection ID
+   * CRITICAL: This ensures conversations from different WhatsApp numbers are kept separate
+   */
+  getConversationByPhoneAndChannel(
+    phone: string,
+    channel: string,
+    channelConnectionId: string | null
+  ): Conversation | undefined {
+    return this.store.conversations.find(
+      (item) =>
+        item.phone === phone &&
+        item.channel === channel &&
+        item.channelConnectionId === channelConnectionId
+    );
+  }
+
+  createConversation(
+    phone: string,
+    contactName?: string | null,
+    avatarUrl?: string | null,
+    channel?: string,
+    channelConnectionId?: string | null,
+    displayNumber?: string | null
+  ): Conversation {
+    // Check if conversation already exists for this phone + channel + connection
+    const existing = this.getConversationByPhoneAndChannel(
+      phone,
+      channel || "whatsapp",
+      channelConnectionId || null
+    );
     if (existing) return existing;
+
     const now = Date.now();
     const conversation: Conversation = {
       id: randomUUID(),
@@ -80,6 +110,9 @@ export class CRMDatabase {
       assignedAt: null,
       queuedAt: now, // New conversations start in queue
       queueId: null, // Will be assigned when bot transfers or manually assigned
+      channel: (channel as any) || "whatsapp",
+      channelConnectionId: channelConnectionId || null,
+      displayNumber: displayNumber || null,
     };
     this.store.conversations.push(conversation);
     this.save();

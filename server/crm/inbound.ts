@@ -22,9 +22,19 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
   if (!phone) {
     return;
   }
-  let conversation = crmDb.getConversationByPhone(phone);
+
+  // CRITICAL: Extract phoneNumberId and displayNumber from webhook metadata
+  // This ensures conversations from different WhatsApp numbers stay separate
+  const phoneNumberId = args.value.metadata?.phone_number_id || null;
+  const displayNumber = args.value.metadata?.display_phone_number || null;
+
+  logDebug(`[CRM] Incoming message from ${phone} via phoneNumberId: ${phoneNumberId} (${displayNumber})`);
+
+  // Get or create conversation using phone + channel + phoneNumberId
+  let conversation = crmDb.getConversationByPhoneAndChannel(phone, "whatsapp", phoneNumberId);
   if (!conversation) {
-    conversation = crmDb.createConversation(phone);
+    conversation = crmDb.createConversation(phone, null, null, "whatsapp", phoneNumberId, displayNumber);
+    logDebug(`[CRM] Created new conversation ${conversation.id} for ${phone} on WhatsApp ${displayNumber}`);
   }
 
   // Auto-unarchive if client writes back
