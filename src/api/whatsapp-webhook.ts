@@ -201,7 +201,7 @@ export class WhatsAppWebhookHandler {
 
         // CRITICAL: Process bot transfer to prevent conversations going to limbo
         if (message.payload?.action === "transfer_to_agent") {
-          const queueId = message.payload.queueId;
+          const queueId = (message.payload as any).queueId as string | null;
           this.logger?.info?.("Bot transfer detected", { to, queueId });
 
           if (this.onBotTransfer) {

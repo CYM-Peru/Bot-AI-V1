@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import type { Flow } from "../flow/types";
-import { X, Trash2, Edit3, Play } from "lucide-react";
+import { X, Trash2, Edit3 } from "lucide-react";
 
 interface FlowsGalleryProps {
   currentFlowId: string;
