@@ -6,16 +6,10 @@ import { CRMFieldConfig } from "./Configuration/CRMFieldConfig";
 import { GeneralSettings } from "./Configuration/GeneralSettings";
 import { StatusManagement } from "./Configuration/StatusManagement";
 import { WhatsAppNumbersPanel } from "./WhatsAppNumbersPanel";
-import type { WhatsAppNumberAssignment } from "../flow/types";
 
 type ConfigSection = "users" | "roles" | "queues" | "crm-fields" | "whatsapp" | "statuses" | "general";
 
-interface ConfigurationPanelProps {
-  whatsappNumbers?: WhatsAppNumberAssignment[];
-  onUpdateWhatsappNumbers?: (numbers: WhatsAppNumberAssignment[]) => void;
-}
-
-export function ConfigurationPanel({ whatsappNumbers = [], onUpdateWhatsappNumbers }: ConfigurationPanelProps = {}) {
+export function ConfigurationPanel() {
   const [activeSection, setActiveSection] = useState<ConfigSection>("users");
 
   return (
@@ -192,16 +186,7 @@ export function ConfigurationPanel({ whatsappNumbers = [], onUpdateWhatsappNumbe
                 Gestiona los números de WhatsApp disponibles para asignar a tus bots.
               </p>
             </div>
-            {onUpdateWhatsappNumbers ? (
-              <WhatsAppNumbersPanel
-                numbers={whatsappNumbers}
-                onUpdate={onUpdateWhatsappNumbers}
-              />
-            ) : (
-              <p className="text-sm text-slate-500 italic">
-                No se ha configurado el gestor de números WhatsApp.
-              </p>
-            )}
+            <WhatsAppNumbersPanel />
           </div>
         )}
         {activeSection === "statuses" && <StatusManagement />}

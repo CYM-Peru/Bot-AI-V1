@@ -88,6 +88,15 @@ export interface AdvisorStatusAssignment {
   updatedAt: string;
 }
 
+export interface WhatsAppNumber {
+  numberId: string;
+  displayName: string;
+  phoneNumber: string;
+  queueId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ============================================
 // DEFAULT DATA
 // ============================================
@@ -269,6 +278,7 @@ class AdminDatabase {
   private settings: GeneralSettings;
   private advisorStatuses: Map<string, AdvisorStatus>;
   private statusAssignments: Map<string, AdvisorStatusAssignment>; // userId -> assignment
+  private whatsappNumbers: Map<string, WhatsAppNumber>;
 
   constructor() {
     this.users = new Map();
@@ -278,6 +288,7 @@ class AdminDatabase {
     this.settings = DEFAULT_SETTINGS;
     this.advisorStatuses = new Map();
     this.statusAssignments = new Map();
+    this.whatsappNumbers = new Map();
     this.initializeDefaultUsers();
   }
 
@@ -328,12 +339,17 @@ class AdminDatabase {
     const assignments = loadFromFile<AdvisorStatusAssignment[]>("status-assignments.json", []);
     assignments.forEach((assignment) => this.statusAssignments.set(assignment.userId, assignment));
 
+    // Load WhatsApp numbers
+    const whatsappNumbers = loadFromFile<WhatsAppNumber[]>("whatsapp-numbers.json", []);
+    whatsappNumbers.forEach((number) => this.whatsappNumbers.set(number.numberId, number));
+
     console.log("[AdminDB] Loaded data:", {
       users: this.users.size,
       roles: this.roles.size,
       queues: this.queues.size,
       advisorStatuses: this.advisorStatuses.size,
       statusAssignments: this.statusAssignments.size,
+      whatsappNumbers: this.whatsappNumbers.size,
     });
   }
 
@@ -345,6 +361,7 @@ class AdminDatabase {
     saveToFile("settings.json", this.settings);
     saveToFile("advisor-statuses.json", Array.from(this.advisorStatuses.values()));
     saveToFile("status-assignments.json", Array.from(this.statusAssignments.values()));
+    saveToFile("whatsapp-numbers.json", Array.from(this.whatsappNumbers.values()));
   }
 
   // ============================================
@@ -734,6 +751,70 @@ class AdminDatabase {
   getDefaultAdvisorStatus(): AdvisorStatus | null {
     const statuses = Array.from(this.advisorStatuses.values());
     return statuses.find((s) => s.isDefault) || statuses[0] || null;
+  }
+
+  // ============================================
+  // WHATSAPP NUMBERS
+  // ============================================
+
+  getAllWhatsAppNumbers(): WhatsAppNumber[] {
+    return Array.from(this.whatsappNumbers.values());
+  }
+
+  getWhatsAppNumberById(numberId: string): WhatsAppNumber | undefined {
+    return this.whatsappNumbers.get(numberId);
+  }
+
+  createWhatsAppNumber(data: {
+    displayName: string;
+    phoneNumber: string;
+    queueId?: string;
+  }): WhatsAppNumber {
+    const numberId = `wsp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const now = new Date().toISOString();
+
+    const number: WhatsAppNumber = {
+      numberId,
+      displayName: data.displayName,
+      phoneNumber: data.phoneNumber,
+      queueId: data.queueId,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.whatsappNumbers.set(numberId, number);
+    this.saveAll();
+    return number;
+  }
+
+  updateWhatsAppNumber(
+    numberId: string,
+    updates: {
+      displayName?: string;
+      phoneNumber?: string;
+      queueId?: string;
+    }
+  ): WhatsAppNumber | null {
+    const number = this.whatsappNumbers.get(numberId);
+    if (!number) return null;
+
+    const updated: WhatsAppNumber = {
+      ...number,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.whatsappNumbers.set(numberId, updated);
+    this.saveAll();
+    return updated;
+  }
+
+  deleteWhatsAppNumber(numberId: string): boolean {
+    const deleted = this.whatsappNumbers.delete(numberId);
+    if (deleted) {
+      this.saveAll();
+    }
+    return deleted;
   }
 }
 

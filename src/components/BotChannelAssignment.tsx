@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import type { FlowChannelAssignment, WhatsAppNumberAssignment, ChannelType } from '../flow/types';
+import type { FlowChannelAssignment, WhatsAppNumberAssignment, ChannelType, Flow } from '../flow/types';
 
 interface BotChannelAssignmentProps {
   flowId: string;
   flowName: string;
   assignments: FlowChannelAssignment[];
   availableNumbers: WhatsAppNumberAssignment[];
+  allFlows?: Flow[];  // All flows to detect duplicate assignments
   onUpdate: (assignments: FlowChannelAssignment[]) => void;
 }
 
@@ -24,15 +25,29 @@ const CHANNEL_NAMES: Record<ChannelType, string> = {
 };
 
 export function BotChannelAssignment({
+  flowId,
   flowName,
   assignments = [],
   availableNumbers,
+  allFlows = [],
   onUpdate,
 }: BotChannelAssignmentProps) {
   const [showPanel, setShowPanel] = useState(false);
 
   const whatsappAssignment = assignments.find((a) => a.channelType === 'whatsapp');
   const assignedNumbers = whatsappAssignment?.whatsappNumbers || [];
+
+  // Find which numbers are assigned to OTHER flows
+  const getNumberAssignment = (numberId: string): { assigned: boolean; flowName?: string; flowId?: string } => {
+    for (const flow of allFlows) {
+      if (flow.id === flowId) continue; // Skip current flow
+      const whatsappAssignment = flow.channelAssignments?.find((a) => a.channelType === 'whatsapp');
+      if (whatsappAssignment?.whatsappNumbers?.includes(numberId)) {
+        return { assigned: true, flowName: flow.name, flowId: flow.id };
+      }
+    }
+    return { assigned: false };
+  };
 
   const getAssignmentSummary = () => {
     if (assignedNumbers.length === 0) {
@@ -131,23 +146,45 @@ export function BotChannelAssignment({
                 ) : (
                   <div className="space-y-2">
                     {availableNumbers.map((number) => {
-                      const isAssigned = assignedNumbers.includes(number.numberId);
+                      const isAssignedToThis = assignedNumbers.includes(number.numberId);
+                      const otherAssignment = getNumberAssignment(number.numberId);
+                      const isAssignedToOther = otherAssignment.assigned;
+
                       return (
                         <label
                           key={number.numberId}
-                          className="flex items-center gap-3 p-2 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer transition"
+                          className={`flex items-center gap-3 p-2 border rounded-lg transition ${
+                            isAssignedToOther
+                              ? 'border-red-300 bg-red-50 cursor-not-allowed'
+                              : 'border-slate-200 hover:bg-slate-50 cursor-pointer'
+                          }`}
+                          title={isAssignedToOther ? `Ya asignado a: ${otherAssignment.flowName}` : ''}
                         >
                           <input
                             type="checkbox"
-                            checked={isAssigned}
-                            onChange={() => toggleNumber(number.numberId)}
-                            className="w-4 h-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500"
+                            checked={isAssignedToThis}
+                            onChange={() => !isAssignedToOther && toggleNumber(number.numberId)}
+                            disabled={isAssignedToOther}
+                            className={`w-4 h-4 border-slate-300 rounded focus:ring-emerald-500 ${
+                              isAssignedToOther
+                                ? 'opacity-50 cursor-not-allowed'
+                                : 'text-emerald-600'
+                            }`}
                           />
                           <div className="flex-1">
-                            <p className="text-sm font-medium text-slate-800">
+                            <p className={`text-sm font-medium ${
+                              isAssignedToOther ? 'text-red-700' : 'text-slate-800'
+                            }`}>
                               {number.displayName}
+                              {isAssignedToOther && (
+                                <span className="ml-2 text-xs font-normal text-red-600">
+                                  🔴 Asignado a: {otherAssignment.flowName}
+                                </span>
+                              )}
                             </p>
-                            <p className="text-xs text-slate-500">
+                            <p className={`text-xs ${
+                              isAssignedToOther ? 'text-red-600' : 'text-slate-500'
+                            }`}>
                               {number.phoneNumber}
                             </p>
                           </div>

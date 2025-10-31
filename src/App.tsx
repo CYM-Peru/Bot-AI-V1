@@ -325,16 +325,58 @@ export default function App(): JSX.Element {
 
   const [centerCanvas, setCenterCanvas] = useState<(() => void) | null>(null);
 
-  // WhatsApp numbers management
-  const [whatsappNumbers, setWhatsappNumbers] = useState<import('./flow/types').WhatsAppNumberAssignment[]>(() => {
-    const saved = localStorage.getItem('whatsapp-numbers');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // WhatsApp numbers management - Load from API
+  const [whatsappNumbers, setWhatsappNumbers] = useState<import('./flow/types').WhatsAppNumberAssignment[]>([]);
 
-  // Persist WhatsApp numbers to localStorage
+  // All flows - for detecting duplicate number assignments
+  const [allFlows, setAllFlows] = useState<Flow[]>([]);
+
+  // Load WhatsApp numbers and all flows from API on mount
   useEffect(() => {
-    localStorage.setItem('whatsapp-numbers', JSON.stringify(whatsappNumbers));
-  }, [whatsappNumbers]);
+    const loadWhatsAppNumbers = async () => {
+      try {
+        const response = await fetch('/api/admin/whatsapp-numbers');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.numbers && Array.isArray(data.numbers)) {
+            // Map API format to frontend format
+            setWhatsappNumbers(data.numbers.map((n: any) => ({
+              numberId: n.numberId,
+              displayName: n.displayName,
+              phoneNumber: n.phoneNumber,
+              queueId: n.queueId,
+            })));
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load WhatsApp numbers:', error);
+      }
+    };
+
+    const loadAllFlows = async () => {
+      try {
+        const response = await fetch('/api/flows');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.flows && Array.isArray(data.flows)) {
+            setAllFlows(data.flows);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load flows:', error);
+      }
+    };
+
+    loadWhatsAppNumbers();
+    loadAllFlows();
+
+    // Reload every 10 seconds to keep in sync with changes made in Configuration
+    const interval = setInterval(() => {
+      loadWhatsAppNumbers();
+      loadAllFlows();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Update flow channel assignments
   const updateFlowChannelAssignments = useCallback((assignments: import('./flow/types').FlowChannelAssignment[]) => {
@@ -2586,6 +2628,7 @@ export default function App(): JSX.Element {
                     flowName={flow.name}
                     assignments={flow.channelAssignments || []}
                     availableNumbers={whatsappNumbers}
+                    allFlows={allFlows}
                     onUpdate={updateFlowChannelAssignments}
                   />
                 </div>
@@ -4026,10 +4069,7 @@ export default function App(): JSX.Element {
       {/* Configuration Tab */}
       {mainTab === 'config' && (
         <div className="mt-2 h-[calc(100vh-160px)]">
-          <ConfigurationPanel
-            whatsappNumbers={whatsappNumbers}
-            onUpdateWhatsappNumbers={setWhatsappNumbers}
-          />
+          <ConfigurationPanel />
         </div>
       )}
 

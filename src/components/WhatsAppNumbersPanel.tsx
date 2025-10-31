@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import type { WhatsAppNumberAssignment } from '../flow/types';
 
 interface Queue {
   id: string;
@@ -7,35 +6,52 @@ interface Queue {
   status: string;
 }
 
-interface WhatsAppNumbersPanelProps {
-  numbers: WhatsAppNumberAssignment[];
-  onUpdate: (numbers: WhatsAppNumberAssignment[]) => void;
+interface WhatsAppNumber {
+  numberId: string;
+  displayName: string;
+  phoneNumber: string;
+  queueId?: string;
 }
 
-export function WhatsAppNumbersPanel({ numbers, onUpdate }: WhatsAppNumbersPanelProps) {
+export function WhatsAppNumbersPanel() {
+  const [numbers, setNumbers] = useState<WhatsAppNumber[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
-  const [editingData, setEditingData] = useState<WhatsAppNumberAssignment | null>(null);
+  const [editingData, setEditingData] = useState<WhatsAppNumber | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [queues, setQueues] = useState<Queue[]>([]);
+  const [loading, setLoading] = useState(true);
   const [newNumber, setNewNumber] = useState({
     displayName: '',
     phoneNumber: '',
     queueId: '',
   });
 
-  // Load available queues
+  // Load WhatsApp numbers and queues
   useEffect(() => {
-    fetch('/api/admin/queues')
-      .then(res => res.json())
-      .then(data => {
-        setQueues(data.queues || []);
-      })
-      .catch(err => {
-        console.error('Failed to load queues:', err);
-      });
+    loadData();
   }, []);
 
-  const handleAdd = () => {
+  const loadData = async () => {
+    try {
+      setLoading(true);
+
+      // Load queues
+      const queuesRes = await fetch('/api/admin/queues');
+      const queuesData = await queuesRes.json();
+      setQueues(queuesData.queues || []);
+
+      // Load WhatsApp numbers
+      const numbersRes = await fetch('/api/admin/whatsapp-numbers');
+      const numbersData = await numbersRes.json();
+      setNumbers(numbersData.numbers || []);
+    } catch (err) {
+      console.error('Failed to load data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAdd = async () => {
     if (!newNumber.displayName || !newNumber.phoneNumber) {
       alert('Por favor completa todos los campos');
       return;
@@ -45,40 +61,99 @@ export function WhatsAppNumbersPanel({ numbers, onUpdate }: WhatsAppNumbersPanel
         return;
       }
     }
-    const number: WhatsAppNumberAssignment = {
-      numberId: `wsp-${Date.now()}`,
-      displayName: newNumber.displayName,
-      phoneNumber: newNumber.phoneNumber,
-      queueId: newNumber.queueId || undefined,
-    };
-    onUpdate([...numbers, number]);
-    setNewNumber({ displayName: '', phoneNumber: '', queueId: '' });
-    setShowAdd(false);
-  };
 
-  const handleDelete = (numberId: string) => {
-    if (confirm('¿Estás seguro de eliminar este número?')) {
-      onUpdate(numbers.filter((n) => n.numberId !== numberId));
+    try {
+      const response = await fetch('/api/admin/whatsapp-numbers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          displayName: newNumber.displayName,
+          phoneNumber: newNumber.phoneNumber,
+          queueId: newNumber.queueId || undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create number');
+      }
+
+      await loadData();
+      setNewNumber({ displayName: '', phoneNumber: '', queueId: '' });
+      setShowAdd(false);
+    } catch (err) {
+      console.error('Error creating number:', err);
+      alert('Error al crear el número');
     }
   };
 
-  const startEditing = (number: WhatsAppNumberAssignment) => {
+  const handleDelete = async (numberId: string) => {
+    if (!confirm('¿Estás seguro de eliminar este número?')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/admin/whatsapp-numbers/${numberId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete number');
+      }
+
+      await loadData();
+    } catch (err) {
+      console.error('Error deleting number:', err);
+      alert('Error al eliminar el número');
+    }
+  };
+
+  const startEditing = (number: WhatsAppNumber) => {
     setEditing(number.numberId);
     setEditingData({ ...number });
   };
 
-  const saveEdit = () => {
-    if (editingData) {
-      onUpdate(numbers.map((n) => (n.numberId === editingData.numberId ? editingData : n)));
+  const saveEdit = async () => {
+    if (!editingData) return;
+
+    try {
+      const response = await fetch(`/api/admin/whatsapp-numbers/${editingData.numberId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          displayName: editingData.displayName,
+          phoneNumber: editingData.phoneNumber,
+          queueId: editingData.queueId || undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update number');
+      }
+
+      await loadData();
+      setEditing(null);
+      setEditingData(null);
+    } catch (err) {
+      console.error('Error updating number:', err);
+      alert('Error al actualizar el número');
     }
-    setEditing(null);
-    setEditingData(null);
   };
 
   const cancelEdit = () => {
     setEditing(null);
     setEditingData(null);
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mx-auto mb-4"></div>
+          <p className="text-slate-600">Cargando números...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

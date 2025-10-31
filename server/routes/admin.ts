@@ -619,5 +619,97 @@ export function createAdminRouter(): Router {
     }
   });
 
+  // ============================================
+  // WHATSAPP NUMBER ASSIGNMENTS ENDPOINTS
+  // ============================================
+
+  /**
+   * GET /api/admin/whatsapp-numbers
+   * Get all WhatsApp number assignments
+   */
+  router.get("/whatsapp-numbers", (req, res) => {
+    try {
+      const numbers = adminDb.getAllWhatsAppNumbers();
+      res.json({ numbers });
+    } catch (error) {
+      logger.error("[Admin] Error getting WhatsApp numbers:", error);
+      res.status(500).json({ error: "Failed to get WhatsApp numbers" });
+    }
+  });
+
+  /**
+   * POST /api/admin/whatsapp-numbers
+   * Add new WhatsApp number assignment
+   */
+  router.post("/whatsapp-numbers", (req, res) => {
+    try {
+      const { displayName, phoneNumber, queueId } = req.body;
+
+      if (!displayName || !phoneNumber) {
+        res.status(400).json({ error: "displayName and phoneNumber are required" });
+        return;
+      }
+
+      const number = adminDb.createWhatsAppNumber({
+        displayName,
+        phoneNumber,
+        queueId,
+      });
+
+      res.status(201).json({ number });
+    } catch (error) {
+      logger.error("[Admin] Error creating WhatsApp number:", error);
+      res.status(500).json({ error: "Failed to create WhatsApp number" });
+    }
+  });
+
+  /**
+   * PUT /api/admin/whatsapp-numbers/:id
+   * Update WhatsApp number assignment
+   */
+  router.put("/whatsapp-numbers/:id", (req, res) => {
+    try {
+      const { id } = req.params;
+      const { displayName, phoneNumber, queueId } = req.body;
+
+      const number = adminDb.updateWhatsAppNumber(id, {
+        displayName,
+        phoneNumber,
+        queueId,
+      });
+
+      if (!number) {
+        res.status(404).json({ error: "WhatsApp number not found" });
+        return;
+      }
+
+      res.json({ number });
+    } catch (error) {
+      logger.error("[Admin] Error updating WhatsApp number:", error);
+      res.status(500).json({ error: "Failed to update WhatsApp number" });
+    }
+  });
+
+  /**
+   * DELETE /api/admin/whatsapp-numbers/:id
+   * Delete WhatsApp number assignment
+   */
+  router.delete("/whatsapp-numbers/:id", (req, res) => {
+    try {
+      const { id } = req.params;
+      const deleted = adminDb.deleteWhatsAppNumber(id);
+
+      if (!deleted) {
+        res.status(404).json({ error: "WhatsApp number not found" });
+        return;
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      logger.error("[Admin] Error deleting WhatsApp number:", error);
+      res.status(500).json({ error: "Failed to delete WhatsApp number" });
+    }
+  });
+
   return router;
 }
