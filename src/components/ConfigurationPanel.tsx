@@ -5,17 +5,11 @@ import { QueueManagement } from "./Configuration/QueueManagement";
 import { CRMFieldConfig } from "./Configuration/CRMFieldConfig";
 import { GeneralSettings } from "./Configuration/GeneralSettings";
 import { StatusManagement } from "./Configuration/StatusManagement";
-import { WhatsAppNumbersPanel } from "./WhatsAppNumbersPanel";
-import type { WhatsAppNumberAssignment } from "../flow/types";
+import { WhatsAppConnectionsManager } from "./Configuration/WhatsAppConnectionsManager";
 
 type ConfigSection = "users" | "roles" | "queues" | "crm-fields" | "whatsapp" | "statuses" | "general";
 
-interface ConfigurationPanelProps {
-  whatsappNumbers?: WhatsAppNumberAssignment[];
-  onUpdateWhatsappNumbers?: (numbers: WhatsAppNumberAssignment[]) => void;
-}
-
-export function ConfigurationPanel({ whatsappNumbers = [], onUpdateWhatsappNumbers }: ConfigurationPanelProps = {}) {
+export function ConfigurationPanel() {
   const [activeSection, setActiveSection] = useState<ConfigSection>("users");
 
   return (
@@ -186,22 +180,7 @@ export function ConfigurationPanel({ whatsappNumbers = [], onUpdateWhatsappNumbe
         {activeSection === "crm-fields" && <CRMFieldConfig />}
         {activeSection === "whatsapp" && (
           <div className="p-6">
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-slate-900">Números de WhatsApp</h2>
-              <p className="mt-2 text-sm text-slate-600">
-                Gestiona los números de WhatsApp disponibles para asignar a tus bots.
-              </p>
-            </div>
-            {onUpdateWhatsappNumbers ? (
-              <WhatsAppNumbersPanel
-                numbers={whatsappNumbers}
-                onUpdate={onUpdateWhatsappNumbers}
-              />
-            ) : (
-              <p className="text-sm text-slate-500 italic">
-                No se ha configurado el gestor de números WhatsApp.
-              </p>
-            )}
+            <WhatsAppConnectionsManager />
           </div>
         )}
         {activeSection === "statuses" && <StatusManagement />}
