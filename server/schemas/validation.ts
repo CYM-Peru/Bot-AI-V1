@@ -39,6 +39,7 @@ export const flowSchema = z.union([
   z.object({
     id: z.string().min(1).max(100),
     name: z.string().min(1).max(255),
+    rootId: z.string().min(1).max(100), // ADDED: Required rootId
     nodes: z.any(), // Can be array or object
     edges: z.array(z.any()).optional(),
     viewport: z.object({
@@ -46,14 +47,19 @@ export const flowSchema = z.union([
       y: z.number(),
       zoom: z.number(),
     }).optional(),
+    version: z.number().optional(),
+    channelAssignments: z.any().optional(),
   }),
   // Format 2: Wrapper with flow and positions
   z.object({
     flow: z.object({
       id: z.string().min(1).max(100),
       name: z.string().min(1).max(255),
+      rootId: z.string().min(1).max(100), // ADDED: Required rootId
       nodes: z.any(),
       edges: z.array(z.any()).optional(),
+      version: z.number().optional(),
+      channelAssignments: z.any().optional(),
     }),
     positions: z.any().optional(),
   }),
