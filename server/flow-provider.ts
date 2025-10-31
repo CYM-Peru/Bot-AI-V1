@@ -27,14 +27,29 @@ export class LocalStorageFlowProvider implements FlowProvider {
     try {
       const filePath = this.getFlowPath(flowId);
       const fileContent = await fs.readFile(filePath, "utf-8");
-      const parsed = JSON.parse(fileContent);
+      let parsed = JSON.parse(fileContent);
 
-      // Extract flow object if wrapped in { flow: {...}, positions: {} }
-      let flow: Flow;
-      if (parsed.flow && typeof parsed.flow === 'object') {
-        flow = parsed.flow as Flow;
-      } else {
-        flow = parsed as Flow;
+      // RECURSIVE UNWRAPPING: Extract flow object if wrapped in { flow: {...}, positions: {} }
+      // This handles single, double, or triple nesting (prevents corruption)
+      let unwrapCount = 0;
+      while (parsed.flow && typeof parsed.flow === 'object' && !parsed.id && unwrapCount < 5) {
+        console.log(`[DEBUG] Unwrapping flow ${flowId} (level ${unwrapCount + 1})`);
+        parsed = parsed.flow;
+        unwrapCount++;
+      }
+
+      // If we unwrapped multiple times, the file was corrupted - fix it
+      if (unwrapCount > 1) {
+        console.warn(`[WARNING] Flow ${flowId} had ${unwrapCount} levels of nesting - auto-fixing`);
+        await this.saveFlow(flowId, parsed as Flow);
+      }
+
+      const flow = parsed as Flow;
+
+      // Validate flow has required properties
+      if (!flow.id || !flow.nodes) {
+        console.error(`[ERROR] Invalid flow structure for ${flowId}`);
+        return null;
       }
 
       // Cache the flow
@@ -54,14 +69,28 @@ export class LocalStorageFlowProvider implements FlowProvider {
     try {
       const filePath = this.getFlowPath(flowId);
 
+      // SAFETY CHECK: If flow is already wrapped, unwrap it first
+      let cleanFlow = flow;
+      if ((flow as any).flow && typeof (flow as any).flow === 'object' && !(flow as any).nodes) {
+        console.warn(`[WARNING] Received already-wrapped flow ${flowId} - unwrapping before save`);
+        cleanFlow = (flow as any).flow;
+      }
+
+      // Validate flow structure before saving
+      if (!cleanFlow.id || !cleanFlow.nodes) {
+        console.error(`[ERROR] Invalid flow structure - cannot save ${flowId}`);
+        throw new Error(`Invalid flow structure for ${flowId}`);
+      }
+
       // Wrap flow in { flow, positions } structure for React Flow compatibility
-      const wrapped = { flow, positions: {} };
+      const wrapped = { flow: cleanFlow, positions: {} };
       await fs.writeFile(filePath, JSON.stringify(wrapped, null, 2), "utf-8");
 
-      // Update cache with unwrapped flow
-      this.flowCache.set(flowId, flow);
+      // Update cache with unwrapped clean flow
+      this.flowCache.set(flowId, cleanFlow);
 
-      console.log(`[INFO] Flow ${flowId} saved successfully`);
+      console.log(`[INFO] Flow ${flowId} saved successfully with channelAssignments:`,
+        cleanFlow.channelAssignments?.length || 0);
     } catch (error) {
       console.error(`[ERROR] Failed to save flow ${flowId}:`, error);
       throw error;
