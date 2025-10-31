@@ -283,8 +283,14 @@ app.get("/api/flows", async (req: Request, res: Response) => {
     const fullFlows = await Promise.all(
       flowIds.map(async (id) => {
         try {
-          const flow = await flowProvider.getFlow(id);
-          return flow;
+          const flowData = await flowProvider.getFlow(id);
+
+          // Normalize: if wrapped in { flow, positions }, extract flow
+          if (flowData && typeof flowData === 'object' && 'flow' in flowData) {
+            return (flowData as any).flow;
+          }
+
+          return flowData;
         } catch {
           return null;
         }
