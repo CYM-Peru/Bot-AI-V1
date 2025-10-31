@@ -1392,33 +1392,45 @@ export default function App(): JSX.Element {
   }, []);
 
   const handleConfirmSave = useCallback(async (flowName: string) => {
-    // Generate a unique ID from the flow name
-    const generateFlowId = (name: string): string => {
-      // Convert to lowercase, replace spaces/special chars with hyphens
-      const baseId = name
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '') // Remove accents
-        .replace(/[^a-z0-9]+/g, '-') // Replace non-alphanumeric with hyphens
-        .replace(/^-+|-+$/g, '') // Remove leading/trailing hyphens
-        .slice(0, 50); // Limit length
+    const currentFlowId = flowRef.current.id;
 
-      // Add timestamp to ensure uniqueness
-      const timestamp = Date.now().toString(36);
-      return `${baseId}-${timestamp}`;
-    };
+    // Determine if we need to create a new flow or update existing
+    const isNewFlow = !currentFlowId || currentFlowId === 'flow-demo';
 
-    const newFlowId = generateFlowId(flowName);
+    let finalFlowId: string;
 
-    // Update flow with new name and ID
-    setFlow((prev) => ({ ...prev, id: newFlowId, name: flowName }));
-    setWorkspaceId(newFlowId);
+    if (isNewFlow) {
+      // Generate a unique ID from the flow name for NEW flows
+      const generateFlowId = (name: string): string => {
+        // Convert to lowercase, replace spaces/special chars with hyphens
+        const baseId = name
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '') // Remove accents
+          .replace(/[^a-z0-9]+/g, '-') // Replace non-alphanumeric with hyphens
+          .replace(/^-+|-+$/g, '') // Remove leading/trailing hyphens
+          .slice(0, 50); // Limit length
+
+        // Add timestamp to ensure uniqueness
+        const timestamp = Date.now().toString(36);
+        return `${baseId}-${timestamp}`;
+      };
+
+      finalFlowId = generateFlowId(flowName);
+    } else {
+      // Keep existing ID for UPDATES
+      finalFlowId = currentFlowId;
+    }
+
+    // Update flow with name and ID
+    setFlow((prev) => ({ ...prev, id: finalFlowId, name: flowName }));
+    setWorkspaceId(finalFlowId);
 
     // Wait for next tick to ensure state is updated
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    // Perform the save with new ID
-    await performSave("Flujo guardado");
+    // Perform the save
+    await performSave(isNewFlow ? "Flujo creado" : "Flujo actualizado");
 
     // Close modal
     setShowSaveModal(false);
