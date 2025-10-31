@@ -168,6 +168,27 @@ function createWhatsAppHandler() {
         logError(`[WEBHOOK] Error en CRM handleIncomingWhatsApp:`, error);
       }
     },
+    onBotTransfer: async (payload) => {
+      // CRITICAL: Assign conversation to queue when bot transfers
+      try {
+        const { crmDb } = await import('./crm/db');
+        const conversation = crmDb.getConversationByPhone(payload.phone);
+
+        if (!conversation) {
+          logger.warn(`[Bot Transfer] Conversation not found for phone: ${payload.phone}`);
+          return;
+        }
+
+        if (payload.queueId) {
+          crmDb.updateConversationQueue(conversation.id, payload.queueId);
+          logger.info(`[Bot Transfer] ✅ Conversation ${conversation.id} assigned to queue: ${payload.queueId}`);
+        } else {
+          logger.warn(`[Bot Transfer] ⚠️ No queueId provided - conversation ${conversation.id} may go to limbo`);
+        }
+      } catch (error) {
+        logError(`[Bot Transfer] Error assigning conversation to queue:`, error);
+      }
+    },
   });
 }
 

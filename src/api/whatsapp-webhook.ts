@@ -43,6 +43,10 @@ export interface WhatsAppWebhookHandlerOptions {
     value: ChangeValue;
     message: WhatsAppMessage;
   }) => Promise<void> | void;
+  onBotTransfer?: (payload: {
+    phone: string;
+    queueId: string | null;
+  }) => Promise<void> | void;
 }
 
 export class WhatsAppWebhookHandler {
@@ -57,6 +61,7 @@ export class WhatsAppWebhookHandler {
   private readonly logger?: Logger;
 
   private readonly onIncomingMessage?: WhatsAppWebhookHandlerOptions["onIncomingMessage"];
+  private readonly onBotTransfer?: WhatsAppWebhookHandlerOptions["onBotTransfer"];
 
   constructor(options: WhatsAppWebhookHandlerOptions) {
     this.verifyToken = options.verifyToken;
@@ -65,6 +70,7 @@ export class WhatsAppWebhookHandler {
     this.resolveFlow = options.resolveFlow;
     this.logger = options.logger;
     this.onIncomingMessage = options.onIncomingMessage;
+    this.onBotTransfer = options.onBotTransfer;
   }
 
   async handle(request: Request): Promise<Response> {
@@ -191,7 +197,17 @@ export class WhatsAppWebhookHandler {
         return;
       }
       case "system":
-        this.logger?.info?.("System message skipped", { payload: message.payload });
+        this.logger?.info?.("System message received", { payload: message.payload });
+
+        // CRITICAL: Process bot transfer to prevent conversations going to limbo
+        if (message.payload?.action === "transfer_to_agent") {
+          const queueId = message.payload.queueId;
+          this.logger?.info?.("Bot transfer detected", { to, queueId });
+
+          if (this.onBotTransfer) {
+            await this.onBotTransfer({ phone: to, queueId: queueId || null });
+          }
+        }
         return;
       default:
         this.logger?.warn?.("Unknown outbound message type", { type: (message as OutboundMessage).type });

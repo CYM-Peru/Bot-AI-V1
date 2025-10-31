@@ -757,6 +757,8 @@ export class NodeExecutor {
   private executeTransferNode(node: FlowNode): ExecutionResult {
     // Transfer node ends bot conversation and signals handoff to human agent
     const transferMessage = node.action?.data?.text || node.description || "Transfering to agent...";
+    const queueId = node.action?.data?.queueId; // Get queue from node config
+
     return {
       responses: [
         {
@@ -770,6 +772,7 @@ export class NodeExecutor {
             message: "Conversation transferred to human agent",
             nodeId: node.id,
             action: "transfer_to_agent",
+            queueId: queueId || null, // CRITICAL: Pass queueId to prevent limbo
           },
         },
       ],
