@@ -7,8 +7,48 @@ import type { BitrixService } from "../services/bitrix";
 export function createConversationsRouter(socketManager: CrmRealtimeManager, bitrixService: BitrixService) {
   const router = Router();
 
-  router.get("/", (_req, res) => {
-    const conversations = crmDb.listConversations();
+  router.get("/", (req, res) => {
+    const { assignedTo, channel, channelConnectionId, search } = req.query;
+
+    let conversations = crmDb.listConversations();
+
+    // Filter by advisor assignment
+    if (assignedTo) {
+      if (assignedTo === "me") {
+        // Show only conversations assigned to current user
+        const currentUserId = req.user?.email || null;
+        conversations = conversations.filter((c) => c.assignedTo === currentUserId);
+      } else if (assignedTo === "unassigned") {
+        // Show conversations not assigned to anyone (in queue)
+        conversations = conversations.filter((c) => !c.assignedTo);
+      } else if (assignedTo === "all") {
+        // No filter - show all conversations
+      } else {
+        // Show conversations assigned to specific advisor
+        conversations = conversations.filter((c) => c.assignedTo === assignedTo);
+      }
+    }
+
+    // Filter by channel type
+    if (channel) {
+      conversations = conversations.filter((c) => c.channel === channel);
+    }
+
+    // Filter by specific WhatsApp connection
+    if (channelConnectionId) {
+      conversations = conversations.filter((c) => c.channelConnectionId === channelConnectionId);
+    }
+
+    // Search by phone or contact name
+    if (search && typeof search === "string") {
+      const searchLower = search.toLowerCase();
+      conversations = conversations.filter(
+        (c) =>
+          c.phone.includes(searchLower) ||
+          (c.contactName && c.contactName.toLowerCase().includes(searchLower))
+      );
+    }
+
     res.json(
       conversations.map((conversation) => ({
         id: conversation.id,
@@ -19,6 +59,11 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
         unread: conversation.unread,
         status: conversation.status,
         bitrixId: conversation.bitrixId ?? null,
+        channel: conversation.channel,
+        channelConnectionId: conversation.channelConnectionId ?? null,
+        displayNumber: conversation.displayNumber ?? null,
+        assignedTo: conversation.assignedTo ?? null,
+        assignedAt: conversation.assignedAt ?? null,
       })),
     );
   });
