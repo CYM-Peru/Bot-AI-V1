@@ -53,8 +53,8 @@ app.use(cors({
   credentials: true, // Permitir envío de cookies
 }));
 app.use(cookieParser()); // Cookie parser ANTES de las rutas
-app.use(express.json({ limit: "20mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "5gb" })); // Flows with ~150 PDFs × 20MB each = ~3GB
+app.use(express.urlencoded({ extended: true, limit: "5gb" }));
 
 // Initialize Runtime Engine
 const flowProvider = new LocalStorageFlowProvider();
