@@ -33,6 +33,8 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
     return [...messages].sort((a, b) => a.createdAt - b.createdAt);
   }, [messages]);
 
+  const [accepting, setAccepting] = useState(false);
+
   // Load advisors and bots for transfer
   useEffect(() => {
     const loadTransferTargets = async () => {
@@ -98,14 +100,6 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
     setReplyTo(null);
   };
 
-  if (!conversation) {
-    return (
-      <div className="flex h-full flex-1 items-center justify-center bg-slate-100">
-        <p className="text-sm text-slate-500">Selecciona una conversación del panel izquierdo.</p>
-      </div>
-    );
-  }
-
   const handleArchive = async () => {
     if (!conversation) return;
     try {
@@ -139,8 +133,6 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
       console.error('[CRM] Error al desarchivar conversación:', error);
     }
   };
-
-  const [accepting, setAccepting] = useState(false);
 
   const handleAccept = async () => {
     if (!conversation || accepting) return;
@@ -193,6 +185,14 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
       throw error;
     }
   };
+
+  if (!conversation) {
+    return (
+      <div className="flex h-full flex-1 items-center justify-center bg-slate-100">
+        <p className="text-sm text-slate-500">Selecciona una conversación del panel izquierdo.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
