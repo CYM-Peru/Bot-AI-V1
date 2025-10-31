@@ -473,8 +473,19 @@ export function validateFlowStructure(flow: unknown): { valid: boolean; errors: 
     return { valid: false, errors };
   }
 
-  // Validate all nodes have id and type
+  // Check rootId exists and is valid
+  if (!f.rootId || typeof f.rootId !== 'string') {
+    errors.push('Flow must have a valid rootId (string)');
+  }
+
   const nodes = f.nodes as Record<string, unknown>;
+
+  // Verify rootId points to an existing node
+  if (f.rootId && typeof f.rootId === 'string' && !nodes[f.rootId]) {
+    errors.push(`Flow rootId "${f.rootId}" does not exist in nodes`);
+  }
+
+  // Validate all nodes have id and type
   for (const [nodeId, node] of Object.entries(nodes)) {
     if (!node || typeof node !== 'object') {
       errors.push(`Node "${nodeId}" is not a valid object`);
