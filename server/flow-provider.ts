@@ -53,9 +53,12 @@ export class LocalStorageFlowProvider implements FlowProvider {
   async saveFlow(flowId: string, flow: Flow): Promise<void> {
     try {
       const filePath = this.getFlowPath(flowId);
-      await fs.writeFile(filePath, JSON.stringify(flow, null, 2), "utf-8");
 
-      // Update cache
+      // Wrap flow in { flow, positions } structure for React Flow compatibility
+      const wrapped = { flow, positions: {} };
+      await fs.writeFile(filePath, JSON.stringify(wrapped, null, 2), "utf-8");
+
+      // Update cache with unwrapped flow
       this.flowCache.set(flowId, flow);
 
       console.log(`[INFO] Flow ${flowId} saved successfully`);
