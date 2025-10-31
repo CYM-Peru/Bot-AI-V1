@@ -4026,10 +4026,7 @@ export default function App(): JSX.Element {
       {/* Configuration Tab */}
       {mainTab === 'config' && (
         <div className="mt-2 h-[calc(100vh-160px)]">
-          <ConfigurationPanel
-            whatsappNumbers={whatsappNumbers}
-            onUpdateWhatsappNumbers={setWhatsappNumbers}
-          />
+          <ConfigurationPanel />
         </div>
       )}
 
