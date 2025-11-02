@@ -128,6 +128,9 @@ export class NodeExecutor {
         return this.executeToolNode(node, session);
       case "delay":
         return this.executeDelayNode(flow, node, session, message);
+      case "start":
+        // Start node just passes to next node without any response
+        return { responses: [], nextNodeId: this.nextChild(node), awaitingUserInput: false };
       case "end":
         return { responses: [], nextNodeId: null, awaitingUserInput: false, ended: true };
       default:
