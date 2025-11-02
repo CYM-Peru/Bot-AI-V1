@@ -10,23 +10,24 @@ import { debounce } from "./utils/debounce";
 import { DEFAULT_BUTTON_LIMIT } from "./flow/channelLimits";
 import { ReactFlowCanvas } from "./ReactFlowCanvas";
 import { testWebhookOut, generateWebhookInUrl, type WebhookResponse } from "./flow/webhooks";
-import { MetricsPanel } from "./components/MetricsPanel";
+import { UnifiedMetricsPanel } from "./components/UnifiedMetricsPanel";
 import { NodeSearchModal } from "./components/NodeSearchModal";
 import { TemplateSelector } from "./components/TemplateSelector";
 import { FlowsGallery } from "./components/FlowsGallery";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import type { FlowTemplate } from "./templates/flowTemplates";
 import { toPng } from './utils/htmlToImage';
-import { ConnectionsButton } from "./components/Connections/ConnectionsButton";
-import { ConnectionsPanel } from "./components/Connections/ConnectionsPanel";
 import { ConfigurationPanel } from "./components/ConfigurationPanel";
 import { BotChannelAssignment } from "./components/BotChannelAssignment";
 import { WhatsAppNumbersPanel } from "./components/WhatsAppNumbersPanel";
 import { useAuth } from "./hooks/useAuth";
+import { usePermissions } from "./hooks/usePermissions";
 import LoginPage from "./components/LoginPage";
 import WelcomeSplash from "./components/WelcomeSplash";
 import { LogOut } from "lucide-react";
+import { AdvisorStatusButton } from "./crm/AdvisorStatusButton";
 const CRMWorkspace = React.lazy(() => import("./crm"));
+const CampaignsPage = React.lazy(() => import("./campaigns/CampaignsPage"));
 import {
   ConnectionCreationKind,
   STRICTEST_LIMIT,
@@ -295,6 +296,7 @@ type Toast = { id: number; message: string; type: "success" | "error" };
 export default function App(): JSX.Element {
   // Authentication state
   const { isAuthenticated, isLoading, user, checkAuth } = useAuth();
+  const { hasPermission } = usePermissions(user?.role);
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -312,12 +314,13 @@ export default function App(): JSX.Element {
   },[channel]);
   const [soloRoot, setSoloRoot] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [workspaceId, setWorkspaceId] = useState(flow.id);
+  const [workspaceId, setWorkspaceId] = useState(flow.id || 'flow-demo');
   const [toast, setToast] = useState<Toast | null>(null);
   const [webhookTestResult, setWebhookTestResult] = useState<WebhookResponse | null>(null);
   const [webhookTesting, setWebhookTesting] = useState(false);
-  const [mainTab, setMainTab] = useState<'canvas' | 'crm' | 'metrics' | 'config'>('canvas');
-  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [mainTab, setMainTab] = useState<'canvas' | 'crm' | 'campaigns' | 'metrics' | 'config'>('canvas');
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveFlowName, setSaveFlowName] = useState(flow.name);
 
   const [bitrixFieldOptions, setBitrixFieldOptions] = useState<string[]>([]);
   const [bitrixFieldsLoading, setBitrixFieldsLoading] = useState(false);
@@ -594,7 +597,8 @@ export default function App(): JSX.Element {
     setPositionsState(sanitizePositionMap(nextPositions));
     suppressDirtyRef.current = false;
     setSelectedId(normalized.rootId);
-    setWorkspaceId(normalized.id);
+    // Asegurar que workspaceId siempre tenga un valor válido
+    setWorkspaceId(normalized.id || 'flow-demo');
     setDirty(false);
   }, []);
 
@@ -605,6 +609,13 @@ export default function App(): JSX.Element {
   }, [replaceFlow, showToast]);
 
   const handleSelectFlow = useCallback(async (flowId: string) => {
+    // Validación: Evitar llamadas con flowId undefined o vacío
+    if (!flowId || flowId === 'undefined' || flowId.trim() === '') {
+      console.error('Error: Attempted to load flow with invalid ID:', flowId);
+      showToast('Error: ID de flujo inválido', 'error');
+      return;
+    }
+
     try {
       const response = await fetch(`/api/flows/${flowId}`);
       if (!response.ok) {
@@ -830,28 +841,74 @@ export default function App(): JSX.Element {
   }, [selectedId, setFlow, setSelectedId, showToast]);
 
   const handleAttachmentUpload = useCallback(
-    (file: File | null) => {
+    async (file: File | null) => {
       if (!file) return;
+
+      // Show uploading state
+      console.log('[FlowBuilder] Uploading file to server:', file.name);
+
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         const payload = typeof reader.result === "string" ? reader.result : "";
-        setFlow((prev) => {
-          const next: Flow = JSON.parse(JSON.stringify(prev));
-          const node = next.nodes[selectedId];
-          if (!node || node.action?.kind !== "attachment") return prev;
-          node.action = {
-            ...node.action,
-            data: {
-              ...(node.action.data || {}),
-              fileName: file.name,
-              mimeType: file.type,
-              fileSize: file.size,
-              fileData: payload,
-              url: "",
-            },
-          };
-          return next;
-        });
+        const base64Data = payload.split(',')[1]; // Remove "data:mime;base64," prefix
+
+        try {
+          // Upload file to server storage
+          const response = await fetch('/api/crm/attachments/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              filename: file.name,
+              mime: file.type,
+              data: base64Data
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`Upload failed: ${response.statusText}`);
+          }
+
+          const { attachment } = await response.json();
+          console.log('[FlowBuilder] File uploaded successfully:', attachment);
+
+          // Determine correct attType based on file mime type
+          let attType = "file"; // default
+          if (file.type.startsWith('image/')) {
+            attType = "image";
+          } else if (file.type.startsWith('audio/')) {
+            attType = "audio";
+          } else if (file.type.startsWith('video/')) {
+            attType = "video";
+          }
+
+          // Create absolute URL for WhatsApp (requires public HTTPS URL)
+          const absoluteUrl = `${window.location.origin}${attachment.url}`;
+
+          // Update node with URL (NOT fileData)
+          setFlow((prev) => {
+            const next: Flow = JSON.parse(JSON.stringify(prev));
+            const node = next.nodes[selectedId];
+            if (!node || node.action?.kind !== "attachment") return prev;
+            node.action = {
+              ...node.action,
+              data: {
+                ...(node.action.data || {}),
+                attType, // Auto-detect correct type
+                fileName: file.name,
+                mimeType: file.type,
+                fileSize: file.size,
+                url: absoluteUrl, // Store URL, not fileData
+                name: node.action.data?.name || file.name, // Keep existing name or use filename
+                // Don't store fileData to keep flow size small!
+              },
+            };
+            return next;
+          });
+        } catch (error) {
+          console.error('[FlowBuilder] File upload failed:', error);
+          alert(`Error al subir el archivo: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+        }
       };
       reader.readAsDataURL(file);
     },
@@ -871,6 +928,7 @@ export default function App(): JSX.Element {
           mimeType: "",
           fileSize: 0,
           fileData: "",
+          url: "", // Also clear URL
         },
       };
       return next;
@@ -1385,10 +1443,18 @@ export default function App(): JSX.Element {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  const performSave = useCallback(async (message?: string) => {
-    const payload: PersistedState = { flow: flowRef.current, positions: positionsRef.current };
+  const performSave = useCallback(async (flowId: string, flowName: string, message?: string) => {
+    const updatedFlow = { ...flowRef.current, id: flowId, name: flowName };
+    const payload: PersistedState = { flow: updatedFlow, positions: positionsRef.current };
     try {
-      await saveFlow(workspaceIdRef.current, payload);
+      await saveFlow(flowId, payload);
+
+      // Update current flow state
+      setFlow(updatedFlow);
+      flowRef.current = updatedFlow;
+      setWorkspaceId(flowId);
+      workspaceIdRef.current = flowId;
+
       setDirty(false);
       if (message) showToast(message, "success");
     } catch (error) {
@@ -1398,7 +1464,7 @@ export default function App(): JSX.Element {
   }, [showToast]);
 
   const debouncedManualSave = useMemo(() => debounce(() => {
-    performSave("Flujo guardado").catch(() => {});
+    performSave(workspaceIdRef.current, flowRef.current.name, "Flujo guardado").catch(() => {});
   }, 300), [performSave]);
 
   useEffect(() => {
@@ -1408,8 +1474,25 @@ export default function App(): JSX.Element {
   }, [debouncedManualSave]);
 
   const handleSaveClick = useCallback(() => {
-    debouncedManualSave();
-  }, [debouncedManualSave]);
+    setSaveFlowName(flowRef.current.name);
+    setShowSaveModal(true);
+  }, []);
+
+  const handleConfirmSave = useCallback(() => {
+    const originalId = workspaceIdRef.current;
+    const originalName = flowRef.current.name;
+
+    // Generate new ID if name changed
+    const flowId = saveFlowName !== originalName
+      ? `${saveFlowName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36).slice(-6)}`
+      : originalId;
+
+    performSave(flowId, saveFlowName, saveFlowName !== originalName ? "Flujo guardado como nuevo" : "Flujo guardado")
+      .then(() => {
+        setShowSaveModal(false);
+      })
+      .catch(() => {});
+  }, [saveFlowName, performSave]);
 
   const handleExport = useCallback(() => {
     if (typeof window === "undefined") {
@@ -1459,7 +1542,7 @@ export default function App(): JSX.Element {
     if (typeof window === "undefined") return;
     const interval = window.setInterval(() => {
       if (!dirtyRef.current) return;
-      performSave("Auto-guardado").catch(() => {});
+      performSave(workspaceIdRef.current, flowRef.current.name, "Auto-guardado").catch(() => {});
     }, AUTO_SAVE_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [performSave]);
@@ -2484,7 +2567,10 @@ export default function App(): JSX.Element {
       )}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-xs px-3 py-1 rounded-full border bg-slate-50">Builder · Beta</span>
+          {/* Advisor Status Button - visible only in CRM tab */}
+          {user?.id && mainTab === 'crm' && (
+            <AdvisorStatusButton userId={user.id} compact={true} />
+          )}
           <h1 className="text-xl md:text-3xl font-bold truncate bg-gradient-to-r from-emerald-600 to-blue-600 bg-clip-text text-transparent tracking-tight" style={{ fontFamily: "'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif" }}>
             {flow.name}
           </h1>
@@ -2498,31 +2584,42 @@ export default function App(): JSX.Element {
             >
               📐 Canvas
             </button>
-            <ConnectionsButton
-              isOpen={connectionsOpen}
-              onToggle={() => setConnectionsOpen((open) => !open)}
-            />
-            <button
-              className={`btn btn--ghost topbar-tab${mainTab === 'crm' ? ' is-active' : ''}`}
-              onClick={() => setMainTab('crm')}
-              type="button"
-            >
-              💬 Chat en vivo
-            </button>
-            <button
-              className={`btn btn--ghost topbar-tab${mainTab === 'metrics' ? ' is-active' : ''}`}
-              onClick={() => setMainTab('metrics')}
-              type="button"
-            >
-              📊 Métricas
-            </button>
-            <button
-              className={`btn btn--ghost topbar-tab${mainTab === 'config' ? ' is-active' : ''}`}
-              onClick={() => setMainTab('config')}
-              type="button"
-            >
-              ⚙️ Configuración
-            </button>
+            {hasPermission('crm.view') && (
+              <button
+                className={`btn btn--ghost topbar-tab${mainTab === 'crm' ? ' is-active' : ''}`}
+                onClick={() => setMainTab('crm')}
+                type="button"
+              >
+                💬 Chat en vivo
+              </button>
+            )}
+            {hasPermission('campaigns.view') && (
+              <button
+                className={`btn btn--ghost topbar-tab${mainTab === 'campaigns' ? ' is-active' : ''}`}
+                onClick={() => setMainTab('campaigns')}
+                type="button"
+              >
+                📢 Campañas
+              </button>
+            )}
+            {hasPermission('metrics.view') && (
+              <button
+                className={`btn btn--ghost topbar-tab${mainTab === 'metrics' ? ' is-active' : ''}`}
+                onClick={() => setMainTab('metrics')}
+                type="button"
+              >
+                📊 Métricas
+              </button>
+            )}
+            {hasPermission('config.view') && (
+              <button
+                className={`btn btn--ghost topbar-tab${mainTab === 'config' ? ' is-active' : ''}`}
+                onClick={() => setMainTab('config')}
+                type="button"
+              >
+                ⚙️ Configuración
+              </button>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -2606,13 +2703,6 @@ export default function App(): JSX.Element {
         )}
       </div>
 
-      <ConnectionsPanel
-        open={connectionsOpen}
-        onClose={() => setConnectionsOpen(false)}
-        whatsappNumbers={whatsappNumbers}
-        onUpdateWhatsappNumbers={setWhatsappNumbers}
-      />
-
       <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
 
       {/* Conditional rendering based on main tab */}
@@ -2668,104 +2758,160 @@ export default function App(): JSX.Element {
             </div>
 
             {/* Toolbar de acciones debajo del canvas - GRID COLUMNAS */}
-            <div className="border-t bg-white shadow-lg flex-shrink-0 overflow-x-auto">
+            <div className="border-t bg-gradient-to-r from-slate-50 to-white shadow-lg flex-shrink-0 overflow-x-auto">
               <div className="px-4 py-3 flex gap-6">
                 <section className="space-y-2 min-w-[160px]">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mensajería</h4>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">Estructura</h4>
                   <div className="flex flex-col gap-2">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
-                      onClick={() => addActionOfKind(selectedId, "message")}
-                      disabled={!selectedId}
-                    >
-                      <span>💬</span> Mensaje
-                    </button>
-                    <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
-                      onClick={() => addActionOfKind(selectedId, "buttons")}
-                      disabled={!selectedId}
-                    >
-                      <span>🔘</span> Botones
-                    </button>
-                    <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-2 whitespace-nowrap"
-                      onClick={() => addActionOfKind(selectedId, "attachment")}
-                      disabled={!selectedId}
-                    >
-                      <span>📎</span> Adjunto
-                    </button>
-                  </div>
-                </section>
-
-                <section className="space-y-2 min-w-[160px]">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Captura</h4>
-                  <div className="flex flex-col gap-2">
-                    <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition flex items-center gap-2 whitespace-nowrap"
-                      onClick={() => addActionOfKind(selectedId, "question")}
-                      disabled={!selectedId}
-                    >
-                      <span>❓</span> Preguntar
-                    </button>
-                    <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition flex items-center gap-2 whitespace-nowrap"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
                       onClick={() => addChildTo(selectedId, "menu")}
                       disabled={!selectedId}
                     >
-                      <span>📋</span> Menú
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+                      Menú
                     </button>
                   </div>
                 </section>
 
                 <section className="space-y-2 min-w-[160px]">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Lógica</h4>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">Mensajes</h4>
                   <div className="flex flex-col gap-2">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition flex items-center gap-2 whitespace-nowrap"
-                      onClick={() => addActionOfKind(selectedId, "validation")}
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      onClick={() => addActionOfKind(selectedId, "message")}
                       disabled={!selectedId}
                     >
-                      <span>🛡️</span> Validación
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                      Mensaje
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition flex items-center gap-2 whitespace-nowrap"
-                      onClick={() => addActionOfKind(selectedId, "scheduler")}
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      onClick={() => addActionOfKind(selectedId, "buttons")}
                       disabled={!selectedId}
                     >
-                      <span>⏰</span> Scheduler
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                      Botones
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      onClick={() => addActionOfKind(selectedId, "question")}
+                      disabled={!selectedId}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      Pregunta
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      onClick={() => addActionOfKind(selectedId, "attachment")}
+                      disabled={!selectedId}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                      Adjunto
                     </button>
                   </div>
                 </section>
 
-                <section className="space-y-2 min-w-[160px]">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Integraciones</h4>
+                <section className="space-y-2 min-w-[180px]">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">Integraciones</h4>
                   <div className="flex flex-col gap-2">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 whitespace-nowrap"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "webhook_out")}
                       disabled={!selectedId}
                     >
-                      <span>🔗</span> Webhook OUT
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                      Webhook OUT
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 whitespace-nowrap"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "webhook_in")}
                       disabled={!selectedId}
                     >
-                      <span>🔍</span> Bitrix24 Lookup
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" /></svg>
+                      Webhook IN
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      onClick={() => addActionOfKind(selectedId, "transfer")}
+                      disabled={!selectedId}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
+                      Transferir
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      onClick={() => addActionOfKind(selectedId, "handoff")}
+                      disabled={!selectedId}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                      Handoff (Humano)
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      onClick={() => addActionOfKind(selectedId, "scheduler")}
+                      disabled={!selectedId}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      Scheduler
                     </button>
                   </div>
                 </section>
 
                 <section className="space-y-2 min-w-[160px]">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Control</h4>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">Lógica</h4>
                   <div className="flex flex-col gap-2">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-slate-500 text-white hover:bg-slate-600 transition flex items-center gap-2 whitespace-nowrap"
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-sky-500 to-sky-600 text-white hover:from-sky-600 hover:to-sky-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      onClick={() => addActionOfKind(selectedId, "validation")}
+                      disabled={!selectedId}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                      Validación
+                    </button>
+                  </div>
+                </section>
+
+                <section className="space-y-2 min-w-[180px]">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">Inteligencia Artificial</h4>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      onClick={() => addActionOfKind(selectedId, "ia_rag")}
+                      disabled={!selectedId}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                      IA · RAG
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      onClick={() => addActionOfKind(selectedId, "tool")}
+                      disabled={!selectedId}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                      Tool/Acción externa
+                    </button>
+                  </div>
+                </section>
+
+                <section className="space-y-2 min-w-[160px]">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">Control</h4>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-slate-500 to-slate-600 text-white hover:from-slate-600 hover:to-slate-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      onClick={() => addActionOfKind(selectedId, "delay")}
+                      disabled={!selectedId}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      Delay (Espera)
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-slate-500 to-slate-600 text-white hover:from-slate-600 hover:to-slate-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "end")}
                       disabled={!selectedId}
                     >
-                      <span>🛑</span> Finalizar flujo
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" /></svg>
+                      Finalizar flujo
                     </button>
                   </div>
                 </section>
@@ -3541,16 +3687,17 @@ export default function App(): JSX.Element {
                               event.target.value = "";
                             }}
                           />
-                          <p className="text-[10px] text-slate-400">El archivo se guardará en el flujo como base64 para pruebas locales.</p>
+                          <p className="text-[10px] text-slate-400">El archivo se subirá al servidor y se guardará la URL en el flujo.</p>
                         </div>
-                        {selected.action?.data?.fileData && (
+                        {(selected.action?.data?.url || selected.action?.data?.fileData) && (
                           <div className="border rounded-lg p-2 bg-emerald-50 text-emerald-700 space-y-1">
                             <div className="font-semibold flex items-center gap-2">
-                              <span>📎 {selected.action?.data?.fileName || "Archivo sin nombre"}</span>
+                              <span>📎 {selected.action?.data?.fileName || selected.action?.data?.name || "Archivo sin nombre"}</span>
                             </div>
                             <div className="text-[10px] text-emerald-700/80">
                               {selected.action?.data?.mimeType || "tipo desconocido"} ·
                               {` ${Math.max(1, Math.round(((selected.action?.data?.fileSize ?? 0) / 1024) || 0))} KB`}
+                              {selected.action?.data?.url && " · ✓ Subido al servidor"}
                             </div>
                             <div className="flex gap-2">
                               <button
@@ -3559,7 +3706,17 @@ export default function App(): JSX.Element {
                               >
                                 Quitar archivo
                               </button>
-                              {typeof selected.action?.data?.fileData === "string" && selected.action?.data?.fileData && (
+                              {selected.action?.data?.url && (
+                                <a
+                                  className="px-2 py-0.5 border border-emerald-300 rounded bg-white text-emerald-700 hover:bg-emerald-100"
+                                  href={selected.action.data.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  Ver archivo
+                                </a>
+                              )}
+                              {typeof selected.action?.data?.fileData === "string" && selected.action?.data?.fileData && !selected.action?.data?.url && (
                                 <a
                                   className="px-2 py-0.5 border border-emerald-300 rounded bg-white text-emerald-700 hover:bg-emerald-100"
                                   href={selected.action.data.fileData}
@@ -4045,7 +4202,7 @@ export default function App(): JSX.Element {
       </div>
       )}
 
-      {mainTab === 'crm' && (
+      {mainTab === 'crm' && hasPermission('crm.view') && (
         <div className="mt-2 h-[calc(100vh-160px)]">
           <React.Suspense
             fallback={
@@ -4059,17 +4216,35 @@ export default function App(): JSX.Element {
         </div>
       )}
 
+      {/* Campaigns Tab */}
+      {mainTab === 'campaigns' && hasPermission('campaigns.view') && (
+        <div className="mt-2 h-[calc(100vh-160px)]">
+          <React.Suspense
+            fallback={
+              <div className="flex h-[calc(100vh-160px)] items-center justify-center rounded-3xl border border-slate-200 bg-white text-sm text-slate-500 shadow-xl">
+                Cargando Campañas…
+              </div>
+            }
+          >
+            <CampaignsPage />
+          </React.Suspense>
+        </div>
+      )}
+
       {/* Metrics Tab */}
-      {mainTab === 'metrics' && (
+      {mainTab === 'metrics' && hasPermission('metrics.view') && (
         <div style={{ height: "calc(100vh - 120px)" }}>
-          <MetricsPanel whatsappNumbers={whatsappNumbers} />
+          <UnifiedMetricsPanel whatsappNumbers={whatsappNumbers} />
         </div>
       )}
 
       {/* Configuration Tab */}
-      {mainTab === 'config' && (
+      {mainTab === 'config' && hasPermission('config.view') && (
         <div className="mt-2 h-[calc(100vh-160px)]">
-          <ConfigurationPanel />
+          <ConfigurationPanel
+            whatsappNumbers={whatsappNumbers}
+            onUpdateWhatsappNumbers={setWhatsappNumbers}
+          />
         </div>
       )}
 
@@ -4094,10 +4269,72 @@ export default function App(): JSX.Element {
       {/* Modal de galería de flujos */}
       {showFlowsGallery && (
         <FlowsGallery
-          currentFlowId={workspaceIdRef.current}
+          currentFlowId={workspaceId || flow.id}
           onSelectFlow={handleSelectFlow}
           onClose={() => setShowFlowsGallery(false)}
         />
+      )}
+
+      {/* Modal de guardar flujo */}
+      {showSaveModal && (
+        <>
+          <div
+            className="fixed inset-0 bg-black bg-opacity-50 z-[9998]"
+            onClick={() => setShowSaveModal(false)}
+          />
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+              <h2 className="text-xl font-bold text-slate-900 mb-4">
+                💾 Guardar Flujo
+              </h2>
+              <p className="text-sm text-slate-600 mb-4">
+                Si cambias el nombre, se guardará como un flujo nuevo.
+              </p>
+              <div className="mb-6">
+                <label htmlFor="flow-name" className="block text-sm font-medium text-slate-700 mb-2">
+                  Nombre del flujo
+                </label>
+                <input
+                  id="flow-name"
+                  type="text"
+                  value={saveFlowName}
+                  onChange={(e) => setSaveFlowName(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  placeholder="Ej: Mi Flujo de Atención"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleConfirmSave();
+                    } else if (e.key === 'Escape') {
+                      setShowSaveModal(false);
+                    }
+                  }}
+                />
+                {saveFlowName !== flowRef.current.name && (
+                  <p className="mt-2 text-xs text-amber-600 flex items-center gap-1">
+                    <span>⚠️</span>
+                    <span>Se creará un nuevo flujo con este nombre</span>
+                  </p>
+                )}
+              </div>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowSaveModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmSave}
+                  disabled={!saveFlowName.trim()}
+                  className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {saveFlowName !== flowRef.current.name ? '✨ Guardar como nuevo' : '💾 Guardar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
