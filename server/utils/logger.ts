@@ -41,16 +41,16 @@ const logger = winston.createLogger({
       filename: path.join(logDir, "error-%DATE%.log"),
       datePattern: "YYYY-MM-DD",
       level: "error",
-      maxFiles: "14d", // Keep logs for 14 days
-      maxSize: "20m", // Max 20MB per file
+      maxFiles: "7d", // Keep logs for 7 days (reduced from 14d)
+      maxSize: "10m", // Max 10MB per file (reduced from 20m)
       format: logFormat,
     }),
     // Combined log file (daily rotation)
     new DailyRotateFile({
       filename: path.join(logDir, "combined-%DATE%.log"),
       datePattern: "YYYY-MM-DD",
-      maxFiles: "14d",
-      maxSize: "20m",
+      maxFiles: "7d", // Keep logs for 7 days (reduced from 14d)
+      maxSize: "10m", // Max 10MB per file (reduced from 20m)
       format: logFormat,
     }),
   ],
@@ -59,16 +59,16 @@ const logger = winston.createLogger({
     new DailyRotateFile({
       filename: path.join(logDir, "exceptions-%DATE%.log"),
       datePattern: "YYYY-MM-DD",
-      maxFiles: "14d",
-      maxSize: "20m",
+      maxFiles: "7d", // Keep logs for 7 days (reduced from 14d)
+      maxSize: "10m", // Max 10MB per file (reduced from 20m)
     }),
   ],
   rejectionHandlers: [
     new DailyRotateFile({
       filename: path.join(logDir, "rejections-%DATE%.log"),
       datePattern: "YYYY-MM-DD",
-      maxFiles: "14d",
-      maxSize: "20m",
+      maxFiles: "7d", // Keep logs for 7 days (reduced from 14d)
+      maxSize: "10m", // Max 10MB per file (reduced from 20m)
     }),
   ],
 });

@@ -15,16 +15,64 @@ interface BitrixTokens {
 const TOKENS_PATH = getSecretsPath("bitrix-tokens.json");
 
 // CONFIGURACIÓN OAUTH - REEMPLAZAR CON TUS CREDENCIALES DE BITRIX24
-const BITRIX_CLIENT_ID = process.env.BITRIX_CLIENT_ID || "YOUR_CLIENT_ID_HERE";
-const BITRIX_CLIENT_SECRET = process.env.BITRIX_CLIENT_SECRET || "YOUR_CLIENT_SECRET_HERE";
-const BITRIX_REDIRECT_URI = process.env.BITRIX_REDIRECT_URI || "http://localhost:3000/api/bitrix/oauth/callback";
+const BITRIX_CLIENT_ID = process.env.BITRIX_CLIENT_ID || "local.68fa6333819168.83214192";
+const BITRIX_CLIENT_SECRET = process.env.BITRIX_CLIENT_SECRET || "Gu5W5R3ms1SOWX6V3eQvO3GiB6RNjfXYEgnPwUxnm9qFdIjKjB";
+const BITRIX_REDIRECT_URI = process.env.BITRIX_REDIRECT_URI || "https://wsp.azaleia.com.pe/api/bitrix/oauth/callback";
 
-function readTokens(): BitrixTokens | null {
+export function readTokens(): BitrixTokens | null {
   return readJsonFile<BitrixTokens>(TOKENS_PATH);
 }
 
 function saveTokens(tokens: BitrixTokens): void {
   writeJsonFile(TOKENS_PATH, tokens);
+}
+
+/**
+ * Refresh Bitrix24 access token using refresh_token
+ * @throws Error if refresh fails or credentials are missing
+ */
+export async function refreshBitrixTokens(): Promise<void> {
+  const tokens = readTokens();
+
+  if (!tokens?.refresh_token) {
+    throw new Error("No refresh_token available. Please re-authorize the Bitrix24 app.");
+  }
+
+  if (!BITRIX_CLIENT_ID || !BITRIX_CLIENT_SECRET) {
+    throw new Error("Missing BITRIX_CLIENT_ID or BITRIX_CLIENT_SECRET in environment");
+  }
+
+  const tokenUrl = `https://oauth.bitrix.info/oauth/token/?` +
+    `grant_type=refresh_token&` +
+    `client_id=${encodeURIComponent(BITRIX_CLIENT_ID)}&` +
+    `client_secret=${encodeURIComponent(BITRIX_CLIENT_SECRET)}&` +
+    `refresh_token=${encodeURIComponent(tokens.refresh_token)}`;
+
+  const response = await httpRequest<{
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    scope?: string;
+  }>(tokenUrl, {
+    method: "GET",
+    timeoutMs: 15000,
+  });
+
+  if (!response.ok || !response.body?.access_token) {
+    throw new Error(`Token refresh failed: ${response.status} - ${JSON.stringify(response.body)}`);
+  }
+
+  // Merge with existing tokens
+  const updatedTokens: BitrixTokens = {
+    ...tokens,
+    access_token: response.body.access_token,
+    refresh_token: response.body.refresh_token || tokens.refresh_token,
+    expires: response.body.expires_in ? Date.now() + response.body.expires_in * 1000 : undefined,
+    scope: response.body.scope || tokens.scope,
+  };
+
+  saveTokens(updatedTokens);
+  console.log(`[Bitrix] Tokens refreshed successfully. Expires in: ${response.body.expires_in}s`);
 }
 
 export function createBitrixRouter() {
@@ -43,7 +91,7 @@ export function createBitrixRouter() {
         `client_id=${BITRIX_CLIENT_ID}&` +
         `response_type=code&` +
         `redirect_uri=${encodeURIComponent(BITRIX_REDIRECT_URI)}&` +
-        `scope=crm`;
+        `scope=crm,user,im,imopenlines,placement,bizproc,task,lists,disk`;
 
       res.json({ url: authUrl });
     } catch (error) {
@@ -66,7 +114,8 @@ export function createBitrixRouter() {
       }
 
       // Intercambiar código por tokens
-      const tokenUrl = `https://${domain}/oauth/token/?` +
+      // IMPORTANTE: Bitrix24 Cloud usa oauth.bitrix.info para token exchange
+      const tokenUrl = `https://oauth.bitrix.info/oauth/token/?` +
         `grant_type=authorization_code&` +
         `client_id=${BITRIX_CLIENT_ID}&` +
         `client_secret=${BITRIX_CLIENT_SECRET}&` +
