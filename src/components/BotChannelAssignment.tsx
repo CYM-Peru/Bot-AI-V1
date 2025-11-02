@@ -155,7 +155,9 @@ export function BotChannelAssignment({
                           key={number.numberId}
                           className={`flex items-center gap-3 p-2 border rounded-lg transition ${
                             isAssignedToOther
-                              ? 'border-red-300 bg-red-50 cursor-not-allowed'
+                              ? 'border-slate-300 bg-slate-200 cursor-not-allowed opacity-60'
+                              : isAssignedToThis
+                              ? 'border-emerald-400 bg-emerald-50 cursor-pointer'
                               : 'border-slate-200 hover:bg-slate-50 cursor-pointer'
                           }`}
                           title={isAssignedToOther ? `Ya asignado a: ${otherAssignment.flowName}` : ''}
@@ -167,23 +169,23 @@ export function BotChannelAssignment({
                             disabled={isAssignedToOther}
                             className={`w-4 h-4 border-slate-300 rounded focus:ring-emerald-500 ${
                               isAssignedToOther
-                                ? 'opacity-50 cursor-not-allowed'
+                                ? 'opacity-30 cursor-not-allowed'
                                 : 'text-emerald-600'
                             }`}
                           />
                           <div className="flex-1">
                             <p className={`text-sm font-medium ${
-                              isAssignedToOther ? 'text-red-700' : 'text-slate-800'
+                              isAssignedToOther ? 'text-slate-600 line-through' : 'text-slate-800'
                             }`}>
                               {number.displayName}
                               {isAssignedToOther && (
-                                <span className="ml-2 text-xs font-normal text-red-600">
-                                  🔴 Asignado a: {otherAssignment.flowName}
+                                <span className="ml-2 text-xs font-normal text-slate-700">
+                                  🔒 Ya asignado a: {otherAssignment.flowName}
                                 </span>
                               )}
                             </p>
                             <p className={`text-xs ${
-                              isAssignedToOther ? 'text-red-600' : 'text-slate-500'
+                              isAssignedToOther ? 'text-slate-500' : 'text-slate-500'
                             }`}>
                               {number.phoneNumber}
                             </p>

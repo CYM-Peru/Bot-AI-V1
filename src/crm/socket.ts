@@ -1,12 +1,32 @@
 import type { Attachment, Conversation, Message } from "./types";
 import { CrmSocket as WsGateway, type WsIncomingFrame } from "../utils/wsClient";
 
+export interface AdvisorPresence {
+  userId: string;
+  user: {
+    id: string;
+    username: string;
+    name?: string;
+    email: string;
+    role: string;
+  };
+  status: {
+    id: string;
+    name: string;
+    color: string;
+    action: "accept" | "redirect" | "pause";
+  } | null;
+  isOnline: boolean;
+  activeConversations: number;
+}
+
 export type CrmSocketEvents = {
   "crm:msg:new": { message: Message; attachment?: Attachment | null };
   "crm:msg:update": { message: Message; attachment?: Attachment | null };
   "crm:conv:update": { conversation: Conversation };
   "crm:typing": { convId: string; author?: string | null };
   "crm:read": string;
+  "crm:advisor:presence": AdvisorPresence;
   connected: { clientId: string };
 };
 
@@ -27,6 +47,7 @@ export function createCrmSocket(): CrmSocket {
     "crm:conv:update",
     "crm:typing",
     "crm:read",
+    "crm:advisor:presence",
   ];
   const knownEventSet = new Set(knownEvents);
   const gateway = new WsGateway();

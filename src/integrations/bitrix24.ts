@@ -6,8 +6,12 @@
  */
 
 export interface Bitrix24Config {
-  webhookUrl: string;  // URL del webhook de Bitrix24
+  webhookUrl?: string;  // URL del webhook de Bitrix24 (opcional si se usa OAuth)
   // Ejemplo: https://tu-dominio.bitrix24.com/rest/1/abc123xyz/
+
+  // OAuth configuration (alternativa al webhook)
+  domain?: string;      // Dominio de Bitrix24 (ej: azaleia-peru.bitrix24.es)
+  accessToken?: string; // Access token de OAuth
 }
 
 export interface BitrixEntity {
@@ -109,10 +113,12 @@ export class Bitrix24Client {
   }
 
   /**
-   * Obtener un contacto por ID
+   * Obtener un contacto por ID con TODOS los campos personalizados
    */
   async getContact(id: string): Promise<BitrixEntity | null> {
     try {
+      // No especificamos 'select' para obtener TODOS los campos del contacto
+      // incluyendo campos personalizados (UF_CRM_*)
       const response = await this.callMethod("crm.contact.get", { id });
       return response.result ?? null;
     } catch (error) {
@@ -263,14 +269,30 @@ export class Bitrix24Client {
    * Llamar a un método de la API de Bitrix24
    */
   private async callMethod(method: string, params: Record<string, any> = {}): Promise<any> {
-    const url = `${this.config.webhookUrl}${method}.json`;
+    let url: string;
+    let headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    // Determinar si usar webhook o OAuth
+    if (this.config.webhookUrl) {
+      // Modo webhook (legacy)
+      url = `${this.config.webhookUrl}${method}.json`;
+    } else if (this.config.domain && this.config.accessToken) {
+      // Modo OAuth
+      const baseUrl = this.config.domain.startsWith("http")
+        ? this.config.domain
+        : `https://${this.config.domain}`;
+      url = `${baseUrl.replace(/\/$/, "")}/rest/${method}.json`;
+      headers["Authorization"] = `Bearer ${this.config.accessToken}`;
+    } else {
+      throw new Error("Bitrix24Client: Se requiere webhookUrl o (domain + accessToken)");
+    }
 
     try {
       const response = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify(params),
       });
 

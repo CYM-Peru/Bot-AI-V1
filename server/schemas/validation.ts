@@ -34,17 +34,14 @@ export const flowIdSchema = z.object({
 });
 
 export const flowSchema = z.object({
-  id: z.string().min(1).max(100),
-  name: z.string().min(1).max(255),
-  nodes: z.array(z.any()),
-  edges: z.array(z.any()),
-  viewport: z.object({
-    x: z.number(),
-    y: z.number(),
-    zoom: z.number(),
-  }).optional(),
+  id: z.string().min(1).max(100).optional(),
+  name: z.string().min(1).max(255).optional(),
+  version: z.number().optional(),
+  rootId: z.string().optional(),
+  nodes: z.record(z.any()).optional(),
+  channelAssignments: z.array(z.any()).optional(),
   // Additional flow properties can be added here
-});
+}).passthrough().or(z.any()); // Allow additional properties not defined in schema or accept any object
 
 /**
  * Session Schemas

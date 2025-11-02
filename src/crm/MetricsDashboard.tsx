@@ -31,11 +31,21 @@ ChartJS.register(
 
 interface KPIs {
   totalConversations: number;
+  received: number;
+  active: number;
+  transferred_out: number;
+  transferred_in: number;
+  rejected: number;
+  completed: number;
+  abandoned: number;
   avgFirstResponseTime: number; // ms
   avgResolutionTime: number; // ms
+  avgSessionDuration: number; // ms
   avgSatisfactionScore: number;
   totalMessages: number;
   avgMessagesPerConversation: number;
+  satisfactionDistribution: Array<{ score: number; count: number }>;
+  channelDistribution: Array<{ channel: string; count: number }>;
 }
 
 interface TrendData {
@@ -43,15 +53,64 @@ interface TrendData {
   count: number;
 }
 
+interface AdvisorRanking {
+  rank: number;
+  advisorId: string;
+  advisorName: string;
+  advisorEmail: string | null;
+  advisorRole: string | null;
+  totalConversations: number;
+  received: number;
+  active: number;
+  transferred_out: number;
+  transferred_in: number;
+  rejected: number;
+  completed: number;
+  abandoned: number;
+  avgFirstResponseTime: number;
+  avgResolutionTime: number;
+  avgSessionDuration: number;
+  avgSatisfactionScore: number;
+  totalMessages: number;
+  avgMessagesPerConversation: number;
+}
+
+interface CampaignMetrics {
+  campaignId: string;
+  campaignName: string;
+  totalRecipients: number;
+  sent: number;
+  delivered: number;
+  read: number;
+  failed: number;
+  responded: number;
+  clicked: number;
+}
+
+interface Campaign {
+  id: string;
+  name: string;
+  createdAt: number;
+  status: string;
+}
+
 type DateFilter = "today" | "week" | "month" | "custom";
+type MetricsTab = "conversations" | "campaigns";
 
 export default function MetricsDashboard() {
+  const [metricsTab, setMetricsTab] = useState<MetricsTab>("conversations");
   const [dateFilter, setDateFilter] = useState<DateFilter>("week");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const [trendData, setTrendData] = useState<TrendData[]>([]);
+  const [advisorRanking, setAdvisorRanking] = useState<AdvisorRanking[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [campaignMetrics, setCampaignMetrics] = useState<CampaignMetrics[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [resetting, setResetting] = useState(false);
 
   const getDateRange = useCallback((): { startDate?: number; endDate?: number } => {
     const now = Date.now();
@@ -96,32 +155,64 @@ export default function MetricsDashboard() {
       if (startDate) params.set("startDate", startDate.toString());
       if (endDate) params.set("endDate", endDate.toString());
 
-      // Load KPIs
-      const kpisResponse = await fetch(apiUrl(`/api/crm/metrics/kpis?${params.toString()}`), {
-        credentials: "include",
-      });
+      if (metricsTab === "conversations") {
+        // Load KPIs
+        const kpisResponse = await fetch(apiUrl(`/api/crm/metrics/kpis?${params.toString()}`), {
+          credentials: "include",
+        });
 
-      if (kpisResponse.ok) {
-        const data = await kpisResponse.json();
-        setKpis(data.kpis);
-      }
+        if (kpisResponse.ok) {
+          const data = await kpisResponse.json();
+          setKpis(data.kpis);
+        }
 
-      // Load trend data
-      const days = dateFilter === "today" ? 1 : dateFilter === "week" ? 7 : dateFilter === "month" ? 30 : 7;
-      const trendResponse = await fetch(apiUrl(`/api/crm/metrics/trend?days=${days}`), {
-        credentials: "include",
-      });
+        // Load trend data
+        const days = dateFilter === "today" ? 1 : dateFilter === "week" ? 7 : dateFilter === "month" ? 30 : 7;
+        const trendResponse = await fetch(apiUrl(`/api/crm/metrics/trend?days=${days}`), {
+          credentials: "include",
+        });
 
-      if (trendResponse.ok) {
-        const data = await trendResponse.json();
-        setTrendData(data.trend || []);
+        if (trendResponse.ok) {
+          const data = await trendResponse.json();
+          setTrendData(data.trend || []);
+        }
+
+        // Load advisor ranking
+        const rankingResponse = await fetch(apiUrl(`/api/crm/metrics/advisors/ranking?${params.toString()}`), {
+          credentials: "include",
+        });
+
+        if (rankingResponse.ok) {
+          const data = await rankingResponse.json();
+          setAdvisorRanking(data.ranking || []);
+        }
+      } else if (metricsTab === "campaigns") {
+        // Load campaigns
+        const campaignsResponse = await fetch(apiUrl('/api/campaigns'), {
+          credentials: "include",
+        });
+
+        if (campaignsResponse.ok) {
+          const data = await campaignsResponse.json();
+          setCampaigns(data.campaigns || []);
+        }
+
+        // Load campaign metrics
+        const metricsResponse = await fetch(apiUrl('/api/campaigns/metrics/all'), {
+          credentials: "include",
+        });
+
+        if (metricsResponse.ok) {
+          const data = await metricsResponse.json();
+          setCampaignMetrics(data.metrics || []);
+        }
       }
     } catch (error) {
       console.error("[Metrics] Error loading metrics:", error);
     } finally {
       setLoading(false);
     }
-  }, [dateFilter, getDateRange]);
+  }, [dateFilter, getDateRange, metricsTab]);
 
   useEffect(() => {
     loadMetrics();
@@ -135,6 +226,39 @@ export default function MetricsDashboard() {
     if (hours > 0) return `${hours}h ${minutes % 60}m`;
     if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
     return `${seconds}s`;
+  };
+
+  const handleReset = async () => {
+    if (confirmText !== 'RESET_ALL_METRICS') {
+      alert('Por favor escribe exactamente: RESET_ALL_METRICS');
+      return;
+    }
+
+    try {
+      setResetting(true);
+      const response = await fetch(apiUrl('/api/crm/metrics/reset'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ confirmText }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        alert('✅ Métricas reseteadas correctamente. Se creó un backup.');
+        setShowResetModal(false);
+        setConfirmText('');
+        loadMetrics();
+      } else {
+        alert(`❌ Error: ${result.message || 'No tienes permisos de administrador'}`);
+      }
+    } catch (error) {
+      console.error('Error resetting metrics:', error);
+      alert('❌ Error al resetear métricas');
+    } finally {
+      setResetting(false);
+    }
   };
 
   // Trend chart data
@@ -152,30 +276,55 @@ export default function MetricsDashboard() {
     ],
   };
 
-  // Satisfaction distribution (mock data for now - in real scenario would come from backend)
-  const satisfactionData = {
-    labels: ["⭐", "⭐⭐", "⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐⭐⭐"],
-    datasets: [
-      {
-        label: "Distribución",
-        data: [2, 5, 12, 28, 53], // Mock percentages
-        backgroundColor: [
-          "rgba(239, 68, 68, 0.8)",
-          "rgba(249, 115, 22, 0.8)",
-          "rgba(234, 179, 8, 0.8)",
-          "rgba(34, 197, 94, 0.8)",
-          "rgba(16, 185, 129, 0.8)",
-        ],
-      },
-    ],
-  };
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-slate-900 mb-2">📊 Dashboard de Métricas</h1>
-        <p className="text-slate-600">Análisis de desempeño y KPIs del equipo</p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 mb-2">📊 Dashboard de Métricas</h1>
+          <p className="text-slate-600">Análisis de desempeño y KPIs del equipo</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={loadMetrics}
+            className="px-4 py-2 text-sm font-medium text-emerald-600 bg-white border border-emerald-300 rounded-lg hover:bg-emerald-50 transition"
+          >
+            🔄 Actualizar
+          </button>
+          {metricsTab === "conversations" && (
+            <button
+              onClick={() => setShowResetModal(true)}
+              className="px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-300 rounded-lg hover:bg-red-50 transition"
+            >
+              🗑️ Resetear (Admin)
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Tab Switcher */}
+      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-2 mb-6 inline-flex gap-2">
+        <button
+          onClick={() => setMetricsTab("conversations")}
+          className={`px-4 py-2 text-sm font-semibold rounded-lg transition ${
+            metricsTab === "conversations"
+              ? "bg-emerald-600 text-white"
+              : "text-slate-600 hover:bg-slate-50"
+          }`}
+        >
+          💬 Conversaciones
+        </button>
+        <button
+          onClick={() => setMetricsTab("campaigns")}
+          className={`px-4 py-2 text-sm font-semibold rounded-lg transition ${
+            metricsTab === "campaigns"
+              ? "bg-emerald-600 text-white"
+              : "text-slate-600 hover:bg-slate-50"
+          }`}
+        >
+          📢 Campañas
+        </button>
       </div>
 
       {/* Date Filters */}
@@ -252,7 +401,9 @@ export default function MetricsDashboard() {
         </div>
       ) : (
         <>
-          {/* KPI Cards */}
+          {metricsTab === "conversations" && (
+            <>
+              {/* KPI Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
             {/* Total Conversations */}
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
@@ -299,21 +450,57 @@ export default function MetricsDashboard() {
               <p className="text-xs text-slate-500 mt-1">Tiempo promedio</p>
             </div>
 
-            {/* Satisfaction Score */}
-            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium text-slate-600">Satisfacción</p>
-                <svg className="w-8 h-8 text-yellow-500" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                </svg>
+          </div>
+
+          {/* Status Metrics */}
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
+            <h3 className="text-lg font-bold text-slate-900 mb-4">📊 Distribución por Estado</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <p className="text-2xl font-bold text-blue-600">{kpis?.received || 0}</p>
+                <p className="text-xs text-slate-600 mt-1">Recibidos</p>
               </div>
-              <p className="text-3xl font-bold text-slate-900">
-                {kpis?.avgSatisfactionScore ? kpis.avgSatisfactionScore.toFixed(1) : "N/A"}
-                <span className="text-lg text-slate-500">/5</span>
-              </p>
-              <p className="text-xs text-slate-500 mt-1">Calificación promedio</p>
+              <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
+                <p className="text-2xl font-bold text-green-600">{kpis?.active || 0}</p>
+                <p className="text-xs text-slate-600 mt-1">Activos</p>
+              </div>
+              <div className="text-center p-4 bg-orange-50 rounded-lg border border-orange-200">
+                <p className="text-2xl font-bold text-orange-600">{kpis?.transferred_out || 0}</p>
+                <p className="text-xs text-slate-600 mt-1">⬅️ Transfer OUT</p>
+              </div>
+              <div className="text-center p-4 bg-purple-50 rounded-lg border border-purple-200">
+                <p className="text-2xl font-bold text-purple-600">{kpis?.transferred_in || 0}</p>
+                <p className="text-xs text-slate-600 mt-1">➡️ Transfer IN</p>
+              </div>
+              <div className="text-center p-4 bg-red-50 rounded-lg border border-red-200">
+                <p className="text-2xl font-bold text-red-600">{kpis?.rejected || 0}</p>
+                <p className="text-xs text-slate-600 mt-1">Rechazados</p>
+              </div>
+              <div className="text-center p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+                <p className="text-2xl font-bold text-emerald-600">{kpis?.completed || 0}</p>
+                <p className="text-xs text-slate-600 mt-1">Completados</p>
+              </div>
+              <div className="text-center p-4 bg-amber-50 rounded-lg border border-amber-200">
+                <p className="text-2xl font-bold text-amber-600">{kpis?.abandoned || 0}</p>
+                <p className="text-xs text-slate-600 mt-1">Abandonados</p>
+              </div>
             </div>
           </div>
+
+          {/* Channel Distribution */}
+          {kpis?.channelDistribution && kpis.channelDistribution.length > 0 && (
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
+              <h3 className="text-lg font-bold text-slate-900 mb-4">📱 Distribución por Canal</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                {kpis.channelDistribution.map((ch) => (
+                  <div key={ch.channel} className="text-center p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <p className="text-2xl font-bold text-slate-900">{ch.count}</p>
+                    <p className="text-xs text-slate-600 mt-1 capitalize">{ch.channel}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -341,21 +528,235 @@ export default function MetricsDashboard() {
               />
             </div>
 
-            {/* Satisfaction Distribution */}
-            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
-              <h3 className="text-lg font-bold text-slate-900 mb-4">⭐ Distribución de Satisfacción</h3>
-              <div className="max-w-xs mx-auto">
-                <Doughnut
-                  data={satisfactionData}
-                  options={{
-                    responsive: true,
-                    plugins: {
-                      legend: {
-                        position: "bottom",
-                      },
-                    },
+          </div>
+
+          {/* Advisors Ranking Table */}
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mt-6">
+            <div className="bg-gradient-to-r from-purple-50 to-pink-50 px-6 py-4 border-b border-slate-200">
+              <h3 className="text-lg font-bold text-slate-900">🏆 Ranking de Asesores</h3>
+              <p className="text-sm text-slate-600 mt-1">Comparativa de performance por asesor</p>
+            </div>
+            {advisorRanking.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="text-6xl mb-4">👥</div>
+                <p className="text-lg text-slate-600 mb-2">No hay datos de asesores aún</p>
+                <p className="text-sm text-slate-500">Los asesores aparecerán aquí cuando atiendan conversaciones</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Pos</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Asesor</th>
+                      <th className="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">Total</th>
+                      <th className="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">Completadas</th>
+                      <th className="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">⬅️ Trans OUT</th>
+                      <th className="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">➡️ Trans IN</th>
+                      <th className="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">Rechazadas</th>
+                      <th className="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">1ra Respuesta</th>
+                      <th className="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">Duración</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {advisorRanking.map((advisor) => {
+                      const isBest = advisor.rank === 1;
+                      return (
+                        <tr key={advisor.advisorId} className={`hover:bg-slate-50 transition ${isBest ? 'bg-yellow-50' : ''}`}>
+                          <td className="px-4 py-4">
+                            <div className="flex items-center justify-center">
+                              {advisor.rank === 1 && <span className="text-2xl">🥇</span>}
+                              {advisor.rank === 2 && <span className="text-2xl">🥈</span>}
+                              {advisor.rank === 3 && <span className="text-2xl">🥉</span>}
+                              {advisor.rank > 3 && <span className="text-sm font-semibold text-slate-600">#{advisor.rank}</span>}
+                            </div>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div>
+                              <div className="text-sm font-bold text-slate-900">{advisor.advisorName}</div>
+                              {advisor.advisorEmail && (
+                                <div className="text-xs text-slate-500">{advisor.advisorEmail}</div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <div className="text-lg font-bold text-blue-600">{advisor.totalConversations}</div>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              {advisor.completed}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                              {advisor.transferred_out}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                              {advisor.transferred_in}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                              {advisor.rejected}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <div className="text-sm font-medium text-slate-700">
+                              {advisor.avgFirstResponseTime > 0 ? formatTime(advisor.avgFirstResponseTime) : 'N/A'}
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <div className="text-sm font-medium text-slate-700">
+                              {advisor.avgSessionDuration > 0 ? formatTime(advisor.avgSessionDuration) : 'N/A'}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+            </>
+          )}
+
+          {/* Campaigns Tab */}
+          {metricsTab === "campaigns" && (
+            <>
+              {campaignMetrics.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="text-6xl mb-4">📢</div>
+                  <p className="text-lg text-slate-600 mb-2">No hay campañas aún</p>
+                  <p className="text-sm text-slate-500">Las campañas enviadas aparecerán aquí con sus métricas</p>
+                </div>
+              ) : (
+                <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+                  <div className="bg-gradient-to-r from-emerald-50 to-teal-50 px-6 py-4 border-b border-slate-200">
+                    <h3 className="text-lg font-bold text-slate-900">📊 Métricas de Campañas</h3>
+                    <p className="text-sm text-slate-600 mt-1">Performance de campañas de mensajería masiva</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Campaña</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">Fecha</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">Total</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">Enviados</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">Entregados</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">Leídos</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">Fallados</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">Respondidos</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {campaignMetrics.map((cm) => {
+                          const campaign = campaigns.find(c => c.id === cm.campaignId);
+                          const sentPct = cm.totalRecipients > 0 ? ((cm.sent / cm.totalRecipients) * 100).toFixed(1) : '0';
+                          const deliveredPct = cm.totalRecipients > 0 ? ((cm.delivered / cm.totalRecipients) * 100).toFixed(1) : '0';
+                          const readPct = cm.totalRecipients > 0 ? ((cm.read / cm.totalRecipients) * 100).toFixed(1) : '0';
+                          const failedPct = cm.totalRecipients > 0 ? ((cm.failed / cm.totalRecipients) * 100).toFixed(1) : '0';
+                          const respondedPct = cm.totalRecipients > 0 ? ((cm.responded / cm.totalRecipients) * 100).toFixed(1) : '0';
+
+                          return (
+                            <tr key={cm.campaignId} className="hover:bg-slate-50 transition">
+                              <td className="px-4 py-4">
+                                <div className="text-sm font-bold text-slate-900">{cm.campaignName}</div>
+                                {campaign && (
+                                  <div className="text-xs text-slate-500">Estado: {campaign.status}</div>
+                                )}
+                              </td>
+                              <td className="px-4 py-4 text-center">
+                                <div className="text-sm text-slate-700">
+                                  {campaign ? new Date(campaign.createdAt).toLocaleDateString('es-PE', {
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric'
+                                  }) : 'N/A'}
+                                </div>
+                              </td>
+                              <td className="px-4 py-4 text-center">
+                                <div className="text-lg font-bold text-blue-600">{cm.totalRecipients}</div>
+                              </td>
+                              <td className="px-4 py-4 text-center">
+                                <div className="text-sm font-bold text-slate-900">{cm.sent}</div>
+                                <div className="text-xs text-slate-500">{sentPct}%</div>
+                              </td>
+                              <td className="px-4 py-4 text-center">
+                                <div className="text-sm font-bold text-green-700">{cm.delivered}</div>
+                                <div className="text-xs text-green-600">{deliveredPct}%</div>
+                              </td>
+                              <td className="px-4 py-4 text-center">
+                                <div className="text-sm font-bold text-blue-700">{cm.read}</div>
+                                <div className="text-xs text-blue-600">{readPct}%</div>
+                              </td>
+                              <td className="px-4 py-4 text-center">
+                                <div className="text-sm font-bold text-red-700">{cm.failed}</div>
+                                <div className="text-xs text-red-600">{failedPct}%</div>
+                              </td>
+                              <td className="px-4 py-4 text-center">
+                                <div className="text-sm font-bold text-purple-700">{cm.responded}</div>
+                                <div className="text-xs text-purple-600">{respondedPct}%</div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {/* Reset Modal */}
+      {showResetModal && (
+        <>
+          <div
+            className="fixed inset-0 bg-black bg-opacity-50 z-40"
+            onClick={() => setShowResetModal(false)}
+          />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+              <h2 className="text-xl font-bold text-red-600 mb-4">
+                ⚠️ Resetear Todas las Métricas
+              </h2>
+              <p className="text-sm text-slate-600 mb-4">
+                Esta acción eliminará TODAS las métricas guardadas.
+                Se creará un backup automático antes de resetear.
+              </p>
+              <p className="text-sm font-medium text-slate-700 mb-2">
+                Para confirmar, escribe: <code className="bg-slate-100 px-2 py-1 rounded font-mono">RESET_ALL_METRICS</code>
+              </p>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 mb-4"
+                placeholder="RESET_ALL_METRICS"
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowResetModal(false);
+                    setConfirmText('');
                   }}
-                />
+                  className="flex-1 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleReset}
+                  disabled={resetting || confirmText !== 'RESET_ALL_METRICS'}
+                  className="flex-1 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {resetting ? 'Reseteando...' : 'Resetear Métricas'}
+                </button>
               </div>
             </div>
           </div>

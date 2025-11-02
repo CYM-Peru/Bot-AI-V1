@@ -8,6 +8,8 @@ import { adminDb } from "../admin-db";
 import { validateBody, validateParams } from "../middleware/validate";
 import { createUserSchema, updateUserSchema, userIdSchema } from "../schemas/validation";
 import logger from "../utils/logger";
+import { getCrmGateway } from "../crm/ws";
+import { requireAdmin, requireSupervisor } from "../middleware/roles";
 
 export function createAdminRouter(): Router {
   const router = Router();
@@ -53,7 +55,7 @@ export function createAdminRouter(): Router {
    * POST /api/admin/users
    * Create new user
    */
-  router.post("/users", validateBody(createUserSchema), async (req, res) => {
+  router.post("/users", requireAdmin, validateBody(createUserSchema), async (req, res) => {
     try {
       const { username, email, password, name, role, status } = req.body;
 
@@ -84,7 +86,7 @@ export function createAdminRouter(): Router {
    * PUT /api/admin/users/:id
    * Update user
    */
-  router.put("/users/:id", validateParams(userIdSchema), validateBody(updateUserSchema), async (req, res) => {
+  router.put("/users/:id", requireAdmin, validateParams(userIdSchema), validateBody(updateUserSchema), async (req, res) => {
     try {
       const { id } = req.params;
       const updates = req.body;
@@ -107,7 +109,7 @@ export function createAdminRouter(): Router {
    * DELETE /api/admin/users/:id
    * Delete user
    */
-  router.delete("/users/:id", validateParams(userIdSchema), (req, res) => {
+  router.delete("/users/:id", requireAdmin, validateParams(userIdSchema), (req, res) => {
     try {
       const { id } = req.params;
       const deleted = adminDb.deleteUser(id);
@@ -276,7 +278,7 @@ export function createAdminRouter(): Router {
    * POST /api/admin/queues
    * Create new queue
    */
-  router.post("/queues", (req, res) => {
+  router.post("/queues", requireSupervisor, (req, res) => {
     try {
       const { name, description, status, distributionMode, maxConcurrent, assignedAdvisors } = req.body;
 
@@ -305,7 +307,7 @@ export function createAdminRouter(): Router {
    * PUT /api/admin/queues/:id
    * Update queue
    */
-  router.put("/queues/:id", (req, res) => {
+  router.put("/queues/:id", requireSupervisor, (req, res) => {
     try {
       const { id } = req.params;
       const { name, description, status, distributionMode, maxConcurrent, assignedAdvisors } = req.body;
@@ -335,7 +337,7 @@ export function createAdminRouter(): Router {
    * DELETE /api/admin/queues/:id
    * Delete queue
    */
-  router.delete("/queues/:id", (req, res) => {
+  router.delete("/queues/:id", requireSupervisor, (req, res) => {
     try {
       const { id } = req.params;
       const deleted = adminDb.deleteQueue(id);
@@ -490,7 +492,7 @@ export function createAdminRouter(): Router {
    * POST /api/admin/advisor-statuses
    * Create new advisor status
    */
-  router.post("/advisor-statuses", (req, res) => {
+  router.post("/advisor-statuses", requireAdmin, (req, res) => {
     try {
       const { name, description, color, action, redirectToQueue, isDefault } = req.body;
 
@@ -519,7 +521,7 @@ export function createAdminRouter(): Router {
    * PUT /api/admin/advisor-statuses/:id
    * Update advisor status
    */
-  router.put("/advisor-statuses/:id", (req, res) => {
+  router.put("/advisor-statuses/:id", requireAdmin, (req, res) => {
     try {
       const { id } = req.params;
       const { name, description, color, action, redirectToQueue, isDefault, order } = req.body;
@@ -550,7 +552,7 @@ export function createAdminRouter(): Router {
    * DELETE /api/admin/advisor-statuses/:id
    * Delete advisor status
    */
-  router.delete("/advisor-statuses/:id", (req, res) => {
+  router.delete("/advisor-statuses/:id", requireAdmin, (req, res) => {
     try {
       const { id } = req.params;
       const deleted = adminDb.deleteAdvisorStatus(id);
@@ -599,7 +601,7 @@ export function createAdminRouter(): Router {
    * POST /api/admin/advisor-status/:userId
    * Set current status of an advisor
    */
-  router.post("/advisor-status/:userId", (req, res) => {
+  router.post("/advisor-status/:userId", async (req, res) => {
     try {
       const { userId } = req.params;
       const { statusId } = req.body;
@@ -611,6 +613,144 @@ export function createAdminRouter(): Router {
 
       const assignment = adminDb.setAdvisorStatus(userId, statusId);
       const status = adminDb.getAdvisorStatusById(statusId);
+
+      // Emit real-time presence update via WebSocket
+      const gateway = getCrmGateway();
+      if (gateway) {
+        const { crmDb } = await import("../crm/db");
+        const user = adminDb.getUserById(userId);
+
+        if (user) {
+          // Count active conversations for this advisor
+          const conversations = crmDb.listConversations();
+          const activeConversations = conversations.filter(
+            conv => conv.assignedTo === userId && conv.status === "attending"
+          ).length;
+
+          // Simple online detection: if status is NOT "offline", consider online
+          const isOnline = status ? status.id !== "status-offline" : false;
+
+          const presencePayload = {
+            userId: user.id,
+            user: { id: user.id, username: user.username, name: user.name, email: user.email, role: user.role },
+            status,
+            isOnline,
+            activeConversations,
+          };
+
+          gateway.emitAdvisorPresenceUpdate(presencePayload);
+
+          // RELEASE CONVERSATIONS: If advisor becomes unavailable, release assigned conversations
+          if (status?.action === "pause" || status?.action === "redirect") {
+            const advisorConversations = conversations.filter(
+              conv => conv.assignedTo === userId && conv.status === "attending"
+            );
+
+            if (advisorConversations.length > 0) {
+              logger.info(`[Status-change] Advisor ${userId} is now ${status.action}. Releasing ${advisorConversations.length} conversation(s)`);
+
+              for (const conv of advisorConversations) {
+                // Release conversation (back to active/queue)
+                crmDb.releaseConversation(conv.id);
+
+                // If status has redirectToQueue, assign to that queue
+                if (status.action === "redirect" && status.redirectToQueue) {
+                  crmDb.updateConversationQueue(conv.id, status.redirectToQueue);
+                  logger.info(`[Status-change] ✅ Conversation ${conv.id} redirected to queue: ${status.redirectToQueue}`);
+                } else {
+                  logger.info(`[Status-change] ✅ Conversation ${conv.id} released back to queue`);
+                }
+
+                // Emit WebSocket update
+                gateway.emitConversationUpdate({
+                  conversation: crmDb.getConversationById(conv.id)!
+                });
+
+                // Create system message
+                crmDb.appendMessage({
+                  convId: conv.id,
+                  direction: "outgoing",
+                  type: "system",
+                  text: `⏸️ Asesor ${user.name || user.username} cambió su estado - Conversación devuelta a la cola`,
+                  mediaUrl: null,
+                  mediaThumb: null,
+                  repliedToId: null,
+                  status: "sent",
+                });
+              }
+
+              // Try to reassign to other available advisors
+              const allQueues = adminDb.getAllQueues();
+              for (const conv of advisorConversations) {
+                const updatedConv = crmDb.getConversationById(conv.id);
+                if (updatedConv && updatedConv.queueId) {
+                  const queue = allQueues.find(q => q.id === updatedConv.queueId);
+                  if (queue) {
+                    // Find available advisor in this queue
+                    for (const advisorId of queue.assignedAdvisors) {
+                      if (advisorId === userId) continue; // Skip the advisor who just went unavailable
+
+                      const otherAdvisorStatus = adminDb.getAdvisorStatus(advisorId);
+                      if (otherAdvisorStatus) {
+                        const otherStatus = adminDb.getAdvisorStatusById(otherAdvisorStatus.statusId);
+                        if (otherStatus?.action === "accept") {
+                          crmDb.assignConversation(updatedConv.id, advisorId);
+                          logger.info(`[Status-change] 🎯 Auto-reassigned conversation ${updatedConv.id} to advisor ${advisorId}`);
+
+                          gateway.emitConversationUpdate({
+                            conversation: crmDb.getConversationById(updatedConv.id)!
+                          });
+                          break;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          // AUTO-ASSIGNMENT: If advisor becomes available, assign waiting conversations
+          if (status?.action === "accept") {
+            // Find queues where this advisor is assigned
+            const allQueues = adminDb.getAllQueues();
+            const advisorQueues = allQueues.filter(q => q.assignedAdvisors.includes(userId));
+
+            if (advisorQueues.length > 0) {
+              logger.info(`[Auto-assign] Advisor ${userId} is now available. Checking queues:`, advisorQueues.map(q => q.id));
+
+              // Get all waiting conversations in advisor's queues
+              for (const queue of advisorQueues) {
+                const waitingConversations = conversations.filter(
+                  conv => conv.queueId === queue.id &&
+                          conv.status === "active" &&
+                          !conv.assignedTo
+                );
+
+                if (waitingConversations.length > 0) {
+                  // Sort by creation time (oldest first)
+                  waitingConversations.sort((a, b) =>
+                    new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                  );
+
+                  // Assign the oldest waiting conversation
+                  const conversationToAssign = waitingConversations[0];
+                  crmDb.assignConversation(conversationToAssign.id, userId);
+                  logger.info(`[Auto-assign] ✅ Assigned conversation ${conversationToAssign.id} to advisor ${userId} from queue ${queue.name}`);
+
+                  // Emit WebSocket update for the assigned conversation
+                  gateway.emitConversationUpdate({
+                    conversation: crmDb.getConversationById(conversationToAssign.id)!
+                  });
+
+                  // Only assign one conversation at a time
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
 
       res.json({ assignment, status });
     } catch (error) {
@@ -708,6 +848,61 @@ export function createAdminRouter(): Router {
     } catch (error) {
       logger.error("[Admin] Error deleting WhatsApp number:", error);
       res.status(500).json({ error: "Failed to delete WhatsApp number" });
+    }
+  });
+
+  // ============================================
+  // ADVISOR PRESENCE ENDPOINT
+  // ============================================
+
+  /**
+   * GET /api/admin/advisor-presence
+   * Get real-time presence status of all advisors
+   * Shows: online status, current status (disponible, ocupado, etc), active conversations count
+   */
+  router.get("/advisor-presence", async (req, res) => {
+    try {
+      const { crmDb } = await import("../crm/db");
+      const users = adminDb.getAllUsers();
+      const statuses = adminDb.getAllAdvisorStatuses();
+
+      // Filter only advisors and supervisors
+      const advisorUsers = users.filter(u => u.role === "asesor" || u.role === "supervisor");
+
+      const advisorPresence = advisorUsers.map(user => {
+        // Get current status assignment
+        const assignment = adminDb.getAdvisorStatus(user.id);
+        const status = assignment ? adminDb.getAdvisorStatusById(assignment.statusId) : null;
+
+        // Count active conversations for this advisor
+        const conversations = crmDb.listConversations();
+        const activeConversations = conversations.filter(
+          conv => conv.assignedTo === user.id && conv.status === "attending"
+        ).length;
+
+        // Simple online detection: if status is NOT "offline", consider online
+        // TODO: Enhance with WebSocket presence tracking
+        const isOnline = status ? status.id !== "status-offline" : false;
+
+        return {
+          userId: user.id,
+          user: {
+            id: user.id,
+            username: user.username,
+            name: user.name,
+            email: user.email,
+            role: user.role
+          },
+          status,
+          isOnline,
+          activeConversations
+        };
+      });
+
+      res.json({ advisors: advisorPresence });
+    } catch (error) {
+      logger.error("[Admin] Error getting advisor presence:", error);
+      res.status(500).json({ error: "Failed to get advisor presence" });
     }
   });
 

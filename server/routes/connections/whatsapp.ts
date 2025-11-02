@@ -5,6 +5,9 @@ import {
   sendWhatsAppMessage,
   type WhatsAppCheckResult,
 } from "../../services/whatsapp";
+import { adminDb } from "../../admin-db";
+import fs from "fs/promises";
+import path from "path";
 
 interface SavePayload {
   phoneNumberId?: unknown;
@@ -102,6 +105,36 @@ export function createWhatsAppConnectionsRouter() {
     } catch (error) {
       console.error("[Connections] WhatsApp test failed", error instanceof Error ? error.message : error);
       res.status(500).json({ ok: false, reason: "network_error" });
+    }
+  });
+
+  /**
+   * GET /api/connections/whatsapp/list
+   * Get all WhatsApp number connections configured in the system
+   * Used by ConversationList to filter by specific WhatsApp number
+   */
+  router.get("/list", async (_req, res) => {
+    try {
+      // Read from the correct connections file (not the old whatsapp-numbers.json)
+      const connectionsPath = path.join(process.cwd(), "data", "whatsapp-connections.json");
+      const data = await fs.readFile(connectionsPath, "utf-8");
+      const parsed = JSON.parse(data);
+      const connections = parsed.connections || [];
+
+      // Return in expected format
+      res.json({
+        ok: true,
+        connections: connections.map((conn: any) => ({
+          id: conn.id,
+          alias: conn.alias,
+          phoneNumberId: conn.phoneNumberId,
+          displayNumber: conn.displayNumber,
+          isActive: conn.isActive ?? true,
+        }))
+      });
+    } catch (error) {
+      console.error("[Connections] WhatsApp list failed", error instanceof Error ? error.message : error);
+      res.status(500).json({ ok: false, reason: "unknown_error", connections: [] });
     }
   });
 

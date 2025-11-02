@@ -24,7 +24,7 @@ export default function BitrixContactCard({ conversation }: BitrixContactCardPro
   const [contact, setContact] = useState<BitrixContact | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showDetails, setShowDetails] = useState(false);
+  const [showDetails, setShowDetails] = useState(false); // Empieza colapsada
 
   const handleCreateContact = async () => {
     if (!conversation) return;
@@ -53,13 +53,18 @@ export default function BitrixContactCard({ conversation }: BitrixContactCardPro
 
   useEffect(() => {
     let ignore = false;
+    let pollInterval: NodeJS.Timeout | null = null;
+
     const load = async () => {
       if (!conversation) {
         setContact(null);
         setStatus(null);
         return;
       }
-      setLoading(true);
+      // Solo mostrar loading en la primera carga
+      if (!contact) {
+        setLoading(true);
+      }
       setStatus(null);
       try {
         const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/bitrix`));
@@ -81,11 +86,22 @@ export default function BitrixContactCard({ conversation }: BitrixContactCardPro
         }
       }
     };
+
+    // Carga inicial
     load();
+
+    // Polling cada 30 segundos para actualización en tiempo real
+    pollInterval = setInterval(() => {
+      load();
+    }, 30000);
+
     return () => {
       ignore = true;
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
     };
-  }, [conversation?.id]);
+  }, [conversation?.id, contact]);
 
   if (!conversation) {
     return (
@@ -105,7 +121,19 @@ export default function BitrixContactCard({ conversation }: BitrixContactCardPro
 
   if (loading) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">Buscando contacto…</div>
+      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+        <div className="animate-pulse">
+          <div className="flex items-center justify-between mb-3">
+            <div className="h-3 bg-slate-200 rounded w-32"></div>
+            <div className="h-5 bg-slate-200 rounded-full w-12"></div>
+          </div>
+          <div className="h-6 bg-slate-200 rounded w-48 mb-2"></div>
+          <div className="space-y-2">
+            <div className="h-4 bg-slate-200 rounded w-full"></div>
+            <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -183,19 +211,35 @@ export default function BitrixContactCard({ conversation }: BitrixContactCardPro
             </div>
             <div>
               <p className="text-slate-500 font-medium mb-1">N° Documento</p>
-              <p className="text-slate-900 font-mono">{(contact.UF_CRM_1234567890 as string) || "—"}</p>
+              <p className="text-slate-900 font-mono">{(contact.UF_CRM_5DEAADAE301BB as string) || "—"}</p>
+            </div>
+            <div>
+              <p className="text-slate-500 font-medium mb-1">Dirección</p>
+              <p className="text-slate-900">{(contact.UF_CRM_1745466972 as string) || "—"}</p>
             </div>
             <div>
               <p className="text-slate-500 font-medium mb-1">Tipo de Contacto</p>
-              <p className="text-slate-900">{(contact.TYPE_ID as string) || "—"}</p>
+              <p className="text-slate-900">{(contact.UF_CRM_67D702957E80A as string) || "—"}</p>
+            </div>
+            <div>
+              <p className="text-slate-500 font-medium mb-1">Departamento</p>
+              <p className="text-slate-900">{(contact.UF_CRM_68121FB2B841A as string) || "—"}</p>
+            </div>
+            <div>
+              <p className="text-slate-500 font-medium mb-1">Provincia</p>
+              <p className="text-slate-900">{(contact.UF_CRM_1745461823632 as string) || "—"}</p>
+            </div>
+            <div>
+              <p className="text-slate-500 font-medium mb-1">Distrito</p>
+              <p className="text-slate-900">{(contact.UF_CRM_1745461836705 as string) || "—"}</p>
+            </div>
+            <div>
+              <p className="text-slate-500 font-medium mb-1">Líder</p>
+              <p className="text-slate-900">{(contact.UF_CRM_1715014786 as string) || "—"}</p>
             </div>
             <div>
               <p className="text-slate-500 font-medium mb-1">Stencil</p>
-              <p className="text-slate-900">{(contact.SOURCE_ID as string) || "—"}</p>
-            </div>
-            <div>
-              <p className="text-slate-500 font-medium mb-1">Líder/Asignado</p>
-              <p className="text-slate-900">{contact.ASSIGNED_BY_ID || "—"}</p>
+              <p className="text-slate-900">{(contact.UF_CRM_1565801603901 as string) || "—"}</p>
             </div>
           </div>
 
@@ -223,10 +267,10 @@ export default function BitrixContactCard({ conversation }: BitrixContactCardPro
           <div className="mt-3 flex gap-2">
             {conversation.bitrixId && (
               <a
-                href={`https://www.bitrix24.net/crm/contact/details/${conversation.bitrixId}/`}
+                href={`https://azaleia-peru.bitrix24.es/crm/contact/details/${conversation.bitrixId}/`}
                 target="_blank"
                 rel="noreferrer"
-                className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 transition"
+                className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-gradient-to-br from-sky-400 to-blue-500 px-3 py-2 text-xs font-semibold text-white hover:from-sky-500 hover:to-blue-600 transition shadow-sm hover:shadow-md"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />

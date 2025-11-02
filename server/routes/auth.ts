@@ -95,12 +95,14 @@ export function createAuthRouter() {
     }
 
     res.json({
-      id: user.id,
-      username: user.username,
-      name: user.name,
-      role: user.role,
-      email: user.email,
-      createdAt: user.createdAt,
+      user: {
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        role: user.role,
+        email: user.email,
+        createdAt: user.createdAt,
+      }
     });
   });
 

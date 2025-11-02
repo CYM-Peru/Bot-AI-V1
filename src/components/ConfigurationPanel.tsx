@@ -6,11 +6,20 @@ import { CRMFieldConfig } from "./Configuration/CRMFieldConfig";
 import { GeneralSettings } from "./Configuration/GeneralSettings";
 import { StatusManagement } from "./Configuration/StatusManagement";
 import { WhatsAppNumbersPanel } from "./WhatsAppNumbersPanel";
+import { WhatsAppConfigContent } from "./WhatsAppConfig";
+import { Bitrix24Panel } from "./Bitrix24Panel";
+import type { WhatsAppNumberAssignment } from "../flow/types";
 
-type ConfigSection = "users" | "roles" | "queues" | "crm-fields" | "whatsapp" | "statuses" | "general";
+type ConfigSection = "users" | "roles" | "queues" | "crm-fields" | "whatsapp" | "bitrix24" | "statuses" | "general";
 
-export function ConfigurationPanel() {
+interface ConfigurationPanelProps {
+  whatsappNumbers?: WhatsAppNumberAssignment[];
+  onUpdateWhatsappNumbers?: (numbers: WhatsAppNumberAssignment[]) => void;
+}
+
+export function ConfigurationPanel({ whatsappNumbers = [], onUpdateWhatsappNumbers }: ConfigurationPanelProps = {}) {
   const [activeSection, setActiveSection] = useState<ConfigSection>("users");
+  const [whatsappSubSection, setWhatsappSubSection] = useState<'connections' | 'numbers'>('connections');
 
   return (
     <div className="flex h-full overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
@@ -114,7 +123,26 @@ export function ConfigurationPanel() {
                 d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"
               />
             </svg>
-            Números WhatsApp
+            WhatsApp Business
+          </button>
+
+          <button
+            onClick={() => setActiveSection("bitrix24")}
+            className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-semibold transition ${
+              activeSection === "bitrix24"
+                ? "bg-emerald-100 text-emerald-700"
+                : "text-slate-700 hover:bg-slate-100"
+            }`}
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M13 10V3L4 14h7v7l9-11h-7z"
+              />
+            </svg>
+            Bitrix24 CRM
           </button>
 
           <button
@@ -181,12 +209,56 @@ export function ConfigurationPanel() {
         {activeSection === "whatsapp" && (
           <div className="p-6">
             <div className="mb-6">
-              <h2 className="text-2xl font-bold text-slate-900">Números de WhatsApp</h2>
+              <h2 className="text-2xl font-bold text-slate-900">WhatsApp Business</h2>
               <p className="mt-2 text-sm text-slate-600">
-                Gestiona los números de WhatsApp disponibles para asignar a tus bots.
+                Configura las conexiones de WhatsApp Business y gestiona los números disponibles.
               </p>
             </div>
-            <WhatsAppNumbersPanel />
+
+            {/* Sub-tabs for WhatsApp */}
+            <div className="mb-6 border-b border-slate-200">
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setWhatsappSubSection('connections')}
+                  className={`pb-3 px-1 font-medium text-sm border-b-2 transition ${
+                    whatsappSubSection === 'connections'
+                      ? 'border-emerald-600 text-emerald-700'
+                      : 'border-transparent text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Conexión API
+                </button>
+                <button
+                  onClick={() => setWhatsappSubSection('numbers')}
+                  className={`pb-3 px-1 font-medium text-sm border-b-2 transition ${
+                    whatsappSubSection === 'numbers'
+                      ? 'border-emerald-600 text-emerald-700'
+                      : 'border-transparent text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Números & Colas
+                </button>
+              </div>
+            </div>
+
+            {whatsappSubSection === 'connections' && (
+              <WhatsAppConfigContent
+                whatsappNumbers={whatsappNumbers}
+                onUpdateWhatsappNumbers={onUpdateWhatsappNumbers}
+              />
+            )}
+            {whatsappSubSection === 'numbers' && <WhatsAppNumbersPanel />}
+          </div>
+        )}
+        {activeSection === "bitrix24" && (
+          <div className="p-6">
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold text-slate-900">Bitrix24 CRM</h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Conecta y configura la integración con Bitrix24.
+              </p>
+            </div>
+            <Bitrix24Panel />
           </div>
         )}
         {activeSection === "statuses" && <StatusManagement />}

@@ -3,8 +3,33 @@ import { crmDb } from "../db";
 import { metricsTracker } from "../metrics-tracker";
 import type { CrmRealtimeManager } from "../ws";
 import type { BitrixService } from "../services/bitrix";
+import { adminDb } from "../../admin-db";
+import type { LocalStorageFlowProvider } from "../../flow-provider";
+import { sessionsStorage } from "../sessions";
 
-export function createConversationsRouter(socketManager: CrmRealtimeManager, bitrixService: BitrixService) {
+// Helper function to get advisor name from ID
+async function getAdvisorName(advisorId: string): Promise<string> {
+  try {
+    const user = adminDb.getUserById(advisorId);
+    return user?.name || user?.username || advisorId;
+  } catch (error) {
+    console.error("[CRM] Error getting advisor name:", error);
+    return advisorId;
+  }
+}
+
+// Helper function to get bot/flow name from ID
+async function getBotName(botId: string, flowProvider: LocalStorageFlowProvider): Promise<string> {
+  try {
+    const flow = await flowProvider.getFlow(botId);
+    return flow?.name || botId;
+  } catch (error) {
+    console.error("[CRM] Error getting bot name:", error);
+    return botId;
+  }
+}
+
+export function createConversationsRouter(socketManager: CrmRealtimeManager, bitrixService: BitrixService, flowProvider: LocalStorageFlowProvider) {
   const router = Router();
 
   router.get("/", (_req, res) => {
@@ -19,6 +44,17 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
         unread: conversation.unread,
         status: conversation.status,
         bitrixId: conversation.bitrixId ?? null,
+        bitrixDocument: conversation.bitrixDocument ?? null,
+        avatarUrl: conversation.avatarUrl ?? null,
+        assignedTo: conversation.assignedTo ?? null,
+        assignedAt: conversation.assignedAt ?? null,
+        queuedAt: conversation.queuedAt ?? null,
+        queueId: conversation.queueId ?? null,
+        channel: conversation.channel ?? "whatsapp",
+        channelConnectionId: conversation.channelConnectionId ?? null,
+        displayNumber: conversation.displayNumber ?? null,
+        attendedBy: conversation.attendedBy ?? null,
+        ticketNumber: conversation.ticketNumber ?? null,
       })),
     );
   });
@@ -52,6 +88,16 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
           bitrixService.attachConversation(conversation, contact.ID.toString());
         }
       }
+
+      // IMPORTANTE: Sincronizar nombre del contacto desde Bitrix
+      if (contact && (contact.NAME || contact.LAST_NAME)) {
+        const fullName = [contact.NAME, contact.LAST_NAME].filter(Boolean).join(" ").trim();
+        if (fullName && fullName !== conversation.contactName) {
+          crmDb.updateConversationMeta(conversation.id, { contactName: fullName });
+          console.log(`[CRM] ✅ Nombre sincronizado desde Bitrix: ${fullName} para conversación ${conversation.id}`);
+        }
+      }
+
       res.json({ contact, bitrixId: contact?.ID ?? conversation.bitrixId ?? null });
     } catch (error) {
       console.error("[CRM] bitrix fetch error", error);
@@ -83,6 +129,16 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
       if (result.contactId) {
         bitrixService.attachConversation(conversation, result.contactId);
         const contact = await bitrixService.fetchContact(result.contactId);
+
+        // IMPORTANTE: Sincronizar nombre del contacto desde Bitrix
+        if (contact && (contact.NAME || contact.LAST_NAME)) {
+          const fullName = [contact.NAME, contact.LAST_NAME].filter(Boolean).join(" ").trim();
+          if (fullName && fullName !== conversation.contactName) {
+            crmDb.updateConversationMeta(conversation.id, { contactName: fullName });
+            console.log(`[CRM] ✅ Nombre sincronizado desde Bitrix (creado): ${fullName} para conversación ${conversation.id}`);
+          }
+        }
+
         res.json({ success: true, contact, bitrixId: result.contactId, entityType: result.entityType });
       } else {
         res.status(500).json({ error: "create_failed", reason: result.reason });
@@ -99,10 +155,26 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
       res.status(404).json({ error: "not_found" });
       return;
     }
+
+    // Create system message for archiving
+    const archiveMessage = crmDb.appendMessage({
+      convId: conversation.id,
+      direction: "outgoing",
+      type: "system",
+      text: `📁 Conversación cerrada`,
+      mediaUrl: null,
+      mediaThumb: null,
+      repliedToId: null,
+      status: "sent",
+    });
+
+    // Emit the system message via WebSocket
+    socketManager.emitNewMessage({ message: archiveMessage, attachment: null });
+
     crmDb.archiveConversation(conversation.id);
 
-    // End metrics tracking for this conversation
-    metricsTracker.endConversation(conversation.id);
+    // End metrics tracking for this conversation with 'completed' status
+    metricsTracker.endConversation(conversation.id, 'completed');
 
     const updated = crmDb.getConversationById(conversation.id);
     if (updated) {
@@ -126,7 +198,7 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
     res.json({ success: true });
   });
 
-  router.post("/:id/transfer", (req, res) => {
+  router.post("/:id/transfer", async (req, res) => {
     const conversation = crmDb.getConversationById(req.params.id);
     if (!conversation) {
       res.status(404).json({ error: "not_found" });
@@ -145,13 +217,78 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
       return;
     }
 
+    // Get current advisor info (who is transferring)
+    const currentAdvisorId = req.user?.userId || "unknown";
+    const currentAdvisorName = await getAdvisorName(currentAdvisorId);
+
     // Update conversation metadata with transfer info
     const metadata = conversation.metadata || {};
     metadata.transferredTo = targetId;
     metadata.transferType = type;
     metadata.transferredAt = Date.now();
 
-    crmDb.updateConversationMeta(conversation.id, { metadata });
+    // Get display names for system message
+    let displayName = targetId;
+    if (type === "advisor") {
+      displayName = await getAdvisorName(targetId);
+
+      // CRITICAL: Check advisor status before transferring
+      const advisorStatus = adminDb.getAdvisorStatus(targetId);
+      if (advisorStatus) {
+        const statusDetails = adminDb.getAdvisorStatusById(advisorStatus.statusId);
+        if (statusDetails && statusDetails.action !== "accept") {
+          // Advisor is not accepting chats
+          res.status(400).json({
+            error: "advisor_not_available",
+            message: `El asesor ${displayName} no puede recibir conversaciones en este momento (Estado: ${statusDetails.name})`,
+            advisorName: displayName,
+            statusName: statusDetails.name
+          });
+          return;
+        }
+      }
+
+      // CRITICAL: If transferring to an advisor, assign the conversation directly
+      crmDb.updateConversationMeta(conversation.id, {
+        assignedTo: targetId,
+        assignedAt: Date.now(),
+        // Status remains "active" - will change to "attending" when advisor sends first message
+      });
+      // Add advisor to attendedBy list
+      crmDb.addAdvisorToAttendedBy(conversation.id, targetId);
+      console.log(`[CRM] ✅ Conversation ${conversation.id} transferred to advisor: ${displayName} (${targetId}) (awaiting response)`);
+    } else {
+      displayName = await getBotName(targetId, flowProvider);
+      // For bot transfers, just update metadata
+      console.log(`[CRM] ✅ Conversation ${conversation.id} transferred to bot: ${displayName} (${targetId})`);
+    }
+
+    // Create system message for the transfer
+    const transferMessage = crmDb.appendMessage({
+      convId: conversation.id,
+      direction: "outgoing",
+      type: "system",
+      text: type === "advisor"
+        ? `🔀 Conversación transferida de ${currentAdvisorName} a ${displayName}`
+        : `🤖 Conversación transferida de ${currentAdvisorName} a bot ${displayName}`,
+      mediaUrl: null,
+      mediaThumb: null,
+      repliedToId: null,
+      status: "sent",
+    });
+
+    // Emit the system message via WebSocket
+    socketManager.emitNewMessage({ message: transferMessage, attachment: null });
+
+    // Track conversation transfer in metrics (only for advisor transfers)
+    // This will create TWO metrics: transfer_out (current advisor) and transfer_in (receiving advisor)
+    if (type === "advisor") {
+      metricsTracker.transferConversation(conversation.id, currentAdvisorId, targetId, {
+        queueId: conversation.queueId || undefined,
+        channelType: conversation.channel as any,
+        channelId: conversation.channelConnectionId || undefined,
+      });
+    }
 
     // Optionally archive the conversation after transfer
     // crmDb.archiveConversation(conversation.id);
@@ -170,15 +307,15 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
     res.json({ conversations: queuedConversations });
   });
 
-  router.post("/:id/accept", (req, res) => {
+  router.post("/:id/accept", async (req, res) => {
     const conversation = crmDb.getConversationById(req.params.id);
     if (!conversation) {
       res.status(404).json({ error: "not_found" });
       return;
     }
 
-    // Get advisor ID from auth (user email)
-    const advisorId = req.user?.email || "unknown";
+    // Get advisor ID from auth (user ID)
+    const advisorId = req.user?.userId || "unknown";
 
     const accepted = crmDb.acceptConversation(conversation.id, advisorId);
     if (!accepted) {
@@ -186,8 +323,81 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
       return;
     }
 
-    // Start tracking metrics for this conversation
-    metricsTracker.startConversation(conversation.id, advisorId);
+    // Start tracking metrics for this conversation with full context
+    metricsTracker.startConversation(conversation.id, advisorId, {
+      queueId: conversation.queueId || undefined,
+      channelType: conversation.channel as any,
+      channelId: conversation.channelConnectionId || undefined,
+    });
+
+    // Get advisor display name
+    const advisorName = await getAdvisorName(advisorId);
+
+    // Create system message for accepting the conversation
+    const acceptMessage = crmDb.appendMessage({
+      convId: conversation.id,
+      direction: "outgoing",
+      type: "system",
+      text: `✅ Conversación aceptada por ${advisorName}`,
+      mediaUrl: null,
+      mediaThumb: null,
+      repliedToId: null,
+      status: "sent",
+    });
+
+    // Emit the system message via WebSocket
+    socketManager.emitNewMessage({ message: acceptMessage, attachment: null });
+
+    // Start a session for this conversation
+    try {
+      const session = await sessionsStorage.startSession(advisorId, conversation.id);
+      console.log(`[CRM] Session started: ${session.id} for advisor ${advisorId}`);
+    } catch (error) {
+      console.error('[CRM] Error starting session:', error);
+    }
+
+    const updated = crmDb.getConversationById(conversation.id);
+    if (updated) {
+      socketManager.emitConversationUpdate({ conversation: updated });
+    }
+
+    res.json({ success: true, conversation: updated });
+  });
+
+  // Reject conversation (return to queue)
+  router.post("/:id/reject", async (req, res) => {
+    const conversation = crmDb.getConversationById(req.params.id);
+    if (!conversation) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    const advisorId = req.user?.userId || "unknown";
+    const advisorName = await getAdvisorName(advisorId);
+
+    const released = crmDb.releaseConversation(conversation.id);
+    if (!released) {
+      res.status(400).json({ error: "cannot_reject", reason: "Conversation is not being attended" });
+      return;
+    }
+
+    // Create system message for rejecting/returning to queue
+    const rejectMessage = crmDb.appendMessage({
+      convId: conversation.id,
+      direction: "outgoing",
+      type: "system",
+      text: `⚠️ Conversación devuelta a la cola por ${advisorName}`,
+      mediaUrl: null,
+      mediaThumb: null,
+      repliedToId: null,
+      status: "sent",
+    });
+
+    socketManager.emitNewMessage({ message: rejectMessage, attachment: null });
+
+    // Track conversation rejection in metrics
+    const reason = req.body.reason || "Advisor returned conversation to queue";
+    metricsTracker.rejectConversation(conversation.id, advisorId, reason);
 
     const updated = crmDb.getConversationById(conversation.id);
     if (updated) {

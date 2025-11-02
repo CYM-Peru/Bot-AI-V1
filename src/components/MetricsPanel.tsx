@@ -104,13 +104,13 @@ export function MetricsPanel({ whatsappNumbers = [] }: MetricsPanelProps) {
 
     loadData();
 
-    // Auto-refresh every 5 seconds
+    // Auto-refresh every 30 seconds (avoid rate limiting)
     const interval = setInterval(() => {
       fetchStats();
       fetchMetrics();
       fetchActiveConversations();
       fetchMenuStats();
-    }, 5000);
+    }, 30000);
 
     return () => clearInterval(interval);
   }, []);

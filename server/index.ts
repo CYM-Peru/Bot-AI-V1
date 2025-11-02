@@ -26,6 +26,7 @@ import { createBitrixRouter } from "./routes/bitrix";
 import { createCampaignsRouter } from "./campaigns/routes";
 import { requireAuth } from "./auth/middleware";
 import { adminDb } from "./admin-db";
+import { crmDb } from "./crm/db";
 import { logDebug, logError } from "./utils/file-logger";
 import { TimerScheduler } from "./timer-scheduler";
 import { QueueScheduler } from "./queue-scheduler";
@@ -135,9 +136,54 @@ function createWhatsAppHandler() {
       apiVersion: whatsappEnv.apiVersion || "v20.0",
       baseUrl: whatsappEnv.baseUrl,
     },
+    resolveApiConfig: async (phoneNumberId: string) => {
+      // CRITICAL: Find correct WhatsApp connection by phoneNumberId
+      try {
+        const connectionsPath = path.join(process.cwd(), "data", "whatsapp-connections.json");
+        const data = await fs.readFile(connectionsPath, "utf-8");
+        const parsed = JSON.parse(data);
+
+        const connection = parsed.connections?.find((c: any) => c.phoneNumberId === phoneNumberId);
+        if (connection) {
+          logger.info(`[WhatsApp] ✅ Resolved API config for phoneNumberId: ${phoneNumberId} (${connection.displayNumber})`);
+          return {
+            accessToken: connection.accessToken,
+            phoneNumberId: connection.phoneNumberId,
+            apiVersion: whatsappEnv.apiVersion || "v20.0",
+            baseUrl: whatsappEnv.baseUrl,
+          };
+        } else {
+          logger.warn(`[WhatsApp] ⚠️  No connection found for phoneNumberId: ${phoneNumberId}, using default config`);
+        }
+      } catch (error) {
+        logger.error(`[WhatsApp] Error resolving API config:`, error);
+      }
+      return null; // Use default config
+    },
     resolveFlow: async (context) => {
       const phoneNumber = context.message.from;
       const phoneNumberId = context.value.metadata?.phone_number_id;
+
+      // CRITICAL: Check if conversation is being attended by an advisor
+      const existingConversation = crmDb.getConversationByPhoneAndChannel(phoneNumber, 'whatsapp', phoneNumberId);
+
+      if (existingConversation) {
+        logger.info(`[WhatsApp] [DEBUG] Existing conversation found: id=${existingConversation.id}, status=${existingConversation.status}, assignedTo=${existingConversation.assignedTo || 'null'}, queueId=${existingConversation.queueId || 'null'}`);
+
+        // If conversation has an assigned advisor AND is not archived, skip bot execution
+        if (existingConversation.assignedTo && existingConversation.status !== 'archived') {
+          logger.info(`[WhatsApp] 🚫 Bot skipped: conversation ${existingConversation.id} is being attended by advisor ${existingConversation.assignedTo}`);
+          return null; // Human agent is handling this conversation
+        }
+
+        // If conversation is in queue (active status, no assigned advisor), skip bot
+        if (existingConversation.status === 'active' && existingConversation.queueId) {
+          logger.info(`[WhatsApp] 🚫 Bot skipped: conversation ${existingConversation.id} is waiting in queue ${existingConversation.queueId}`);
+          return null; // Conversation is waiting for human agent
+        }
+      } else {
+        logger.info(`[WhatsApp] [DEBUG] No existing conversation found for ${phoneNumber}`);
+      }
 
       // Try to find flow assigned to this WhatsApp number
       if (phoneNumberId && flowProvider instanceof LocalStorageFlowProvider) {
@@ -182,9 +228,8 @@ function createWhatsAppHandler() {
       }
     },
     onBotTransfer: async (payload) => {
-      // CRITICAL: Assign conversation to queue when bot transfers
+      // CRITICAL: Handle bot transfer to queue/advisor/bot
       try {
-        const { crmDb } = await import('./crm/db');
         const conversation = crmDb.getConversationByPhone(payload.phone);
 
         if (!conversation) {
@@ -192,11 +237,78 @@ function createWhatsAppHandler() {
           return;
         }
 
-        if (payload.queueId) {
-          crmDb.updateConversationQueue(conversation.id, payload.queueId);
-          logger.info(`[Bot Transfer] ✅ Conversation ${conversation.id} assigned to queue: ${payload.queueId}`);
-        } else {
-          logger.warn(`[Bot Transfer] ⚠️ No queueId provided - conversation ${conversation.id} may go to limbo`);
+        const transferTarget = payload.transferTarget || "queue";
+        const transferDestination = payload.transferDestination || "";
+
+        switch (transferTarget) {
+          case "queue": {
+            // Transfer to queue - assign to next available advisor
+            const queueId = transferDestination || payload.queueId;
+            if (queueId) {
+              crmDb.updateConversationQueue(conversation.id, queueId);
+              logger.info(`[Bot Transfer] ✅ Conversation ${conversation.id} assigned to queue: ${queueId}`);
+
+              // Try to auto-assign to available advisor in queue
+              const queue = adminDb.getQueueById(queueId);
+              if (queue && queue.assignedAdvisors.length > 0) {
+                // Find first available advisor (status = "accept" action)
+                for (const advisorId of queue.assignedAdvisors) {
+                  const statusAssignment = adminDb.getAdvisorStatus(advisorId);
+                  if (statusAssignment) {
+                    const status = adminDb.getAdvisorStatusById(statusAssignment.statusId);
+                    if (status?.action === "accept") {
+                      // Advisor is available, assign conversation
+                      crmDb.assignConversation(conversation.id, advisorId);
+                      logger.info(`[Bot Transfer] 🎯 Auto-assigned conversation ${conversation.id} to advisor: ${advisorId}`);
+
+                      // Emit WebSocket update
+                      crmSocketManager.emitConversationUpdate({
+                        conversation: crmDb.getConversationById(conversation.id)!
+                      });
+                      return;
+                    }
+                  }
+                }
+                logger.info(`[Bot Transfer] ⏳ No available advisors in queue ${queueId} - conversation waiting`);
+              }
+            } else {
+              logger.warn(`[Bot Transfer] ⚠️ No queueId provided - conversation ${conversation.id} may go to limbo`);
+            }
+            break;
+          }
+
+          case "advisor": {
+            // Transfer directly to specific advisor
+            if (transferDestination) {
+              crmDb.assignConversation(conversation.id, transferDestination);
+              logger.info(`[Bot Transfer] 🎯 Conversation ${conversation.id} assigned to advisor: ${transferDestination}`);
+
+              // Emit WebSocket update
+              crmSocketManager.emitConversationUpdate({
+                conversation: crmDb.getConversationById(conversation.id)!
+              });
+            } else {
+              logger.warn(`[Bot Transfer] ⚠️ No advisor ID provided for direct transfer`);
+            }
+            break;
+          }
+
+          case "bot": {
+            // Transfer to another bot/flow - restart conversation with new flow
+            if (transferDestination) {
+              logger.info(`[Bot Transfer] 🤖 Transferring conversation ${conversation.id} to bot: ${transferDestination}`);
+              // Clear session to restart from beginning
+              sessionStore.clear(payload.phone);
+              logger.info(`[Bot Transfer] ✅ Session cleared for fresh start with flow: ${transferDestination}`);
+              // Note: The next message will trigger the new flow automatically
+            } else {
+              logger.warn(`[Bot Transfer] ⚠️ No bot/flow ID provided for bot transfer`);
+            }
+            break;
+          }
+
+          default:
+            logger.warn(`[Bot Transfer] ⚠️ Unknown transfer target: ${transferTarget}`);
         }
       } catch (error) {
         logError(`[Bot Transfer] Error:`, error);
@@ -206,10 +318,14 @@ function createWhatsAppHandler() {
       // Register bot messages in CRM
       try {
         const { crmDb } = await import('./crm/db');
-        let conversation = crmDb.getConversationByPhone(payload.phone);
+
+        // CRITICAL: Find conversation by phone AND phoneNumberId to avoid cross-contamination
+        const phoneNumberId = payload.phoneNumberId;
+        let conversation = crmDb.getConversationByPhoneAndChannel(payload.phone, 'whatsapp', phoneNumberId);
 
         if (!conversation) {
-          conversation = crmDb.createConversation(payload.phone);
+          // Create conversation with proper channel info
+          conversation = crmDb.createConversation(payload.phone, 'whatsapp', phoneNumberId);
         }
 
         // Extract text from bot message
@@ -234,7 +350,7 @@ function createWhatsAppHandler() {
         }
 
         // Append bot message to CRM
-        crmDb.appendMessage({
+        const botMessage = crmDb.appendMessage({
           convId: conversation.id,
           direction: 'outgoing',
           type,
@@ -244,6 +360,12 @@ function createWhatsAppHandler() {
           repliedToId: null,
           status: payload.result.ok ? 'sent' : 'failed',
           providerMetadata: { bot: true },
+        });
+
+        // CRITICAL: Emit message via WebSocket so advisors can see bot responses in real-time
+        crmSocketManager.emitNewMessage({
+          message: botMessage,
+          attachment: null
         });
 
         logDebug(`[Bot Message] Registered in CRM for ${payload.phone}`);

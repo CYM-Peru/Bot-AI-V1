@@ -14,9 +14,10 @@ interface AdvisorStatus {
 
 interface AdvisorStatusButtonProps {
   userId: string; // ID del asesor actual
+  compact?: boolean; // Modo minimalista (solo círculo)
 }
 
-export function AdvisorStatusButton({ userId }: AdvisorStatusButtonProps) {
+export function AdvisorStatusButton({ userId, compact = false }: AdvisorStatusButtonProps) {
   const [currentStatus, setCurrentStatus] = useState<AdvisorStatus | null>(null);
   const [availableStatuses, setAvailableStatuses] = useState<AdvisorStatus[]>([]);
   const [showMenu, setShowMenu] = useState(false);
@@ -102,22 +103,32 @@ export function AdvisorStatusButton({ userId }: AdvisorStatusButtonProps) {
     <div className="relative" ref={menuRef}>
       <button
         onClick={() => setShowMenu(!showMenu)}
-        className="flex items-center gap-2 rounded-lg border-2 border-slate-200 bg-white px-4 py-2 font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 shadow-sm"
-        title="Cambiar estado"
+        className={compact
+          ? "h-10 w-10 rounded-full border-3 border-white shadow-lg transition hover:scale-110 hover:shadow-xl flex items-center justify-center"
+          : "flex items-center gap-2 rounded-lg border-2 border-slate-200 bg-white px-4 py-2 font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 shadow-sm"
+        }
+        style={compact ? { backgroundColor: currentStatus.color } : {}}
+        title={`${currentStatus.name} - Cambiar estado`}
       >
-        <div
-          className="h-3 w-3 rounded-full border-2 border-white shadow"
-          style={{ backgroundColor: currentStatus.color }}
-        />
-        <span className="text-sm">{currentStatus.name}</span>
-        <svg
-          className={`h-4 w-4 transition-transform ${showMenu ? 'rotate-180' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        {compact ? (
+          <div className="h-5 w-5 rounded-full bg-white/30" />
+        ) : (
+          <>
+            <div
+              className="h-3 w-3 rounded-full border-2 border-white shadow"
+              style={{ backgroundColor: currentStatus.color }}
+            />
+            <span className="text-sm">{currentStatus.name}</span>
+            <svg
+              className={`h-4 w-4 transition-transform ${showMenu ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </>
+        )}
       </button>
 
       {showMenu && (

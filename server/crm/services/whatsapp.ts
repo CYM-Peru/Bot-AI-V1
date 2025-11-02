@@ -8,6 +8,8 @@ type SendOptions = {
   mediaType?: "image" | "audio" | "video" | "document" | "sticker";
   caption?: string | null;
   filename?: string | null;
+  replyToWhatsAppMessageId?: string | null;
+  channelConnectionId?: string | null; // NEW: Specify which WhatsApp number to use
 };
 
 export interface ProviderResult {
@@ -26,6 +28,8 @@ export async function sendOutboundMessage(options: SendOptions): Promise<Provide
     mediaType: options.mediaType,
     caption: options.caption,
     filename: options.filename,
+    replyToWhatsAppMessageId: options.replyToWhatsAppMessageId,
+    channelConnectionId: options.channelConnectionId, // Pass the channelConnectionId
   });
 
   return {

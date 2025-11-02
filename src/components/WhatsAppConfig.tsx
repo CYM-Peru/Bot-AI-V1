@@ -17,21 +17,12 @@ interface WhatsAppCheckResponse {
   } | null;
 }
 
-interface TestResult {
-  ok: boolean;
-  status: number;
-  id?: string | null;
-  reason?: string;
-}
-
 interface WhatsAppConfigContentProps {
   headingId?: string;
   className?: string;
   whatsappNumbers?: import('../flow/types').WhatsAppNumberAssignment[];
   onUpdateWhatsappNumbers?: (numbers: import('../flow/types').WhatsAppNumberAssignment[]) => void;
 }
-
-const DEFAULT_TEST_NUMBER = '51918131082';
 
 interface FormState {
   phoneNumberId: string;
@@ -55,11 +46,8 @@ export function WhatsAppConfigContent({ headingId, className, whatsappNumbers = 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testOutcome, setTestOutcome] = useState<TestResult | null>(null);
   const [showAccessToken, setShowAccessToken] = useState(false);
   const [syncedStatus, setSyncedStatus] = useState(false);
-  const [testMessage, setTestMessage] = useState('Hola desde Builder');
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
@@ -139,6 +127,22 @@ export function WhatsAppConfigContent({ headingId, className, whatsappNumbers = 
             phoneNumber: payload.displayNumber || payload.phoneNumberId,
           };
           onUpdateWhatsappNumbers([...whatsappNumbers, newNumber]);
+
+          // También persistir en el backend para que aparezca en "Números & Colas"
+          try {
+            await fetch(apiUrl('/api/admin/whatsapp-numbers'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                displayName: payload.displayNumber || payload.phoneNumberId,
+                phoneNumber: payload.displayNumber || payload.phoneNumberId,
+                // No asignar cola por defecto - el usuario debe hacerlo manualmente
+              }),
+            });
+          } catch (error) {
+            console.error('Error al guardar el número en la base de datos:', error);
+            // No mostrar error al usuario, ya que la conexión se guardó exitosamente
+          }
         }
       }
     } catch (err) {
@@ -147,28 +151,6 @@ export function WhatsAppConfigContent({ headingId, className, whatsappNumbers = 
       setSaving(false);
     }
   }, [form, loadStatus, whatsappNumbers, onUpdateWhatsappNumbers]);
-
-  const handleTestMessage = useCallback(async () => {
-    setTesting(true);
-    setTestOutcome(null);
-    try {
-      const response = await fetch(apiUrl('/api/connections/whatsapp/test'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: DEFAULT_TEST_NUMBER, text: testMessage.trim() || 'Hola desde Builder' }),
-      });
-      const body = (await response.json().catch(() => ({}))) as { ok?: boolean; id?: string; reason?: string };
-      if (!response.ok || !body.ok) {
-        setTestOutcome({ ok: false, status: response.status, reason: body.reason ?? 'provider_error' });
-      } else {
-        setTestOutcome({ ok: true, status: response.status, id: body.id ?? null });
-      }
-    } catch (err) {
-      setTestOutcome({ ok: false, status: 0, reason: err instanceof Error ? err.message : 'network_error' });
-    } finally {
-      setTesting(false);
-    }
-  }, [testMessage]);
 
   useEffect(() => {
     if (!saveSuccess) return;
@@ -324,45 +306,36 @@ export function WhatsAppConfigContent({ headingId, className, whatsappNumbers = 
           </p>
         </section>
 
+        {/* Números agregados */}
         <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-700">Enviar mensaje de prueba</h3>
+          <h3 className="text-sm font-semibold text-slate-700">📋 Números configurados</h3>
           <p className="mt-1 text-xs text-slate-500">
-            Se envía al número de verificación {DEFAULT_TEST_NUMBER}. Solo funciona si el Phone Number ID y el Access Token son válidos.
+            Números de WhatsApp disponibles para asignar a flujos.
           </p>
-          <div className="mt-3 flex flex-col gap-3 md:flex-row">
-            <input
-              type="text"
-              className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-              value={testMessage}
-              onChange={(event) => setTestMessage(event.target.value)}
-              placeholder="Hola desde Builder"
-            />
-            <button
-              type="button"
-              onClick={() => void handleTestMessage()}
-              disabled={testing}
-              className="btn btn--secondary"
-            >
-              {testing ? 'Enviando…' : 'Probar mensaje'}
-            </button>
+          <div className="mt-4 space-y-2">
+            {whatsappNumbers.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center">
+                <p className="text-xs text-slate-500">
+                  No hay números agregados aún. Guarda las credenciales arriba para agregar un número automáticamente.
+                </p>
+              </div>
+            ) : (
+              whatsappNumbers.map((num) => (
+                <div
+                  key={num.numberId}
+                  className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 p-3"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">{num.displayName}</p>
+                    <p className="text-xs text-slate-500">{num.phoneNumber}</p>
+                  </div>
+                  <div className="rounded-full bg-emerald-100 px-3 py-1">
+                    <span className="text-xs font-semibold text-emerald-700">✓ Activo</span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
-          {testOutcome && (
-            <div
-              className={`mt-3 rounded-lg border p-3 text-sm ${
-                testOutcome.ok
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  : 'border-rose-200 bg-rose-50 text-rose-700'
-              }`}
-            >
-              {testOutcome.ok
-                ? `Mensaje aceptado (status ${testOutcome.status})${
-                    testOutcome.id ? ` · wamid ${testOutcome.id}` : ''
-                  }`
-                : `Fallo en proveedor (status ${testOutcome.status})${
-                    testOutcome.reason ? ` · ${testOutcome.reason}` : ''
-                  }`}
-            </div>
-          )}
         </section>
 
         <section className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
@@ -370,7 +343,8 @@ export function WhatsAppConfigContent({ headingId, className, whatsappNumbers = 
           <ul className="mt-2 list-disc space-y-1 pl-5">
             <li>Coloca aquí las credenciales de la app en Meta Developers. Solo se almacenan en el backend.</li>
             <li>Usa el Verify Token configurado también en la suscripción del webhook de Meta.</li>
-            <li>El botón “Revisar estado” consulta directamente al endpoint oficial de Meta Graph.</li>
+            <li>El botón "Revisar estado" consulta directamente al endpoint oficial de Meta Graph.</li>
+            <li>Los números configurados aparecerán automáticamente en la pestaña "Números & Colas".</li>
           </ul>
         </section>
       </div>

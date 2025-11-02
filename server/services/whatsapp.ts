@@ -1,6 +1,7 @@
 import { httpRequest } from "../utils/http";
 import { getWhatsAppEnv, isWhatsAppConfigured } from "../utils/env";
 import type { Readable } from "stream";
+import { getWhatsAppCredentials } from "./whatsapp-connections";
 
 export interface WhatsAppSendOptions {
   phone: string;
@@ -10,6 +11,8 @@ export interface WhatsAppSendOptions {
   mediaType?: "image" | "audio" | "video" | "document" | "sticker";
   caption?: string | null;
   filename?: string | null;
+  replyToWhatsAppMessageId?: string | null;
+  channelConnectionId?: string | null; // NEW: Specify which WhatsApp number to use
 }
 
 export interface WhatsAppSendResult {
@@ -38,8 +41,29 @@ export interface WhatsAppCheckResult {
 const MAX_MEDIA_TYPES = new Set(["image", "audio", "video", "document", "sticker"]);
 
 export async function sendWhatsAppMessage(options: WhatsAppSendOptions): Promise<WhatsAppSendResult> {
-  const config = getWhatsAppEnv();
-  if (!config.phoneNumberId || !config.accessToken) {
+  // Try to get specific connection credentials if channelConnectionId is provided
+  let phoneNumberId: string;
+  let accessToken: string;
+
+  if (options.channelConnectionId) {
+    const credentials = await getWhatsAppCredentials(options.channelConnectionId);
+    if (credentials) {
+      phoneNumberId = credentials.phoneNumberId;
+      accessToken = credentials.accessToken;
+      console.log(`[WhatsApp] Using connection ${options.channelConnectionId} (${credentials.displayNumber})`);
+    } else {
+      console.warn(`[WhatsApp] Connection ${options.channelConnectionId} not found, using default .env config`);
+      const config = getWhatsAppEnv();
+      phoneNumberId = config.phoneNumberId || "";
+      accessToken = config.accessToken || "";
+    }
+  } else {
+    const config = getWhatsAppEnv();
+    phoneNumberId = config.phoneNumberId || "";
+    accessToken = config.accessToken || "";
+  }
+
+  if (!phoneNumberId || !accessToken) {
     return { ok: false, status: 412, body: null, error: "not_configured" };
   }
 
@@ -47,6 +71,13 @@ export async function sendWhatsAppMessage(options: WhatsAppSendOptions): Promise
     messaging_product: "whatsapp",
     to: options.phone,
   };
+
+  // Add context for reply functionality (like WhatsApp quoted reply)
+  if (options.replyToWhatsAppMessageId) {
+    payload.context = {
+      message_id: options.replyToWhatsAppMessageId,
+    };
+  }
 
   if (options.mediaType && MAX_MEDIA_TYPES.has(options.mediaType) && (options.mediaUrl || options.mediaId)) {
     payload.type = options.mediaType;
@@ -72,10 +103,20 @@ export async function sendWhatsAppMessage(options: WhatsAppSendOptions): Promise
     return { ok: false, status: 400, body: null, error: "missing_payload" };
   }
 
-  const url = `${config.baseUrl.replace(/\/$/, "")}/${config.apiVersion}/${config.phoneNumberId}/messages`;
+  // Log payload for debugging (especially reply context)
+  if (options.replyToWhatsAppMessageId) {
+    console.log(`[WhatsApp] Sending reply to message ${options.replyToWhatsAppMessageId}`, {
+      hasContext: !!payload.context,
+      context: payload.context,
+      messageType: payload.type,
+    });
+  }
+
+  const config = getWhatsAppEnv();
+  const url = `${config.baseUrl.replace(/\/$/, "")}/${config.apiVersion}/${phoneNumberId}/messages`;
   const response = await httpRequest(url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${config.accessToken}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
     body: payload,
   });
 
@@ -184,9 +225,29 @@ export async function uploadToWhatsAppMedia(options: {
   stream: Readable;
   filename: string;
   mimeType: string;
+  channelConnectionId?: string | null; // NEW: Specify which WhatsApp number to use
 }): Promise<WhatsAppMediaUploadResult> {
-  const config = getWhatsAppEnv();
-  if (!config.phoneNumberId || !config.accessToken) {
+  // Try to get specific connection credentials if channelConnectionId is provided
+  let phoneNumberId: string;
+  let accessToken: string;
+
+  if (options.channelConnectionId) {
+    const credentials = await getWhatsAppCredentials(options.channelConnectionId);
+    if (credentials) {
+      phoneNumberId = credentials.phoneNumberId;
+      accessToken = credentials.accessToken;
+    } else {
+      const config = getWhatsAppEnv();
+      phoneNumberId = config.phoneNumberId || "";
+      accessToken = config.accessToken || "";
+    }
+  } else {
+    const config = getWhatsAppEnv();
+    phoneNumberId = config.phoneNumberId || "";
+    accessToken = config.accessToken || "";
+  }
+
+  if (!phoneNumberId || !accessToken) {
     return { ok: false, error: "not_configured" };
   }
 
@@ -202,12 +263,13 @@ export async function uploadToWhatsAppMedia(options: {
     form.append("file", blob, options.filename);
     form.append("messaging_product", "whatsapp");
 
-    const url = `${config.baseUrl.replace(/\/$/, "")}/${config.apiVersion}/${config.phoneNumberId}/media`;
+    const config = getWhatsAppEnv();
+    const url = `${config.baseUrl.replace(/\/$/, "")}/${config.apiVersion}/${phoneNumberId}/media`;
 
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${config.accessToken}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: form,
     });

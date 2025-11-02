@@ -8,8 +8,7 @@ import { useNotifications } from "./useNotifications";
 import { useSoundNotifications } from "./useSoundNotifications";
 import { useDarkMode } from "./DarkModeContext";
 import { useKeyboardShortcuts, KEYBOARD_SHORTCUTS } from "./useKeyboardShortcuts";
-import { AdvisorStatusButton } from "./AdvisorStatusButton";
-import MetricsDashboard from "./MetricsDashboard";
+import { useAuth } from "../hooks/useAuth";
 
 interface ConversationState {
   messages: Message[];
@@ -17,6 +16,7 @@ interface ConversationState {
 }
 
 export default function CRMPage() {
+  const { user } = useAuth();
   const { isDarkMode, toggleDarkMode } = useDarkMode();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -41,8 +41,79 @@ export default function CRMPage() {
     const saved = localStorage.getItem("crm:sound:volume");
     return saved ? parseFloat(saved) : 0.7;
   });
-  const [showMetrics, setShowMetrics] = useState(false);
   const fetchedConversationsRef = useRef<Set<string>>(new Set());
+  const [isDetached, setIsDetached] = useState(false);
+  const detachedWindowRef = useRef<Window | null>(null);
+
+  // Handle detach/reattach
+  const handleDetach = useCallback(() => {
+    if (!selectedConversationId) return;
+
+    const conversation = conversations.find((c) => c.id === selectedConversationId);
+    if (!conversation) return;
+
+    // Store data in localStorage for the detached window
+    const data = {
+      conversation,
+      messages: conversationData[selectedConversationId]?.messages ?? [],
+      attachments: conversationData[selectedConversationId]?.attachments ?? [],
+    };
+    localStorage.setItem(`detached-chat-${selectedConversationId}`, JSON.stringify(data));
+
+    // Open detached window
+    const width = 500;
+    const height = 700;
+    const left = window.screen.width - width - 50;
+    const top = 50;
+
+    const detachedWindow = window.open(
+      `/?mode=detached&conversationId=${selectedConversationId}`,
+      `detached-chat-${selectedConversationId}`,
+      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=no`
+    );
+
+    if (detachedWindow) {
+      detachedWindowRef.current = detachedWindow;
+      setIsDetached(true);
+
+      // Listen for reattach events
+      const channel = new BroadcastChannel("crm-chat-sync");
+      channel.onmessage = (event) => {
+        if (event.data.type === "reattach-request") {
+          setIsDetached(false);
+          detachedWindowRef.current = null;
+          channel.close();
+        }
+      };
+
+      // Check if window is closed
+      const checkClosed = setInterval(() => {
+        if (detachedWindow.closed) {
+          setIsDetached(false);
+          detachedWindowRef.current = null;
+          clearInterval(checkClosed);
+        }
+      }, 500);
+    }
+  }, [selectedConversationId, conversations, conversationData]);
+
+  // Sync data to detached window when it changes
+  useEffect(() => {
+    if (isDetached && selectedConversationId && detachedWindowRef.current) {
+      const conversation = conversations.find((c) => c.id === selectedConversationId);
+      if (conversation) {
+        const channel = new BroadcastChannel("crm-chat-sync");
+        channel.postMessage({
+          type: "sync-data",
+          conversationId: selectedConversationId,
+          conversation,
+          messages: conversationData[selectedConversationId]?.messages ?? [],
+          attachments: conversationData[selectedConversationId]?.attachments ?? [],
+        });
+        channel.close();
+      }
+    }
+  }, [isDetached, selectedConversationId, conversations, conversationData]);
 
   // Use notifications hook for current conversation
   const currentMessages = selectedConversationId ? conversationData[selectedConversationId]?.messages ?? [] : [];
@@ -205,36 +276,78 @@ export default function CRMPage() {
   }, []);
 
   const handleSend = useCallback(
-    async (payload: { text: string; file?: File | null; replyToId?: string | null; isInternal?: boolean }) => {
+    async (payload: { text: string; files?: File[]; replyToId?: string | null; isInternal?: boolean }) => {
       if (!selectedConversation) return;
       try {
-        let attachmentId: string | undefined;
-        if (payload.file) {
-          const { attachment } = await uploadAttachment(payload.file);
-          attachmentId = attachment.id;
+        // Handle multiple file uploads
+        const attachmentIds: string[] = [];
+        if (payload.files && payload.files.length > 0) {
+          for (const file of payload.files) {
+            const { attachment } = await uploadAttachment(file);
+            attachmentIds.push(attachment.id);
+          }
         }
-        const result = await sendMessage({
-          convId: selectedConversation.id,
-          text: payload.text,
-          replyToId: payload.replyToId ?? undefined,
-          attachmentId,
-          isInternal: payload.isInternal ?? false,
-        });
-        setConversationData((prev) => updateConversationData(prev, selectedConversation.id, (state) => ({
-          messages: [...state.messages, result.message],
-          attachments: result.attachment ? [...state.attachments, result.attachment] : state.attachments,
-        })));
-        setConversations((prev) => sortConversations(
-          prev.map((item) =>
-            item.id === selectedConversation.id
-              ? {
-                  ...item,
-                  lastMessageAt: result.message.createdAt,
-                  lastMessagePreview: result.message.text ?? item.lastMessagePreview,
-                }
-              : item,
-          ),
-        ));
+
+        // Send messages - one for each attachment, or one text-only message
+        if (attachmentIds.length === 0) {
+          // Send single text message
+          const result = await sendMessage({
+            convId: selectedConversation.id,
+            text: payload.text,
+            replyToId: payload.replyToId ?? undefined,
+            isInternal: payload.isInternal ?? false,
+          });
+          setConversationData((prev) => updateConversationData(prev, selectedConversation.id, (state) => ({
+            messages: [...state.messages, result.message],
+            attachments: state.attachments,
+          })));
+          setConversations((prev) => sortConversations(
+            prev.map((item) =>
+              item.id === selectedConversation.id
+                ? {
+                    ...item,
+                    lastMessageAt: result.message.createdAt,
+                    lastMessagePreview: result.message.text ?? item.lastMessagePreview,
+                  }
+                : item,
+            ),
+          ));
+        } else {
+          // Send multiple messages - one per attachment with optional text in first message
+          const newMessages: Message[] = [];
+          const newAttachments: Attachment[] = [];
+
+          for (let i = 0; i < attachmentIds.length; i++) {
+            const isFirst = i === 0;
+            const result = await sendMessage({
+              convId: selectedConversation.id,
+              text: isFirst ? payload.text : "", // Only include text in first message
+              replyToId: isFirst ? (payload.replyToId ?? undefined) : undefined, // Only reply in first message
+              attachmentId: attachmentIds[i],
+              isInternal: payload.isInternal ?? false,
+            });
+            newMessages.push(result.message);
+            if (result.attachment) {
+              newAttachments.push(result.attachment);
+            }
+          }
+
+          setConversationData((prev) => updateConversationData(prev, selectedConversation.id, (state) => ({
+            messages: [...state.messages, ...newMessages],
+            attachments: [...state.attachments, ...newAttachments],
+          })));
+          setConversations((prev) => sortConversations(
+            prev.map((item) =>
+              item.id === selectedConversation.id
+                ? {
+                    ...item,
+                    lastMessageAt: newMessages[newMessages.length - 1].createdAt,
+                    lastMessagePreview: newMessages[newMessages.length - 1].text ?? item.lastMessagePreview,
+                  }
+                : item,
+            ),
+          ));
+        }
       } catch (error) {
         console.error("[CRM] Error enviando mensaje", error);
       }
@@ -243,34 +356,8 @@ export default function CRMPage() {
   );
 
   return (
-    <div className="flex h-full flex-col gap-4">
-      {/* CRM Header with Advisor Status */}
-      <div className="flex items-center justify-between px-4 py-3 bg-white rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold text-slate-800">{showMetrics ? "Dashboard de Métricas" : "Chat en vivo"}</h2>
-          <span className="text-xs text-slate-500">{showMetrics ? "Analítica y KPIs" : "Gestiona tus conversaciones"}</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowMetrics(!showMetrics)}
-            className={`px-4 py-2 text-sm font-semibold rounded-lg transition ${
-              showMetrics
-                ? "bg-emerald-600 text-white"
-                : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
-            }`}
-          >
-            {showMetrics ? "💬 Volver a Chats" : "📊 Métricas"}
-          </button>
-          <AdvisorStatusButton userId="user-1" />
-        </div>
-      </div>
-
-      {showMetrics ? (
-        <div className="flex-1 overflow-auto rounded-3xl border border-slate-200 bg-white shadow-xl">
-          <MetricsDashboard />
-        </div>
-      ) : (
-        <div className="flex flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl relative">
+    <div className="flex h-full flex-col">
+      <div className="flex flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl relative">
           <div className="w-[320px] flex-shrink-0 h-full">
             {loadingConversations && conversations.length === 0 ? (
               <div className="flex h-full items-center justify-center text-sm text-slate-500">
@@ -281,31 +368,42 @@ export default function CRMPage() {
                 conversations={conversations}
                 selectedId={selectedConversationId}
                 onSelect={handleSelectConversation}
+                currentUserEmail={user?.id}
               />
             )}
           </div>
-          <ChatWindow
-            conversation={selectedConversation}
-            messages={currentState?.messages ?? []}
-            attachments={currentState?.attachments ?? []}
-            onSend={handleSend}
-          />
+          {isDetached ? (
+            <div className="flex-1 flex items-center justify-center bg-gradient-to-br from-purple-50 to-white">
+              <div className="text-center p-8 max-w-md">
+                <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-purple-500 to-purple-600 rounded-full flex items-center justify-center">
+                  <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">Chat Desacoplado</h3>
+                <p className="text-slate-600 mb-4">
+                  La ventana de chat se abrió en una ventana separada. Puedes posicionarla donde necesites mientras trabajas.
+                </p>
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 text-left">
+                  <p className="text-xs font-semibold text-purple-900 mb-2">💡 Tip:</p>
+                  <p className="text-xs text-purple-800">
+                    Haz clic en "Pinear" en la ventana desacoplada para mantenerla siempre visible encima de otras aplicaciones.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <ChatWindow
+              conversation={selectedConversation}
+              messages={currentState?.messages ?? []}
+              attachments={currentState?.attachments ?? []}
+              onSend={handleSend}
+              onDetach={handleDetach}
+              isDetached={false}
+            />
+          )}
 
-        {/* Settings Button - Bottom left corner */}
-        <div className="absolute bottom-4 left-4 z-10">
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className="flex items-center justify-center w-10 h-10 rounded-full bg-white border-2 border-slate-200 shadow-lg hover:bg-slate-50 hover:border-slate-300 transition"
-            title="Configuración"
-          >
-            <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Settings Panel - Opens from bottom left */}
+        {/* Settings Panel - Removed floating button, settings now accessed via main menu */}
         {showSettings && (
           <div className="absolute bottom-20 left-4 z-20 w-80 bg-white rounded-xl border-2 border-slate-200 shadow-2xl">
             <div className="bg-gradient-to-r from-blue-50 to-white px-4 py-3 border-b border-slate-200">
@@ -456,8 +554,7 @@ export default function CRMPage() {
             </div>
           </div>
         )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }

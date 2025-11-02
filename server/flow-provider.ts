@@ -27,7 +27,25 @@ export class LocalStorageFlowProvider implements FlowProvider {
     try {
       const filePath = this.getFlowPath(flowId);
       const fileContent = await fs.readFile(filePath, "utf-8");
-      const flow = JSON.parse(fileContent) as Flow;
+      const parsed = JSON.parse(fileContent);
+
+      // Handle wrapped format: { flow: {...}, positions: {...} }
+      // vs direct format: { id: "...", name: "...", ... }
+      let flow: Flow;
+      if (parsed.flow && typeof parsed.flow === 'object') {
+        // Wrapped format - extract the flow object
+        console.log(`[INFO] Unwrapping flow ${flowId} from wrapped format`);
+        flow = parsed.flow as Flow;
+      } else {
+        // Direct format
+        flow = parsed as Flow;
+      }
+
+      // Validate flow has an ID
+      if (!flow.id) {
+        console.error(`[ERROR] Flow ${flowId} is missing an ID field`);
+        return null;
+      }
 
       // Cache the flow
       this.flowCache.set(flowId, flow);
@@ -86,13 +104,26 @@ export class LocalStorageFlowProvider implements FlowProvider {
 
   async findFlowByWhatsAppNumber(phoneNumberId: string): Promise<Flow | null> {
     try {
+      // CRITICAL: Map phoneNumberId (from Meta) to numberId (from admin panel)
+      // This is needed because flows store numberId, but webhook sends phoneNumberId
+      const numberIdMappings = await this.getPhoneNumberIdMappings();
+      const matchingNumberIds = [phoneNumberId]; // Start with direct phoneNumberId
+
+      // Add mapped numberId if found
+      if (numberIdMappings[phoneNumberId]) {
+        matchingNumberIds.push(numberIdMappings[phoneNumberId]);
+      }
+
       const allFlows = await this.getAllFlows();
       for (const flow of allFlows) {
         const assignments = flow.channelAssignments || [];
         const whatsappAssignment = assignments.find((a: any) => a.channelType === 'whatsapp');
         if (whatsappAssignment && whatsappAssignment.whatsappNumbers) {
-          if (whatsappAssignment.whatsappNumbers.includes(phoneNumberId)) {
-            return flow;
+          // Check if any of the matching IDs is in the assignment
+          for (const numberId of matchingNumberIds) {
+            if (whatsappAssignment.whatsappNumbers.includes(numberId)) {
+              return flow;
+            }
           }
         }
       }
@@ -100,6 +131,48 @@ export class LocalStorageFlowProvider implements FlowProvider {
     } catch (error) {
       console.error("[ERROR] Failed to find flow by WhatsApp number:", error);
       return null;
+    }
+  }
+
+  /**
+   * Maps phoneNumberId (from Meta/WhatsApp) to numberId (from admin panel)
+   * Returns a mapping object: { phoneNumberId: numberId }
+   */
+  private async getPhoneNumberIdMappings(): Promise<Record<string, string>> {
+    try {
+      // Load WhatsApp connections (has phoneNumberId + displayNumber)
+      const connectionsPath = path.join(process.cwd(), "data", "whatsapp-connections.json");
+      const connectionsData = await fs.readFile(connectionsPath, "utf-8");
+      const connections = JSON.parse(connectionsData).connections || [];
+
+      // Load admin WhatsApp numbers (has numberId + phoneNumber)
+      const adminNumbersPath = path.join(process.cwd(), "data", "admin", "whatsapp-numbers.json");
+      const adminNumbersData = await fs.readFile(adminNumbersPath, "utf-8");
+      const adminNumbers = JSON.parse(adminNumbersData);
+
+      // Create mapping: phoneNumberId -> numberId
+      const mapping: Record<string, string> = {};
+
+      for (const conn of connections) {
+        const phoneNumberId = conn.phoneNumberId;
+        const displayNumber = conn.displayNumber;
+
+        // Find matching admin number by phone number (normalized)
+        const normalizedDisplay = displayNumber.replace(/\s/g, '');
+        const adminNumber = adminNumbers.find((num: any) =>
+          num.phoneNumber.replace(/\s/g, '') === normalizedDisplay
+        );
+
+        if (adminNumber) {
+          mapping[phoneNumberId] = adminNumber.numberId;
+          console.log(`[INFO] Mapped phoneNumberId ${phoneNumberId} -> numberId ${adminNumber.numberId} (${displayNumber})`);
+        }
+      }
+
+      return mapping;
+    } catch (error) {
+      console.error("[ERROR] Failed to get phoneNumberId mappings:", error);
+      return {};
     }
   }
 

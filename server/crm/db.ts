@@ -10,6 +10,7 @@ interface CRMStore {
   conversations: Conversation[];
   messages: Message[];
   attachments: Attachment[];
+  lastTicketNumber: number; // Counter for ticket numbers
 }
 
 function ensureDataDir() {
@@ -21,7 +22,7 @@ function ensureDataDir() {
 function loadStore(): CRMStore {
   ensureDataDir();
   if (!fs.existsSync(DB_PATH)) {
-    return { conversations: [], messages: [], attachments: [] };
+    return { conversations: [], messages: [], attachments: [], lastTicketNumber: 0 };
   }
   try {
     const raw = fs.readFileSync(DB_PATH, "utf8");
@@ -30,10 +31,11 @@ function loadStore(): CRMStore {
       conversations: parsed.conversations ?? [],
       messages: parsed.messages ?? [],
       attachments: parsed.attachments ?? [],
+      lastTicketNumber: parsed.lastTicketNumber ?? 0,
     };
   } catch (error) {
     console.warn("[CRM] No se pudo leer crm.json, se recreará", error);
-    return { conversations: [], messages: [], attachments: [] };
+    return { conversations: [], messages: [], attachments: [], lastTicketNumber: 0 };
   }
 }
 
@@ -62,8 +64,9 @@ export class CRMDatabase {
   }
 
   /**
-   * Get conversation by phone, channel, and connection ID
-   * CRITICAL: This ensures conversations from different WhatsApp numbers are kept separate
+   * Get conversation by phone, channel AND specific WhatsApp number
+   * CRITICAL: Each client + WhatsApp number combination = separate conversation
+   * This prevents mixing messages sent to different company numbers
    */
   getConversationByPhoneAndChannel(
     phone: string,
@@ -86,15 +89,23 @@ export class CRMDatabase {
     channelConnectionId?: string | null,
     displayNumber?: string | null
   ): Conversation {
-    // Check if conversation already exists for this phone + channel + connection
+    // Check if conversation already exists for this phone + channel + channelConnectionId
+    // Each client + WhatsApp number combination is a separate conversation
     const existing = this.getConversationByPhoneAndChannel(
       phone,
       channel || "whatsapp",
       channelConnectionId || null
     );
-    if (existing) return existing;
+    if (existing) {
+      return existing;
+    }
 
     const now = Date.now();
+
+    // Generate ticket number
+    this.store.lastTicketNumber += 1;
+    const ticketNumber = this.store.lastTicketNumber;
+
     const conversation: Conversation = {
       id: randomUUID(),
       phone,
@@ -113,6 +124,8 @@ export class CRMDatabase {
       channel: (channel as any) || "whatsapp",
       channelConnectionId: channelConnectionId || null,
       displayNumber: displayNumber || null,
+      attendedBy: [], // Array of advisor userIds who have attended this conversation
+      ticketNumber, // Assign incremental ticket number
     };
     this.store.conversations.push(conversation);
     this.save();
@@ -150,6 +163,7 @@ export class CRMDatabase {
     repliedToId?: string | null;
     status: MessageStatus;
     providerMetadata?: Record<string, unknown> | null;
+    sentBy?: string | null;
   }): Message {
     const message: Message = {
       id: randomUUID(),
@@ -163,6 +177,7 @@ export class CRMDatabase {
       status: input.status,
       createdAt: Date.now(),
       providerMetadata: input.providerMetadata ?? null,
+      sentBy: input.sentBy ?? null,
     };
     this.store.messages.push(message);
 
@@ -276,6 +291,9 @@ export class CRMDatabase {
       assignedAt: now,
     });
 
+    // Add advisor to attendedBy list
+    this.addAdvisorToAttendedBy(convId, advisorId);
+
     console.log(`[Queue] Conversation ${convId} accepted by advisor ${advisorId}`);
     return true;
   }
@@ -300,6 +318,26 @@ export class CRMDatabase {
 
     console.log(`[Queue] Conversation ${convId} released back to queue`);
     return true;
+  }
+
+  /**
+   * Add an advisor to the attendedBy array if not already present
+   */
+  addAdvisorToAttendedBy(convId: string, advisorId: string): void {
+    const conversation = this.getConversationById(convId);
+    if (!conversation) return;
+
+    // Initialize attendedBy if it doesn't exist (for old conversations)
+    if (!conversation.attendedBy) {
+      conversation.attendedBy = [];
+    }
+
+    // Add advisor if not already in the list
+    if (!conversation.attendedBy.includes(advisorId)) {
+      const updatedAttendedBy = [...conversation.attendedBy, advisorId];
+      this.updateConversationMeta(convId, { attendedBy: updatedAttendedBy });
+      console.log(`[CRM] Advisor ${advisorId} added to attendedBy for conversation ${convId}`);
+    }
   }
 
   checkTimeoutsAndReassign(timeoutMinutes: number): Conversation[] {

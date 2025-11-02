@@ -121,6 +121,10 @@ export class CrmRealtimeGateway {
     this.broadcast("crm:conv:update", payload);
   }
 
+  emitAdvisorPresenceUpdate(payload: unknown) {
+    this.broadcast("crm:advisor:presence", payload);
+  }
+
   close() {
     clearInterval(this.heartbeat);
     for (const client of this.clients.values()) {
@@ -262,6 +266,7 @@ export class CrmRealtimeGateway {
 }
 
 const gateways = new WeakMap<Server, CrmRealtimeGateway>();
+let singletonGateway: CrmRealtimeGateway | null = null;
 
 export function initCrmWSS(server: Server): CrmRealtimeGateway {
   const existing = gateways.get(server);
@@ -270,7 +275,16 @@ export function initCrmWSS(server: Server): CrmRealtimeGateway {
   }
   const gateway = new CrmRealtimeGateway(server);
   gateways.set(server, gateway);
+  singletonGateway = gateway; // Store singleton reference
   return gateway;
+}
+
+/**
+ * Get the CRM WebSocket gateway instance (if initialized)
+ * Used to emit events from other modules (e.g., admin routes)
+ */
+export function getCrmGateway(): CrmRealtimeGateway | null {
+  return singletonGateway;
 }
 
 export type CrmRealtimeManager = CrmRealtimeGateway;

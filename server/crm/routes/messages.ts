@@ -47,6 +47,9 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
       ? inferTypeFromMime(attachments[0]!.mime)
       : "text";
 
+    // Obtener nombre del asesor para mensajes salientes
+    const sentBy = req.user?.username ?? null;
+
     const message = crmDb.appendMessage({
       convId: conversation.id,
       direction: "outgoing",
@@ -56,6 +59,7 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
       mediaThumb: attachments[0]?.thumbUrl ?? null,
       repliedToId: payload.replyToId ?? null,
       status: payload.isInternal ? "sent" : "pending",
+      sentBy,  // Guardar nombre del asesor (no se envía al cliente, solo visible internamente)
     });
 
     // Link attachment and re-fetch to get updated msgId
@@ -76,7 +80,7 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
     // Auto-cambiar a "attending" cuando el asesor responde (excepto notas internas)
     // Y asignar al asesor si la conversación estaba en cola
     if (!payload.isInternal && conversation.status === "active") {
-      const advisorId = req.user?.email || "unknown";
+      const advisorId = req.user?.userId || "unknown";
       const now = Date.now();
 
       crmDb.updateConversationMeta(conversation.id, {
@@ -85,8 +89,25 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
         assignedAt: now,
       });
 
-      // Start tracking metrics for this conversation
-      metricsTracker.startConversation(conversation.id, advisorId);
+      // Add advisor to attendedBy list
+      crmDb.addAdvisorToAttendedBy(conversation.id, advisorId);
+
+      // Start tracking metrics for this conversation with full context
+      metricsTracker.startConversation(conversation.id, advisorId, {
+        queueId: conversation.queueId || undefined,
+        channelType: conversation.channel as any,
+        channelId: conversation.channelConnectionId || undefined,
+      });
+    }
+
+    // Mark conversation as active when advisor sends a message
+    if (!payload.isInternal && conversation.status === "attending") {
+      metricsTracker.markConversationActive(conversation.id);
+    }
+
+    // If advisor sends a message while attending, add to attendedBy (if not already there)
+    if (!payload.isInternal && req.user?.userId) {
+      crmDb.addAdvisorToAttendedBy(conversation.id, req.user.userId);
     }
 
     socketManager.emitConversationUpdate({ conversation: crmDb.getConversationById(conversation.id)! });
@@ -94,8 +115,31 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
     let providerResult: WspTestResult | null = null;
     // Solo enviar a WhatsApp si NO es una nota interna
     if (conversation.phone && !payload.isInternal) {
+      // Get WhatsApp message ID from replied-to message if replying
+      let replyToWhatsAppMessageId: string | null = null;
+      if (payload.replyToId) {
+        const repliedToMessages = crmDb.listMessages(conversation.id);
+        const repliedToMessage = repliedToMessages.find(m => m.id === payload.replyToId);
+        if (repliedToMessage?.providerMetadata && typeof repliedToMessage.providerMetadata === 'object') {
+          const metadata = repliedToMessage.providerMetadata as Record<string, unknown>;
+          replyToWhatsAppMessageId = metadata.whatsapp_message_id as string ?? null;
+        }
+      }
+
       if (!attachments.length && payload.text) {
-        providerResult = await sendWspTestMessage({ to: conversation.phone, text: payload.text });
+        // Send text message (with reply context if available)
+        const outbound = await sendOutboundMessage({
+          phone: conversation.phone,
+          text: payload.text,
+          replyToWhatsAppMessageId,
+          channelConnectionId: conversation.channelConnectionId, // Use the conversation's WhatsApp number
+        });
+        providerResult = {
+          ok: outbound.ok,
+          providerStatus: outbound.status,
+          body: outbound.body,
+          error: outbound.error,
+        };
       } else if (attachments.length > 0) {
         // Si hay adjunto, subirlo a WhatsApp Media API primero
         let mediaId: string | undefined;
@@ -108,6 +152,7 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
               stream,
               filename: attachment.filename,
               mimeType: attachment.mime,
+              channelConnectionId: conversation.channelConnectionId, // Use the conversation's WhatsApp number
             });
 
             if (uploadResult.ok && uploadResult.mediaId) {
@@ -123,6 +168,17 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
 
         // Enviar mensaje con mediaId o fallar
         if (mediaId) {
+          // Get WhatsApp message ID from replied-to message if replying
+          let replyToWhatsAppMessageId: string | null = null;
+          if (payload.replyToId) {
+            const repliedToMessages = crmDb.listMessages(conversation.id);
+            const repliedToMessage = repliedToMessages.find(m => m.id === payload.replyToId);
+            if (repliedToMessage?.providerMetadata && typeof repliedToMessage.providerMetadata === 'object') {
+              const metadata = repliedToMessage.providerMetadata as Record<string, unknown>;
+              replyToWhatsAppMessageId = metadata.whatsapp_message_id as string ?? null;
+            }
+          }
+
           const outbound = await sendOutboundMessage({
             phone: conversation.phone,
             text: payload.text ?? undefined,
@@ -130,6 +186,8 @@ export function createMessagesRouter(socketManager: CrmRealtimeManager, bitrixSe
             mediaType: inferTypeFromMime(attachment.mime),
             caption: payload.text ?? undefined,
             filename: attachment.filename ?? undefined,
+            replyToWhatsAppMessageId,
+            channelConnectionId: conversation.channelConnectionId, // Use the conversation's WhatsApp number
           });
           providerResult = {
             ok: outbound.ok,

@@ -86,6 +86,30 @@ export function getBitrixEnv(): BitrixEnvConfig {
   return { webhookUrl, portal };
 }
 
+/**
+ * Obtiene la configuración de Bitrix24 para el cliente
+ * Prioriza OAuth sobre webhook si ambos están disponibles
+ */
+export function getBitrixClientConfig(): { domain?: string; accessToken?: string; webhookUrl?: string } | null {
+  const tokens = readBitrixTokenFile();
+
+  // Preferir OAuth si está disponible
+  if (tokens?.access_token && tokens?.domain) {
+    return {
+      domain: tokens.domain,
+      accessToken: tokens.access_token,
+    };
+  }
+
+  // Fallback a webhook si está configurado
+  const webhookUrl = readEnv("BITRIX24_WEBHOOK_URL");
+  if (webhookUrl) {
+    return { webhookUrl };
+  }
+
+  return null;
+}
+
 export function getWhatsAppVerifyToken(): string {
   return getWhatsAppEnv().verifyToken ?? "";
 }

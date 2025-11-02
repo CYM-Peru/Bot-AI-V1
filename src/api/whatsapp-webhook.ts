@@ -36,6 +36,7 @@ export interface WhatsAppWebhookHandlerOptions {
   verifyToken: string;
   engine: RuntimeEngine;
   apiConfig: WhatsAppApiConfig;
+  resolveApiConfig?: (phoneNumberId: string) => Promise<WhatsAppApiConfig | null> | WhatsAppApiConfig | null;
   resolveFlow: FlowResolver;
   logger?: Logger;
   onIncomingMessage?: (payload: {
@@ -46,6 +47,14 @@ export interface WhatsAppWebhookHandlerOptions {
   onBotTransfer?: (payload: {
     phone: string;
     queueId: string | null;
+    transferTarget?: string; // "queue", "advisor", or "bot"
+    transferDestination?: string; // ID of queue/advisor/flow
+  }) => Promise<void> | void;
+  onBotMessage?: (payload: {
+    phone: string;
+    phoneNumberId?: string;
+    message: OutboundMessage;
+    result: {ok: boolean; status: number};
   }) => Promise<void> | void;
 }
 
@@ -56,21 +65,28 @@ export class WhatsAppWebhookHandler {
 
   private readonly apiConfig: WhatsAppApiConfig;
 
+  private readonly resolveApiConfig?: WhatsAppWebhookHandlerOptions["resolveApiConfig"];
+
   private readonly resolveFlow: FlowResolver;
 
   private readonly logger?: Logger;
 
   private readonly onIncomingMessage?: WhatsAppWebhookHandlerOptions["onIncomingMessage"];
   private readonly onBotTransfer?: WhatsAppWebhookHandlerOptions["onBotTransfer"];
+  private readonly onBotMessage?: WhatsAppWebhookHandlerOptions["onBotMessage"];
+
+  private currentPhoneNumberId?: string; // Track current incoming phoneNumberId
 
   constructor(options: WhatsAppWebhookHandlerOptions) {
     this.verifyToken = options.verifyToken;
     this.engine = options.engine;
     this.apiConfig = options.apiConfig;
+    this.resolveApiConfig = options.resolveApiConfig;
     this.resolveFlow = options.resolveFlow;
     this.logger = options.logger;
     this.onIncomingMessage = options.onIncomingMessage;
     this.onBotTransfer = options.onBotTransfer;
+    this.onBotMessage = options.onBotMessage;
   }
 
   async handle(request: Request): Promise<Response> {
@@ -125,6 +141,9 @@ export class WhatsAppWebhookHandler {
 
   private async processMessage(entryId: string, value: ChangeValue, message: WhatsAppMessage): Promise<void> {
     try {
+      // CRITICAL: Store incoming phoneNumberId for correct response routing
+      this.currentPhoneNumberId = value.metadata?.phone_number_id;
+
       const context: WhatsAppMessageContext = { entryId, value, message };
       const resolution = await this.resolveFlow(context);
 
@@ -151,7 +170,7 @@ export class WhatsAppWebhookHandler {
         metadata: { whatsapp: message },
       });
       for (const response of result.responses) {
-        await this.dispatchOutbound(resolution.contactId, response);
+        await this.dispatchOutbound(resolution.contactId, response, message.from);
       }
     } catch (error) {
       this.logger?.error?.("Runtime processing failed", {
@@ -162,10 +181,24 @@ export class WhatsAppWebhookHandler {
     }
   }
 
-  private async dispatchOutbound(to: string, message: OutboundMessage): Promise<void> {
+  private async getActiveApiConfig(): Promise<WhatsAppApiConfig> {
+    // CRITICAL: Use phoneNumberId from incoming message to get correct API config
+    if (this.currentPhoneNumberId && this.resolveApiConfig) {
+      const resolved = await this.resolveApiConfig(this.currentPhoneNumberId);
+      if (resolved) {
+        return resolved;
+      }
+    }
+    // Fallback to default config
+    return this.apiConfig;
+  }
+
+  private async dispatchOutbound(to: string, message: OutboundMessage, phone: string): Promise<void> {
+    const apiConfig = await this.getActiveApiConfig();
+
     switch (message.type) {
       case "text": {
-        await this.safeSend(() => sendTextMessage(this.apiConfig, to, message.text), message);
+        await this.safeSend(() => sendTextMessage(apiConfig, to, message.text), message, phone);
         return;
       }
       case "buttons": {
@@ -174,38 +207,53 @@ export class WhatsAppWebhookHandler {
           title: button.label ?? `Opción ${index + 1}`,
         }));
         if (buttons.length === 0) {
-          await this.safeSend(() => sendTextMessage(this.apiConfig, to, message.text), {
+          await this.safeSend(() => sendTextMessage(apiConfig, to, message.text), {
             type: "text",
             text: message.text,
-          });
+          }, phone);
           return;
         }
-        await this.safeSend(() => sendButtonsMessage(this.apiConfig, to, message.text, buttons), message);
+        await this.safeSend(() => sendButtonsMessage(apiConfig, to, message.text, buttons), message, phone);
         return;
       }
       case "media": {
         const mediaType = normalizeMediaType(message.mediaType);
         await this.safeSend(
-          () => sendMediaMessage(this.apiConfig, to, message.url, mediaType, message.caption),
+          () => sendMediaMessage(apiConfig, to, message.url, mediaType, message.caption),
           message,
+          phone,
         );
         return;
       }
       case "menu": {
         const text = buildMenuText(message);
-        await this.safeSend(() => sendTextMessage(this.apiConfig, to, text), message);
+        await this.safeSend(() => sendTextMessage(apiConfig, to, text), message, phone);
         return;
       }
       case "system":
         this.logger?.info?.("System message received", { payload: message.payload });
 
         // CRITICAL: Process bot transfer to prevent conversations going to limbo
-        if (message.payload?.action === "transfer_to_agent") {
-          const queueId = (message.payload as any).queueId as string | null;
-          this.logger?.info?.("Bot transfer detected", { to, queueId });
+        if (message.payload?.action === "transfer_to_agent" || message.payload?.action === "transfer") {
+          const payload = message.payload as any;
+          const queueId = payload.queueId as string | null;
+          const transferTarget = payload.transferTarget as string | undefined; // "queue", "advisor", or "bot"
+          const transferDestination = payload.transferDestination as string | undefined;
+
+          this.logger?.info?.("Bot transfer detected", {
+            to,
+            queueId,
+            transferTarget,
+            transferDestination
+          });
 
           if (this.onBotTransfer) {
-            await this.onBotTransfer({ phone: to, queueId: queueId || null });
+            await this.onBotTransfer({
+              phone: to,
+              queueId: queueId || null,
+              transferTarget: transferTarget || "queue",
+              transferDestination: transferDestination || "",
+            });
           }
         }
         return;
@@ -217,9 +265,21 @@ export class WhatsAppWebhookHandler {
   private async safeSend(
     sender: () => Promise<WhatsAppApiResult>,
     message: OutboundMessage,
+    phone: string,
   ): Promise<void> {
     try {
       const result = await sender();
+
+      // Notify CRM about bot message
+      if (this.onBotMessage) {
+        await this.onBotMessage({
+          phone,
+          phoneNumberId: this.currentPhoneNumberId, // Pass phoneNumberId to CRM
+          message,
+          result: { ok: result.ok, status: result.status },
+        });
+      }
+
       if (!result.ok) {
         this.logger?.warn?.("WhatsApp API call failed", {
           status: result.status,

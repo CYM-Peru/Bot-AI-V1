@@ -2,7 +2,9 @@ import { apiUrl } from "../lib/apiBase";
 import type { Attachment, Conversation, Message } from "./types";
 
 export async function fetchConversations(): Promise<Conversation[]> {
-  const response = await fetch(apiUrl("/api/crm/conversations"));
+  const response = await fetch(apiUrl("/api/crm/conversations"), {
+    credentials: "include",
+  });
   if (!response.ok) {
     throw new Error("No se pudieron cargar las conversaciones");
   }
@@ -11,7 +13,9 @@ export async function fetchConversations(): Promise<Conversation[]> {
 }
 
 export async function fetchMessages(convId: string): Promise<{ messages: Message[]; attachments: Attachment[] }> {
-  const response = await fetch(apiUrl(`/api/crm/conversations/${convId}/messages`));
+  const response = await fetch(apiUrl(`/api/crm/conversations/${convId}/messages`), {
+    credentials: "include",
+  });
   if (!response.ok) {
     throw new Error("No se pudieron cargar los mensajes");
   }
@@ -41,6 +45,7 @@ export async function sendMessage(payload: SendMessagePayload): Promise<SendMess
   const response = await fetch(apiUrl("/api/crm/messages/send"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
@@ -59,6 +64,7 @@ export async function uploadAttachment(file: File) {
   const response = await fetch(apiUrl("/api/crm/attachments/upload"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ filename: file.name, mime: file.type || "application/octet-stream", data: base64 }),
   });
   if (!response.ok) {
@@ -83,6 +89,7 @@ async function fileToBase64(file: File): Promise<string> {
 export async function archiveConversation(convId: string) {
   const response = await fetch(apiUrl(`/api/crm/conversations/${convId}/archive`), {
     method: "POST",
+    credentials: "include",
   });
   if (!response.ok) {
     throw new Error("No se pudo archivar la conversación");

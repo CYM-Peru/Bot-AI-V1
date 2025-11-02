@@ -12,6 +12,7 @@ interface MessageListProps {
 export default function MessageList({ messages, attachments, onReply }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const isInitialMount = useRef(true);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   const attachmentMap = useMemo(() => {
     const map = new Map<string, Attachment[]>();
@@ -49,15 +50,29 @@ export default function MessageList({ messages, attachments, onReply }: MessageL
     }
   }, [messages.length]);
 
+  // Function to scroll to a specific message
+  const handleScrollToMessage = (messageId: string) => {
+    const messageElement = document.getElementById(`message-${messageId}`);
+    if (messageElement) {
+      messageElement.scrollIntoView({ behavior: "smooth", block: "center" });
+
+      // Highlight the message temporarily
+      messageElement.classList.add("highlight-message");
+      setTimeout(() => {
+        messageElement.classList.remove("highlight-message");
+      }, 2000);
+    }
+  };
+
   return (
-    <div className="min-h-full bg-slate-50 px-4 py-6">
-      <div className="mx-auto flex max-w-3xl flex-col gap-3">
+    <div className="min-h-full bg-slate-50 px-6 py-4" ref={containerRef}>
+      <div className="flex flex-col gap-2">
         {messages.map((message) => {
           // Render system messages differently
           if (message.type === "system") {
             return (
-              <div key={message.id} className="flex justify-center my-2">
-                <div className="px-4 py-2 bg-blue-50 text-blue-700 text-xs rounded-full border border-blue-200 max-w-md text-center shadow-sm">
+              <div key={message.id} id={`message-${message.id}`} className="flex justify-center my-1">
+                <div className="px-3 py-1.5 bg-gradient-to-br from-slate-600 to-slate-700 text-slate-50 text-[11px] font-medium rounded-lg max-w-md text-center shadow-md tracking-wide">
                   {message.text}
                 </div>
               </div>
@@ -73,6 +88,7 @@ export default function MessageList({ messages, attachments, onReply }: MessageL
               repliedTo={message.repliedToId ? messageMap.get(message.repliedToId) ?? null : null}
               repliedAttachments={message.repliedToId ? attachmentMap.get(message.repliedToId) ?? [] : []}
               onReply={() => onReply(message)}
+              onScrollToMessage={handleScrollToMessage}
             />
           );
         })}

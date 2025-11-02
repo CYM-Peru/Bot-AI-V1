@@ -8,6 +8,35 @@ import type { Attachment, MessageType } from "./models";
 import { logDebug, logError } from "../utils/file-logger";
 import { getWhatsAppEnv } from "../utils/env";
 import axios from "axios";
+import fs from "fs/promises";
+import path from "path";
+
+/**
+ * Update connection with WABA ID from webhook
+ * This automatically captures the WhatsApp Business Account ID from incoming webhooks
+ */
+async function updateConnectionWabaId(phoneNumberId: string, wabaId: string): Promise<void> {
+  try {
+    const connectionsPath = path.join(process.cwd(), "data", "whatsapp-connections.json");
+    const data = await fs.readFile(connectionsPath, "utf-8");
+    const parsed = JSON.parse(data);
+
+    if (!parsed.connections) {
+      return;
+    }
+
+    // Find connection by phoneNumberId
+    const connection = parsed.connections.find((c: any) => c.phoneNumberId === phoneNumberId);
+
+    if (connection && !connection.wabaId) {
+      connection.wabaId = wabaId;
+      await fs.writeFile(connectionsPath, JSON.stringify(parsed, null, 2), "utf-8");
+      logDebug(`[CRM] Updated connection ${connection.id} with WABA ID: ${wabaId}`);
+    }
+  } catch (error) {
+    logError(`[CRM] Failed to update connection with WABA ID:`, error);
+  }
+}
 
 interface HandleIncomingArgs {
   entryId: string;
@@ -27,8 +56,14 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
   // This ensures conversations from different WhatsApp numbers stay separate
   const phoneNumberId = args.value.metadata?.phone_number_id || null;
   const displayNumber = args.value.metadata?.display_phone_number || null;
+  const wabaId = args.entryId; // WhatsApp Business Account ID from webhook entry
 
-  logDebug(`[CRM] Incoming message from ${phone} via phoneNumberId: ${phoneNumberId} (${displayNumber})`);
+  logDebug(`[CRM] Incoming message from ${phone} via phoneNumberId: ${phoneNumberId} (${displayNumber}), WABA: ${wabaId}`);
+
+  // Update connection with WABA ID if not already set
+  if (phoneNumberId && wabaId) {
+    await updateConnectionWabaId(phoneNumberId, wabaId);
+  }
 
   // Get or create conversation using phone + channel + phoneNumberId
   let conversation = crmDb.getConversationByPhoneAndChannel(phone, "whatsapp", phoneNumberId);
@@ -55,6 +90,11 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
     mediaThumb: attachment?.thumbUrl ?? null,
     repliedToId: null,
     status: "delivered",
+    providerMetadata: {
+      whatsapp_message_id: args.message.id,
+      from: args.message.from,
+      timestamp: args.message.timestamp,
+    },
   });
 
   // Track incoming message for metrics

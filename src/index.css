@@ -19,6 +19,90 @@ body{
   background-color: var(--surface);
 }
 
+/* ===== BUTTON STYLES ===== */
+.btn {
+  @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none;
+}
+
+/* Primary Button - Elegant emerald gradient */
+.btn--primary {
+  @apply bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:from-emerald-600 hover:to-teal-600 focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2;
+}
+
+/* Secondary Button - Soft blue gradient */
+.btn--secondary {
+  @apply bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-600 hover:to-indigo-600 focus:ring-2 focus:ring-blue-400 focus:ring-offset-2;
+}
+
+/* Ghost Button - Subtle with pastel hover */
+.btn--ghost {
+  @apply bg-white text-slate-700 border border-slate-200 hover:bg-gradient-to-r hover:from-slate-50 hover:to-slate-100 hover:border-slate-300 focus:ring-2 focus:ring-slate-300 focus:ring-offset-1;
+}
+
+/* Danger Button - Soft rose gradient */
+.btn--danger {
+  @apply bg-gradient-to-r from-rose-500 to-pink-500 text-white hover:from-rose-600 hover:to-pink-600 focus:ring-2 focus:ring-rose-400 focus:ring-offset-2;
+}
+
+/* Success Button - Mint to emerald */
+.btn--success {
+  @apply bg-gradient-to-r from-emerald-400 to-green-500 text-white hover:from-emerald-500 hover:to-green-600 focus:ring-2 focus:ring-emerald-300 focus:ring-offset-2;
+}
+
+/* Warning Button - Soft amber gradient */
+.btn--warning {
+  @apply bg-gradient-to-r from-amber-400 to-orange-400 text-white hover:from-amber-500 hover:to-orange-500 focus:ring-2 focus:ring-amber-300 focus:ring-offset-2;
+}
+
+/* Pastel variants for softer look */
+.btn--pastel-mint {
+  @apply bg-gradient-to-br from-emerald-100 to-teal-100 text-emerald-800 border border-emerald-200 hover:from-emerald-200 hover:to-teal-200 hover:border-emerald-300 focus:ring-2 focus:ring-emerald-200;
+}
+
+.btn--pastel-blue {
+  @apply bg-gradient-to-br from-blue-100 to-indigo-100 text-blue-800 border border-blue-200 hover:from-blue-200 hover:to-indigo-200 hover:border-blue-300 focus:ring-2 focus:ring-blue-200;
+}
+
+.btn--pastel-rose {
+  @apply bg-gradient-to-br from-rose-100 to-pink-100 text-rose-800 border border-rose-200 hover:from-rose-200 hover:to-pink-200 hover:border-rose-300 focus:ring-2 focus:ring-rose-200;
+}
+
+/* Small button variant */
+.btn--sm {
+  @apply px-3 py-1.5 text-xs;
+}
+
+/* Large button variant */
+.btn--lg {
+  @apply px-6 py-3 text-base;
+}
+
+/* Icon-only button */
+.btn--icon {
+  @apply p-2 aspect-square;
+}
+
+/* ===== END BUTTON STYLES ===== */
+
+/* ===== MESSAGE HIGHLIGHT ANIMATION ===== */
+@keyframes highlight-pulse {
+  0%, 100% {
+    background-color: transparent;
+    transform: scale(1);
+  }
+  50% {
+    background-color: rgba(16, 185, 129, 0.15);
+    transform: scale(1.02);
+  }
+}
+
+.highlight-message {
+  animation: highlight-pulse 2s ease-in-out;
+  border-radius: 1rem;
+}
+
+/* ===== END MESSAGE HIGHLIGHT ===== */
+
 .react-flow__edge.flow-edge path {
   stroke: #94a3b8;
   stroke-width: 2px;

@@ -16,6 +16,25 @@ export default function AttachmentPreview({ attachment, compact = false }: Attac
   const isPdf = attachment.mime === "application/pdf";
 
   if (compact) {
+    // For images, show a thumbnail instead of just filename
+    if (isImage && attachment.thumbUrl) {
+      return (
+        <div className="flex items-center gap-2 rounded-md bg-white/70 overflow-hidden border border-white/40">
+          <img
+            src={attachment.thumbUrl || attachment.url}
+            alt={attachment.filename}
+            className="h-12 w-12 object-cover flex-shrink-0"
+            loading="lazy"
+            onError={() => setImageError(true)}
+          />
+          <span className="truncate pr-2 text-xs text-slate-700 font-medium" title={attachment.filename}>
+            {attachment.filename}
+          </span>
+        </div>
+      );
+    }
+
+    // For other file types, show emoji + filename
     return (
       <div className="flex items-center gap-2 rounded-md bg-white/70 px-2 py-1 text-xs text-slate-600">
         <span>{emojiForAttachment(attachment)}</span>
@@ -34,7 +53,7 @@ export default function AttachmentPreview({ attachment, compact = false }: Attac
             <img
               src={attachment.thumbUrl || attachment.url}
               alt={attachment.filename}
-              className="max-h-64 w-full object-cover cursor-pointer transition hover:opacity-90"
+              className="max-h-80 w-full object-contain cursor-pointer transition hover:opacity-90 bg-slate-50"
               loading="lazy"
               onClick={() => setShowModal(true)}
               onError={() => setImageError(true)}

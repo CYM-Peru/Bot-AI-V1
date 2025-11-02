@@ -758,9 +758,14 @@ export class NodeExecutor {
   }
 
   private executeTransferNode(node: FlowNode): ExecutionResult {
-    // Transfer node ends bot conversation and signals handoff to human agent
-    const transferMessage = node.action?.data?.text || node.description || "Transfering to agent...";
-    const queueId = node.action?.data?.queueId; // Get queue from node config
+    // Transfer node: queue, advisor, or bot
+    const target = node.action?.data?.target || "queue"; // "queue", "advisor", or "bot"
+    const destination = node.action?.data?.destination || "";
+    const transferMessage = node.action?.data?.text || node.description || "Transferencia en proceso...";
+
+    // For backward compatibility, check old queueId field
+    const legacyQueueId = node.action?.data?.queueId;
+    const finalQueueId = target === "queue" ? destination : (legacyQueueId || null);
 
     return {
       responses: [
@@ -772,10 +777,12 @@ export class NodeExecutor {
           type: "system",
           payload: {
             level: "info",
-            message: "Conversation transferred to human agent",
+            message: `Transfer to ${target}: ${destination}`,
             nodeId: node.id,
-            action: "transfer_to_agent",
-            queueId: queueId || null, // CRITICAL: Pass queueId to prevent limbo
+            action: "transfer",
+            transferTarget: target, // "queue", "advisor", or "bot"
+            transferDestination: destination, // ID of queue/advisor/flow
+            queueId: finalQueueId, // CRITICAL: Pass queueId to prevent limbo (for backward compatibility)
           },
         },
       ],

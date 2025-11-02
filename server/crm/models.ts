@@ -20,6 +20,8 @@ export interface Conversation {
   channel: ChannelType;            // CRITICAL: Channel type (whatsapp, facebook, etc)
   channelConnectionId: string | null;  // CRITICAL: ID of the specific WhatsApp number/connection
   displayNumber: string | null;    // Display number for this connection (e.g., "+51 1 6193636")
+  attendedBy: string[];            // Array of advisor userIds who have attended this conversation
+  ticketNumber: number | null;     // Número correlativo del ticket/chat
 }
 
 export type MessageDirection = "incoming" | "outgoing";
@@ -47,6 +49,7 @@ export interface Message {
   status: MessageStatus;
   createdAt: number;
   providerMetadata?: Record<string, unknown> | null;
+  sentBy?: string | null;  // Nombre del asesor que envió el mensaje (solo para mensajes outgoing, no visible para el cliente)
 }
 
 export interface Attachment {

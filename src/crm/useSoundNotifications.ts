@@ -67,31 +67,37 @@ export function useSoundNotifications(
       }
     }
 
-    const currentMessageIds = new Set(allMessages.map((m) => m.id));
-    const previousIds = previousMessagesRef.current;
+    // Find NEW incoming messages that we haven't seen before
+    const newMessages = allMessages.filter((msg) => {
+      const isNew = !previousMessagesRef.current.has(msg.id);
+      const isIncoming = msg.direction === "incoming";
 
-    // Find new incoming messages from OTHER conversations
-    const newMessages = allMessages.filter(
-      (msg) => !previousIds.has(msg.id) && msg.direction === "incoming"
-    );
+      // Mark this message as seen
+      if (isNew) {
+        previousMessagesRef.current.add(msg.id);
+      }
+
+      // Only return true for incoming messages we haven't seen
+      return isNew && isIncoming;
+    });
 
     // Play sound for new messages (throttle to prevent sound spam)
-    if (newMessages.length > 0) {
+    // Only play if there are genuinely new messages AND we're not in the initial load
+    if (newMessages.length > 0 && previousMessagesRef.current.size > newMessages.length) {
       const now = Date.now();
-      if (now - lastPlayedRef.current > 1000) { // Minimum 1 second between sounds
+      // Minimum 2 seconds between sounds to prevent rapid firing
+      if (now - lastPlayedRef.current > 2000) {
         try {
           if (audioContextRef.current.state === "suspended") {
             audioContextRef.current.resume();
           }
           createNotificationSound(audioContextRef.current, options.volume);
           lastPlayedRef.current = now;
+          console.log(`[CRM] Sound notification played for ${newMessages.length} new message(s)`);
         } catch (error) {
           console.error("[CRM] Error playing notification sound:", error);
         }
       }
     }
-
-    // Update previous messages set
-    previousMessagesRef.current = currentMessageIds;
   }, [allConversationData, selectedConversationId, options.enabled, options.volume]);
 }

@@ -1,5 +1,7 @@
 export type ConversationStatus = "active" | "attending" | "archived";
 
+export type ChannelType = "whatsapp" | "facebook" | "instagram" | "tiktok";
+
 export interface Conversation {
   id: string;
   phone: string;
@@ -11,9 +13,15 @@ export interface Conversation {
   unread: number;
   status: ConversationStatus;
   lastMessagePreview: string | null;
-  assignedTo?: string | null;     // Advisor email/ID who accepted the conversation
-  assignedAt?: number | null;     // Timestamp when assigned
-  queuedAt?: number | null;       // Timestamp when entered queue
+  assignedTo: string | null;       // Advisor email/ID who accepted the conversation
+  assignedAt: number | null;       // Timestamp when assigned
+  queuedAt: number | null;         // Timestamp when entered queue
+  queueId: string | null;          // CRITICAL: Queue ID - prevents conversations from going to limbo
+  channel: ChannelType;            // CRITICAL: Channel type (whatsapp, facebook, etc)
+  channelConnectionId: string | null;  // CRITICAL: ID of the specific WhatsApp number/connection
+  displayNumber: string | null;    // Display number for this connection (e.g., "+51 1 6193636")
+  attendedBy?: string[];           // Array of advisor userIds who have attended this conversation (optional for backwards compatibility)
+  ticketNumber?: number | null;    // Número correlativo del ticket/chat
 }
 
 export type MessageDirection = "incoming" | "outgoing";
@@ -40,6 +48,7 @@ export interface Message {
   repliedToId: string | null;
   status: MessageStatus;
   createdAt: number;
+  sentBy?: string | null;  // Nombre del asesor que envió el mensaje (solo visible internamente)
 }
 
 export interface Attachment {

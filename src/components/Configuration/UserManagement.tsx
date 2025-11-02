@@ -5,24 +5,33 @@ interface User {
   id: string;
   username: string;
   email: string;
-  role: "admin" | "asesor" | "supervisor";
+  role: string;
   status: "active" | "inactive";
   createdAt: string;
 }
 
+interface Role {
+  id: string;
+  name: string;
+  description: string;
+}
+
 export function UserManagement() {
   const [users, setUsers] = useState<User[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formData, setFormData] = useState<{
     username: string;
+    name: string;
     email: string;
     password: string;
-    role: "admin" | "asesor" | "supervisor";
+    role: string;
     status: "active" | "inactive";
   }>({
     username: "",
+    name: "",
     email: "",
     password: "",
     role: "asesor",
@@ -31,6 +40,7 @@ export function UserManagement() {
 
   useEffect(() => {
     loadUsers();
+    loadRoles();
   }, []);
 
   const loadUsers = async () => {
@@ -50,6 +60,20 @@ export function UserManagement() {
     }
   };
 
+  const loadRoles = async () => {
+    try {
+      const response = await fetch(apiUrl("/api/admin/roles"), {
+        credentials: "include",
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setRoles(data.roles || []);
+      }
+    } catch (error) {
+      console.error("Error loading roles:", error);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -61,6 +85,7 @@ export function UserManagement() {
       // Prepare payload - only include password if it's provided
       const payload: Record<string, unknown> = {
         username: formData.username,
+        name: formData.name,
         email: formData.email,
         role: formData.role,
         status: formData.status,
@@ -110,6 +135,7 @@ export function UserManagement() {
     setEditingUser(null);
     setFormData({
       username: "",
+      name: "",
       email: "",
       password: "",
       role: "asesor",
@@ -122,6 +148,7 @@ export function UserManagement() {
     setEditingUser(user);
     setFormData({
       username: user.username,
+      name: (user as any).name || user.username,
       email: user.email,
       password: "",
       role: user.role,
@@ -342,6 +369,17 @@ export function UserManagement() {
               </div>
 
               <div>
+                <label className="block text-sm font-semibold text-slate-700">Nombre Completo</label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-4 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  required
+                />
+              </div>
+
+              <div>
                 <label className="block text-sm font-semibold text-slate-700">Email</label>
                 <input
                   type="email"
@@ -370,13 +408,15 @@ export function UserManagement() {
                 <select
                   value={formData.role}
                   onChange={(e) =>
-                    setFormData({ ...formData, role: e.target.value as "admin" | "asesor" | "supervisor" })
+                    setFormData({ ...formData, role: e.target.value })
                   }
                   className="mt-1 w-full rounded-lg border border-slate-300 px-4 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                 >
-                  <option value="asesor">Asesor</option>
-                  <option value="supervisor">Supervisor</option>
-                  <option value="admin">Admin</option>
+                  {roles.map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 

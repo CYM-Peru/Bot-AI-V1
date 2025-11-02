@@ -26,6 +26,7 @@ import LoginPage from "./components/LoginPage";
 import WelcomeSplash from "./components/WelcomeSplash";
 import { LogOut } from "lucide-react";
 import { AdvisorStatusButton } from "./crm/AdvisorStatusButton";
+import { AdvisorStatusPanel } from "./crm/AdvisorStatusPanel";
 const CRMWorkspace = React.lazy(() => import("./crm"));
 const CampaignsPage = React.lazy(() => import("./campaigns/CampaignsPage"));
 import {
@@ -318,7 +319,7 @@ export default function App(): JSX.Element {
   const [toast, setToast] = useState<Toast | null>(null);
   const [webhookTestResult, setWebhookTestResult] = useState<WebhookResponse | null>(null);
   const [webhookTesting, setWebhookTesting] = useState(false);
-  const [mainTab, setMainTab] = useState<'canvas' | 'crm' | 'campaigns' | 'metrics' | 'config'>('canvas');
+  const [mainTab, setMainTab] = useState<'canvas' | 'crm' | 'campaigns' | 'advisors' | 'metrics' | 'config'>('canvas');
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveFlowName, setSaveFlowName] = useState(flow.name);
 
@@ -331,6 +332,10 @@ export default function App(): JSX.Element {
 
   // All flows - for detecting duplicate number assignments
   const [allFlows, setAllFlows] = useState<Flow[]>([]);
+
+  // Queues and advisors for transfer node
+  const [queues, setQueues] = useState<Array<{ id: string; name: string }>>([]);
+  const [advisors, setAdvisors] = useState<Array<{ id: string; name: string; email: string; isOnline: boolean }>>([]);
 
   // Load WhatsApp numbers and all flows from API on mount
   useEffect(() => {
@@ -376,6 +381,39 @@ export default function App(): JSX.Element {
       loadWhatsAppNumbers();
       loadAllFlows();
     }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Load queues and advisors for transfer node
+  useEffect(() => {
+    const loadQueuesAndAdvisors = async () => {
+      try {
+        // Load queues
+        const queuesRes = await fetch('/api/admin/queues');
+        if (queuesRes.ok) {
+          const queuesData = await queuesRes.json();
+          setQueues((queuesData.queues || []).map((q: any) => ({ id: q.id, name: q.name })));
+        }
+
+        // Load advisors with presence
+        const advisorsRes = await fetch('/api/admin/advisor-presence');
+        if (advisorsRes.ok) {
+          const advisorsData = await advisorsRes.json();
+          setAdvisors((advisorsData.advisors || []).map((a: any) => ({
+            id: a.userId,
+            name: a.user.name || a.user.username,
+            email: a.user.email,
+            isOnline: a.isOnline
+          })));
+        }
+      } catch (error) {
+        console.error('Failed to load queues and advisors:', error);
+      }
+    };
+
+    loadQueuesAndAdvisors();
+    // Refresh every 10 seconds
+    const interval = setInterval(loadQueuesAndAdvisors, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -1716,7 +1754,7 @@ export default function App(): JSX.Element {
           body: '{\n  "user_id": "{{user.id}}",\n  "input": "{{last_message}}"\n}',
         },
         webhook_in: { path: "/hooks/inbound", secret: "", sample: "{ id: 123, text: 'hola' }" },
-        transfer: { target: "open_channel", destination: "ventas" },
+        transfer: { target: "queue", destination: "" },
         handoff: { queue: "agentes", note: "pasar a humano" },
         ia_rag: { prompt: "Buscar en base de conocimiento..." },
         tool: { name: "mi-tool", args: {} },
@@ -2228,7 +2266,7 @@ export default function App(): JSX.Element {
               body: '{\n  "user_id": "{{user.id}}",\n  "input": "{{last_message}}"\n}',
             },
             webhook_in: { path: "/hooks/inbound", secret: "", sample: "{ id: 123, text: 'hola' }" },
-            transfer: { target: "open_channel", destination: "ventas" },
+            transfer: { target: "queue", destination: "" },
             handoff: { queue: "agentes", note: "Pasar a un agente humano" },
             scheduler: normalizeSchedulerData(undefined),
             delay: { delaySeconds: 5, note: "Espera de 5 segundos" },
@@ -2559,9 +2597,19 @@ export default function App(): JSX.Element {
           {user?.id && mainTab === 'crm' && (
             <AdvisorStatusButton userId={user.id} compact={true} />
           )}
-          <h1 className="text-xl md:text-3xl font-bold truncate bg-gradient-to-r from-emerald-600 to-blue-600 bg-clip-text text-transparent tracking-tight" style={{ fontFamily: "'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif" }}>
-            {flow.name}
-          </h1>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 shadow-lg flex items-center justify-center transform hover:scale-105 transition-transform">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-lg md:text-2xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent tracking-tight leading-none" style={{ fontFamily: "'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif" }}>
+                {flow.name}
+              </h1>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">Automatización Inteligente</p>
+            </div>
+          </div>
 
           {/* Tab Navigation */}
           <div className="flex gap-2 md:ml-4 flex-wrap">
@@ -2590,6 +2638,15 @@ export default function App(): JSX.Element {
                 📢 Campañas
               </button>
             )}
+            {hasPermission('crm.view') && (
+              <button
+                className={`btn btn--ghost topbar-tab${mainTab === 'advisors' ? ' is-active' : ''}`}
+                onClick={() => setMainTab('advisors')}
+                type="button"
+              >
+                👥 Asesores
+              </button>
+            )}
             {hasPermission('metrics.view') && (
               <button
                 className={`btn btn--ghost topbar-tab${mainTab === 'metrics' ? ' is-active' : ''}`}
@@ -2611,46 +2668,141 @@ export default function App(): JSX.Element {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
+          {/* Menú de Edición */}
+          <div className="relative group">
+            <button
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-slate-200 hover:border-indigo-300 hover:shadow-md transition-all text-sm font-medium text-slate-700 hover:text-indigo-600"
+              type="button"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              <span className="hidden md:inline">Editar</span>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+              <div className="py-2">
+                <button
+                  onClick={undoRedoActions.undo}
+                  disabled={!undoRedoActions.canUndo}
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-indigo-50 flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  type="button"
+                >
+                  <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                  </svg>
+                  <span>Deshacer</span>
+                  <span className="ml-auto text-xs text-slate-400">⌘Z</span>
+                </button>
+                <button
+                  onClick={undoRedoActions.redo}
+                  disabled={!undoRedoActions.canRedo}
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-indigo-50 flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  type="button"
+                >
+                  <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" />
+                  </svg>
+                  <span>Rehacer</span>
+                  <span className="ml-auto text-xs text-slate-400">⌘Y</span>
+                </button>
+                <div className="border-t border-slate-200 my-1"></div>
+                <button
+                  onClick={() => setShowFlowsGallery(true)}
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-indigo-50 flex items-center gap-3 transition-colors"
+                  type="button"
+                >
+                  <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                  <span>Ver Flujos</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Menú de Archivo */}
+          <div className="relative group">
+            <button
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-slate-200 hover:border-purple-300 hover:shadow-md transition-all text-sm font-medium text-slate-700 hover:text-purple-600"
+              type="button"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              <span className="hidden md:inline">Archivo</span>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+              <div className="py-2">
+                <button
+                  onClick={handleExportPNG}
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-purple-50 flex items-center gap-3 transition-colors"
+                  type="button"
+                >
+                  <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <span>Exportar PNG</span>
+                </button>
+                <button
+                  onClick={handleImportClick}
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-purple-50 flex items-center gap-3 transition-colors"
+                  type="button"
+                >
+                  <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3v-6" />
+                  </svg>
+                  <span>Importar JSON</span>
+                </button>
+                <button
+                  onClick={handleExport}
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-purple-50 flex items-center gap-3 transition-colors"
+                  type="button"
+                >
+                  <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  <span>Exportar JSON</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Botones Principales - Material Design */}
           <button
-            className="btn btn--ghost"
-            onClick={undoRedoActions.undo}
-            disabled={!undoRedoActions.canUndo}
-            title="Deshacer (Ctrl+Z)"
-            type="button"
-          >
-            ↶ Deshacer
-          </button>
-          <button
-            className="btn btn--ghost"
-            onClick={undoRedoActions.redo}
-            disabled={!undoRedoActions.canRedo}
-            title="Rehacer (Ctrl+Y)"
-            type="button"
-          >
-            ↷ Rehacer
-          </button>
-          <button
-            className="btn btn--secondary"
             onClick={handleSaveClick}
             disabled={hasBlockingErrors}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-medium shadow-lg hover:shadow-xl transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none text-sm"
             type="button"
           >
-            Guardar
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+            </svg>
+            <span>Guardar</span>
           </button>
+
           <button
-            className="btn btn--primary"
             disabled={hasBlockingErrors}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white font-medium shadow-lg hover:shadow-xl transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none text-sm"
             type="button"
           >
-            Publicar
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <span>Publicar</span>
           </button>
+
+          {/* Botón Salir */}
           <button
-            className="btn btn--ghost flex items-center gap-2"
             onClick={async () => {
               try {
                 setIsLoggingOut(true);
                 await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-                // Esperar 2 segundos para la animación antes de redirigir
                 setTimeout(() => {
                   window.location.href = '/';
                 }, 2000);
@@ -2659,28 +2811,12 @@ export default function App(): JSX.Element {
                 setIsLoggingOut(false);
               }
             }}
-            title="Cerrar sesión"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-slate-200 hover:border-rose-300 hover:bg-rose-50 text-slate-700 hover:text-rose-600 font-medium transition-all text-sm"
             type="button"
+            title="Cerrar sesión"
           >
             <LogOut className="w-4 h-4" />
-            Salir
-          </button>
-          <button
-            className="btn btn--ghost"
-            onClick={() => setShowFlowsGallery(true)}
-            type="button"
-            title="Ver todos los flujos guardados"
-          >
-            📁 Ver Flujos
-          </button>
-          <button className="btn btn--ghost" onClick={handleExportPNG} type="button">
-            📸 Exportar PNG
-          </button>
-          <button className="btn btn--ghost" onClick={handleImportClick} type="button">
-            Importar JSON
-          </button>
-          <button className="btn btn--ghost" onClick={handleExport} type="button">
-            Exportar JSON
+            <span className="hidden md:inline">Salir</span>
           </button>
         </div>
         {hasBlockingErrors && (
@@ -3974,23 +4110,71 @@ export default function App(): JSX.Element {
                         <div className="space-y-1">
                           <label className="block text-[11px] font-medium text-slate-500">Tipo de transferencia</label>
                           <select className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                            value={selected.action?.data?.target ?? "open_channel"}
-                            onChange={(e)=>updateSelected({ action:{ kind:"transfer", data:{ ...(selected.action?.data||{}), target:e.target.value } } })}>
-                            <option value="open_channel">Canal abierto</option>
-                            <option value="specific_agent">Agente específico</option>
-                            <option value="department">Departamento</option>
+                            value={selected.action?.data?.target ?? "queue"}
+                            onChange={(e)=>updateSelected({ action:{ kind:"transfer", data:{ target:e.target.value, destination:"" } } })}>
+                            <option value="queue">Cola de asesores</option>
+                            <option value="advisor">Asesor específico</option>
+                            <option value="bot">Bot / Flujo</option>
                           </select>
                         </div>
-                        <div className="space-y-1">
-                          <label className="block text-[11px] font-medium text-slate-500">Destino</label>
-                          <input
-                            className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                            placeholder="Ej: ventas, soporte, agente_001"
-                            value={selected.action?.data?.destination ?? ""}
-                            onChange={(e)=>updateSelected({ action:{ kind:"transfer", data:{ ...(selected.action?.data||{}), destination:e.target.value } } })}
-                          />
-                          <p className="text-[10px] text-slate-400">Especifica el nombre del departamento o agente al que se transferirá</p>
-                        </div>
+
+                        {selected.action?.data?.target === "queue" && (
+                          <div className="space-y-1">
+                            <label className="block text-[11px] font-medium text-slate-500">Cola</label>
+                            <select className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                              value={selected.action?.data?.destination ?? ""}
+                              onChange={(e)=>updateSelected({ action:{ kind:"transfer", data:{ ...(selected.action?.data||{}), destination:e.target.value } } })}>
+                              <option value="">-- Selecciona una cola --</option>
+                              {queues.map(q => (
+                                <option key={q.id} value={q.id}>{q.name}</option>
+                              ))}
+                            </select>
+                            <p className="text-[10px] text-slate-400">
+                              La conversación se asignará automáticamente al siguiente asesor disponible en la cola
+                            </p>
+                          </div>
+                        )}
+
+                        {selected.action?.data?.target === "advisor" && (
+                          <div className="space-y-1">
+                            <label className="block text-[11px] font-medium text-slate-500">Asesor</label>
+                            <select className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                              value={selected.action?.data?.destination ?? ""}
+                              onChange={(e)=>updateSelected({ action:{ kind:"transfer", data:{ ...(selected.action?.data||{}), destination:e.target.value } } })}>
+                              <option value="">-- Selecciona un asesor --</option>
+                              {advisors.map(a => (
+                                <option key={a.id} value={a.id}>
+                                  {a.isOnline ? "🟢" : "⚫"} {a.name} ({a.email})
+                                </option>
+                              ))}
+                            </select>
+                            <p className="text-[10px] text-slate-400">
+                              {selected.action?.data?.destination && advisors.find(a => a.id === selected.action?.data?.destination)?.isOnline === false && (
+                                <span className="text-amber-600">⚠️ El asesor está desconectado. Leerá el mensaje cuando se conecte.</span>
+                              )}
+                              {(!selected.action?.data?.destination || advisors.find(a => a.id === selected.action?.data?.destination)?.isOnline) && (
+                                <span>La conversación se asignará directamente a este asesor</span>
+                              )}
+                            </p>
+                          </div>
+                        )}
+
+                        {selected.action?.data?.target === "bot" && (
+                          <div className="space-y-1">
+                            <label className="block text-[11px] font-medium text-slate-500">Bot / Flujo</label>
+                            <select className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                              value={selected.action?.data?.destination ?? ""}
+                              onChange={(e)=>updateSelected({ action:{ kind:"transfer", data:{ ...(selected.action?.data||{}), destination:e.target.value } } })}>
+                              <option value="">-- Selecciona un flujo --</option>
+                              {allFlows.map(f => (
+                                <option key={f.id} value={f.id}>{f.name}</option>
+                              ))}
+                            </select>
+                            <p className="text-[10px] text-slate-400">
+                              El bot ejecutará el flujo seleccionado desde el principio
+                            </p>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -4203,6 +4387,15 @@ export default function App(): JSX.Element {
           >
             <CampaignsPage />
           </React.Suspense>
+        </div>
+      )}
+
+      {/* Advisors Tab */}
+      {mainTab === 'advisors' && hasPermission('crm.view') && (
+        <div className="mt-2 h-[calc(100vh-160px)]">
+          <div className="h-full max-w-4xl mx-auto">
+            <AdvisorStatusPanel socket={null} />
+          </div>
         </div>
       )}
 
