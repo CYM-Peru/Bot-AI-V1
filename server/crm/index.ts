@@ -2,21 +2,24 @@ import type { Application } from "express";
 import { Router } from "express";
 import type { ChangeValue, WhatsAppMessage } from "../../src/api/whatsapp-webhook";
 import type { Bitrix24Client } from "../../src/integrations/bitrix24";
-import { createAttachmentsRouter } from "./routes/attachments";
+import { createAttachmentsRouter, createPublicAttachmentsRouter } from "./routes/attachments";
 import { createMessagesRouter } from "./routes/messages";
 import { createConversationsRouter } from "./routes/conversations";
 import { createTemplatesRouter } from "./routes/templates";
 import { createMetricsRouter } from "./routes/metrics";
+import { createSessionsRouter } from "./routes/sessions";
 import mediaRouter from "./routes/media";
 import { createBitrixService } from "./services/bitrix";
 import { handleIncomingWhatsAppMessage } from "./inbound";
 import type { CrmRealtimeManager } from "./ws";
 import { requireAuth } from "../auth/middleware";
+import type { LocalStorageFlowProvider } from "../flow-provider";
 
 export interface RegisterCrmOptions {
   app: Application;
   socketManager: CrmRealtimeManager;
   bitrixClient?: Bitrix24Client;
+  flowProvider: LocalStorageFlowProvider;
 }
 
 export function registerCrmModule(options: RegisterCrmOptions) {
@@ -30,14 +33,19 @@ export function registerCrmModule(options: RegisterCrmOptions) {
     res.json({ ok: true, ws: status.clients >= 0, clients: status.clients });
   });
 
+  // Attachments GET endpoint - NO REQUIERE AUTENTICACIÓN (para que el bot pueda descargar archivos)
+  router.use("/attachments", createPublicAttachmentsRouter());
+
   // TODOS los demás endpoints del CRM REQUIEREN AUTENTICACIÓN
   router.use(requireAuth);
 
+  // Attachments POST endpoint - REQUIERE AUTENTICACIÓN
   router.use("/attachments", createAttachmentsRouter());
   router.use("/messages", createMessagesRouter(realtime, bitrixService));
-  router.use("/conversations", createConversationsRouter(realtime, bitrixService));
+  router.use("/conversations", createConversationsRouter(realtime, bitrixService, options.flowProvider));
   router.use("/templates", createTemplatesRouter());
   router.use("/metrics", createMetricsRouter());
+  router.use("/sessions", createSessionsRouter());
   router.use(mediaRouter); // Media proxy endpoint: /api/crm/media/:id
 
   options.app.use("/api/crm", router);

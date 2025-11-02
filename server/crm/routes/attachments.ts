@@ -2,6 +2,48 @@ import { Router } from "express";
 import { attachmentStorage } from "../storage";
 import { crmDb } from "../db";
 
+/**
+ * Creates PUBLIC router for attachments (GET endpoint)
+ * This is needed so bots can download files without authentication
+ */
+export function createPublicAttachmentsRouter() {
+  const router = Router();
+
+  router.get("/:id", async (req, res) => {
+    try {
+      // Try to get metadata from storage first (works even if not in DB)
+      const metadata = await attachmentStorage.getMetadata(req.params.id);
+      if (!metadata) {
+        res.status(404).end();
+        return;
+      }
+
+      // Try to get attachment from DB for filename
+      const attachment = crmDb.getAttachment(req.params.id);
+      const filename = attachment?.filename || metadata.filename || "attachment";
+
+      res.setHeader("Content-Type", metadata.mime);
+      res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+
+      const stream = await attachmentStorage.getStream(req.params.id);
+      if (!stream) {
+        res.status(404).end();
+        return;
+      }
+      stream.pipe(res);
+    } catch (error) {
+      console.error("[CRM] attachment download error", error);
+      res.status(500).end();
+    }
+  });
+
+  return router;
+}
+
+/**
+ * Creates PRIVATE router for attachments (POST endpoint)
+ * Requires authentication
+ */
 export function createAttachmentsRouter() {
   const router = Router();
 
@@ -27,32 +69,6 @@ export function createAttachmentsRouter() {
     } catch (error) {
       console.error("[CRM] upload error", error);
       res.status(500).json({ error: "upload_failed" });
-    }
-  });
-
-  router.get("/:id", async (req, res) => {
-    try {
-      const attachment = crmDb.getAttachment(req.params.id);
-      if (!attachment) {
-        res.status(404).end();
-        return;
-      }
-      const metadata = await attachmentStorage.getMetadata(req.params.id);
-      if (!metadata) {
-        res.status(404).end();
-        return;
-      }
-      res.setHeader("Content-Type", metadata.mime);
-      res.setHeader("Content-Disposition", `inline; filename="${attachment.filename}"`);
-      const stream = await attachmentStorage.getStream(req.params.id);
-      if (!stream) {
-        res.status(404).end();
-        return;
-      }
-      stream.pipe(res);
-    } catch (error) {
-      console.error("[CRM] attachment download error", error);
-      res.status(500).end();
     }
   });
 
