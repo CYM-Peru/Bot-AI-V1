@@ -326,8 +326,6 @@ export default function App(): JSX.Element {
   const [bitrixFieldsLoading, setBitrixFieldsLoading] = useState(false);
   const [bitrixFieldsError, setBitrixFieldsError] = useState<string | null>(null);
 
-  const [centerCanvas, setCenterCanvas] = useState<(() => void) | null>(null);
-
   // WhatsApp numbers management - Load from API
   const [whatsappNumbers, setWhatsappNumbers] = useState<import('./flow/types').WhatsAppNumberAssignment[]>([]);
 
@@ -390,10 +388,6 @@ export default function App(): JSX.Element {
     });
   }, []);
 
-  const handleRegisterFitView = useCallback((fn: (() => void) | null) => {
-    setCenterCanvas(() => fn ?? null);
-  }, []);
-
   // Undo/Redo system
   type EditorState = {
     flow: Flow;
@@ -417,12 +411,6 @@ export default function App(): JSX.Element {
   // Template selector
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
   const [showFlowsGallery, setShowFlowsGallery] = useState(false);
-
-  useEffect(() => {
-    return () => {
-      setCenterCanvas(null);
-    };
-  }, []);
 
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
     setToast({ id: Date.now(), message, type });
@@ -2710,28 +2698,16 @@ export default function App(): JSX.Element {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:items-start">
         <div className="order-2 lg:order-1 lg:col-span-9 lg:col-start-1 flex flex-col" style={{ height: "calc(100vh - 120px)" }}>
           <div className="bg-white flex-1 flex flex-col overflow-hidden">
-              <div className="px-3 py-2 bg-slate-50 text-sm font-semibold flex items-center justify-between border-b flex-shrink-0">
-                <div className="flex items-center gap-3">
-                  <span>Canvas de flujo</span>
-                  <BotChannelAssignment
-                    flowId={flow.id}
-                    flowName={flow.name}
-                    assignments={flow.channelAssignments || []}
-                    availableNumbers={whatsappNumbers}
-                    allFlows={allFlows}
-                    onUpdate={updateFlowChannelAssignments}
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    className="px-3 py-1.5 text-sm rounded border border-blue-200 bg-white text-blue-700 hover:bg-blue-50 transition disabled:opacity-60 disabled:cursor-not-allowed"
-                    onClick={() => centerCanvas?.()}
-                    disabled={!centerCanvas}
-                  >
-                    🎯 Centrar
-                  </button>
-                  <button className="px-3 py-1.5 text-sm rounded border border-emerald-200 bg-white hover:bg-emerald-50 transition" onClick={()=>setSoloRoot(s=>!s)}>{soloRoot?"Mostrar todo":"Solo raíz"}</button>
-                </div>
+              <div className="px-3 py-2 bg-slate-50 text-sm font-semibold flex items-center gap-3 border-b flex-shrink-0">
+                <span>Canvas de flujo</span>
+                <BotChannelAssignment
+                  flowId={flow.id}
+                  flowName={flow.name}
+                  assignments={flow.channelAssignments || []}
+                  availableNumbers={whatsappNumbers}
+                  allFlows={allFlows}
+                  onUpdate={updateFlowChannelAssignments}
+                />
               </div>
             <div className="flex-1 overflow-hidden">
               <ReactFlowCanvas
@@ -2751,7 +2727,6 @@ export default function App(): JSX.Element {
                   toggleScope={() => setSoloRoot((s) => !s)}
                   nodePositions={positionsState}
                   onPositionsChange={setPositions}
-                  onRegisterFitView={handleRegisterFitView}
                   invalidMessageIds={emptyMessageNodes}
                 />
               </div>
@@ -2759,158 +2734,158 @@ export default function App(): JSX.Element {
 
             {/* Toolbar de acciones debajo del canvas - GRID COLUMNAS */}
             <div className="border-t bg-gradient-to-r from-slate-50 to-white shadow-lg flex-shrink-0 overflow-x-auto">
-              <div className="px-4 py-3 flex gap-6">
-                <section className="space-y-2 min-w-[160px]">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">Estructura</h4>
-                  <div className="flex flex-col gap-2">
+              <div className="px-3 py-2 flex gap-4">
+                <section className="space-y-1.5 min-w-[120px]">
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-600">Estructura</h4>
+                  <div className="flex flex-col gap-1.5">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addChildTo(selectedId, "menu")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
                       Menú
                     </button>
                   </div>
                 </section>
 
-                <section className="space-y-2 min-w-[160px]">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">Mensajes</h4>
-                  <div className="flex flex-col gap-2">
+                <section className="space-y-1.5 min-w-[120px]">
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-600">Mensajes</h4>
+                  <div className="flex flex-col gap-1.5">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "message")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
                       Mensaje
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "buttons")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
                       Botones
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "question")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                       Pregunta
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "attachment")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                       Adjunto
                     </button>
                   </div>
                 </section>
 
-                <section className="space-y-2 min-w-[180px]">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">Integraciones</h4>
-                  <div className="flex flex-col gap-2">
+                <section className="space-y-1.5 min-w-[140px]">
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-600">Integraciones</h4>
+                  <div className="flex flex-col gap-1.5">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "webhook_out")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                       Webhook OUT
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "webhook_in")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" /></svg>
                       Webhook IN
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "transfer")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
                       Transferir
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "handoff")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
                       Handoff (Humano)
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "scheduler")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                       Scheduler
                     </button>
                   </div>
                 </section>
 
-                <section className="space-y-2 min-w-[160px]">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">Lógica</h4>
-                  <div className="flex flex-col gap-2">
+                <section className="space-y-1.5 min-w-[120px]">
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-600">Lógica</h4>
+                  <div className="flex flex-col gap-1.5">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-sky-500 to-sky-600 text-white hover:from-sky-600 hover:to-sky-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-sky-500 to-sky-600 text-white hover:from-sky-600 hover:to-sky-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "validation")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
                       Validación
                     </button>
                   </div>
                 </section>
 
-                <section className="space-y-2 min-w-[180px]">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">Inteligencia Artificial</h4>
-                  <div className="flex flex-col gap-2">
+                <section className="space-y-1.5 min-w-[140px]">
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-600">Inteligencia Artificial</h4>
+                  <div className="flex flex-col gap-1.5">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "ia_rag")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                       IA · RAG
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "tool")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                       Tool/Acción externa
                     </button>
                   </div>
                 </section>
 
-                <section className="space-y-2 min-w-[160px]">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">Control</h4>
-                  <div className="flex flex-col gap-2">
+                <section className="space-y-1.5 min-w-[120px]">
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-600">Control</h4>
+                  <div className="flex flex-col gap-1.5">
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-slate-500 to-slate-600 text-white hover:from-slate-600 hover:to-slate-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-slate-500 to-slate-600 text-white hover:from-slate-600 hover:to-slate-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "delay")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                       Delay (Espera)
                     </button>
                     <button
-                      className="px-3 py-2 text-xs font-medium rounded-lg bg-gradient-to-br from-slate-500 to-slate-600 text-white hover:from-slate-600 hover:to-slate-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 whitespace-nowrap"
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-br from-slate-500 to-slate-600 text-white hover:from-slate-600 hover:to-slate-700 transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
                       onClick={() => addActionOfKind(selectedId, "end")}
                       disabled={!selectedId}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" /></svg>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" /></svg>
                       Finalizar flujo
                     </button>
                   </div>
