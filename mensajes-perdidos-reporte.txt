@@ -1,0 +1,44 @@
+=================================================================
+REPORTE DE MENSAJES NO PROCESADOS
+Fecha del problema: 2025-11-05 (antes de las 11:09 AM)
+Causa: Error de código - flowProvider.loadFlow() en vez de getFlow()
+Estado: RESUELTO a las 11:09 AM
+=================================================================
+
+RESUMEN:
+- Total de mensajes fallidos: 31 mensajes
+- Total de clientes afectados: 10 números únicos
+- Período del error: Desconocido exactamente, pero ocurrió hoy 2025-11-05
+
+NÚMEROS DE TELÉFONO AFECTADOS:
++51 904 420 375
++51 912 361 182
++51 918 131 082
++51 925 468 500
++51 933 842 768
++51 938 260 245
++51 945 929 056
++51 946 840 660
++51 978 973 279
++51 987 654 160
+
+LIMITACIONES DE RECUPERACIÓN:
+- WhatsApp Business API NO permite recuperar mensajes históricos
+- Los webhooks fallidos NO se pueden solicitar de nuevo a Meta
+- Los mensajes NO se guardaron en el CRM porque el error ocurrió
+  antes del procesamiento
+
+RECOMENDACIONES:
+1. Contactar a estos 10 clientes explicando que hubo un problema
+   técnico temporal
+2. Pedirles que reenvíen sus mensajes si aún requieren atención
+3. Ofrecer disculpas y potencialmente algún beneficio/descuento
+
+MENSAJE SUGERIDO PARA ENVIAR:
+"Estimado cliente, detectamos un problema técnico que afectó
+temporalmente nuestro sistema de mensajería esta mañana. Si nos
+escribiste y no recibiste respuesta, por favor vuelve a enviarnos
+tu consulta. Lamentamos las molestias ocasionadas."
+
+El sistema ya está funcionando correctamente desde las 11:09 AM.
+=================================================================

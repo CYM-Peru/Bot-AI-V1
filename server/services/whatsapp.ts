@@ -1,0 +1,296 @@
+import { httpRequest } from "../utils/http";
+import { getWhatsAppEnv, isWhatsAppConfigured } from "../utils/env";
+import type { Readable } from "stream";
+import { getWhatsAppCredentials } from "./whatsapp-connections";
+
+export interface WhatsAppSendOptions {
+  phone: string;
+  text?: string;
+  mediaUrl?: string | null;
+  mediaId?: string | null;
+  mediaType?: "image" | "audio" | "video" | "document" | "sticker";
+  caption?: string | null;
+  filename?: string | null;
+  replyToWhatsAppMessageId?: string | null;
+  channelConnectionId?: string | null; // NEW: Specify which WhatsApp number to use
+}
+
+export interface WhatsAppSendResult {
+  ok: boolean;
+  status: number;
+  body: unknown;
+  error?: string;
+}
+
+export interface WhatsAppCheckResult {
+  ok: boolean;
+  phoneNumberId?: string | null;
+  displayNumber?: string | null;
+  displayPhoneNumber?: string | null;
+  verifiedName?: string | null;
+  reason?: string;
+  status?: number;
+  details?: {
+    baseUrl: string;
+    apiVersion: string;
+    hasAccessToken: boolean;
+    hasVerifyToken: boolean;
+  };
+}
+
+const MAX_MEDIA_TYPES = new Set(["image", "audio", "video", "document", "sticker"]);
+
+export async function sendWhatsAppMessage(options: WhatsAppSendOptions): Promise<WhatsAppSendResult> {
+  // Try to get specific connection credentials if channelConnectionId is provided
+  let phoneNumberId: string;
+  let accessToken: string;
+
+  if (options.channelConnectionId) {
+    const credentials = await getWhatsAppCredentials(options.channelConnectionId);
+    if (credentials) {
+      phoneNumberId = credentials.phoneNumberId;
+      accessToken = credentials.accessToken;
+      console.log(`[WhatsApp] Using connection ${options.channelConnectionId} (${credentials.displayNumber})`);
+    } else {
+      console.warn(`[WhatsApp] Connection ${options.channelConnectionId} not found, using default .env config`);
+      const config = getWhatsAppEnv();
+      phoneNumberId = config.phoneNumberId || "";
+      accessToken = config.accessToken || "";
+    }
+  } else {
+    const config = getWhatsAppEnv();
+    phoneNumberId = config.phoneNumberId || "";
+    accessToken = config.accessToken || "";
+  }
+
+  if (!phoneNumberId || !accessToken) {
+    return { ok: false, status: 412, body: null, error: "not_configured" };
+  }
+
+  const payload: Record<string, unknown> = {
+    messaging_product: "whatsapp",
+    to: options.phone,
+  };
+
+  // Add context for reply functionality (like WhatsApp quoted reply)
+  if (options.replyToWhatsAppMessageId) {
+    payload.context = {
+      message_id: options.replyToWhatsAppMessageId,
+    };
+  }
+
+  if (options.mediaType && MAX_MEDIA_TYPES.has(options.mediaType) && (options.mediaUrl || options.mediaId)) {
+    payload.type = options.mediaType;
+    if (options.mediaId) {
+      // Usar media_id de WhatsApp (archivos ya subidos a WhatsApp Media API)
+      payload[options.mediaType] = { id: options.mediaId };
+    } else if (options.mediaUrl) {
+      // Usar link público (debe ser HTTPS y accesible públicamente)
+      payload[options.mediaType] = { link: options.mediaUrl };
+    }
+    // Agregar caption para image, video y document
+    if (options.caption && (options.mediaType === "image" || options.mediaType === "video" || options.mediaType === "document")) {
+      (payload[options.mediaType] as Record<string, unknown>).caption = options.caption;
+    }
+    // Agregar filename para document
+    if (options.filename && options.mediaType === "document") {
+      (payload[options.mediaType] as Record<string, unknown>).filename = options.filename;
+    }
+  } else if (options.text) {
+    payload.type = "text";
+    // IMPROVED: Enable link preview for URLs in messages
+    payload.text = { body: options.text, preview_url: true };
+  } else {
+    return { ok: false, status: 400, body: null, error: "missing_payload" };
+  }
+
+  // Log payload for debugging (especially reply context)
+  if (options.replyToWhatsAppMessageId) {
+    console.log(`[WhatsApp] Sending reply to message ${options.replyToWhatsAppMessageId}`, {
+      hasContext: !!payload.context,
+      context: payload.context,
+      messageType: payload.type,
+    });
+  }
+
+  const config = getWhatsAppEnv();
+  const url = `${config.baseUrl.replace(/\/$/, "")}/${config.apiVersion}/${phoneNumberId}/messages`;
+  const response = await httpRequest(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: payload,
+  });
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    body: response.body,
+    error: response.ok ? undefined : inferError(response.status, response.body),
+  };
+}
+
+export async function checkWhatsAppConnection(): Promise<WhatsAppCheckResult> {
+  const config = getWhatsAppEnv();
+  const details = {
+    baseUrl: config.baseUrl,
+    apiVersion: config.apiVersion,
+    hasAccessToken: Boolean(config.accessToken),
+    hasVerifyToken: Boolean(config.verifyToken),
+  } as WhatsAppCheckResult["details"];
+
+  if (!config.phoneNumberId || !config.accessToken) {
+    return {
+      ok: false,
+      reason: "not_configured",
+      phoneNumberId: config.phoneNumberId ?? null,
+      displayNumber: config.displayNumber ?? null,
+      details,
+    };
+  }
+
+  const url = `${config.baseUrl.replace(/\/$/, "")}/${config.apiVersion}/${config.phoneNumberId}`;
+  const response = await httpRequest<{ display_phone_number?: string; verified_name?: string }>(url, {
+    headers: { Authorization: `Bearer ${config.accessToken}` },
+    retries: 2,
+    retryDelayMs: 600,
+  });
+
+  if (!response.ok) {
+    const reason =
+      response.status === 401
+        ? "invalid_token"
+        : response.status === 400
+          ? "missing_phone_id"
+          : "provider_error";
+    return {
+      ok: false,
+      reason,
+      status: response.status,
+      phoneNumberId: config.phoneNumberId,
+      displayNumber: config.displayNumber ?? null,
+      details,
+    };
+  }
+
+  return {
+    ok: true,
+    phoneNumberId: config.phoneNumberId,
+    displayNumber: config.displayNumber ?? null,
+    displayPhoneNumber: response.body?.display_phone_number ?? null,
+    verifiedName: response.body?.verified_name ?? null,
+    details,
+  };
+}
+
+export function ensureWhatsAppConfigured(): void {
+  if (!isWhatsAppConfigured()) {
+    throw new Error("WhatsApp Cloud API no configurado");
+  }
+}
+
+function inferError(status: number, body: unknown): string | undefined {
+  if (status === 401) return "invalid_token";
+  if (status === 403) return "forbidden";
+  if (status === 404) return "not_found";
+  if (status === 412) return "not_configured";
+  if (body && typeof body === "object" && "error" in body) {
+    const error = (body as { error?: { message?: string } }).error;
+    if (error?.message) return error.message;
+  }
+  return undefined;
+}
+
+export interface WhatsAppMediaUploadResult {
+  ok: boolean;
+  mediaId?: string;
+  error?: string;
+}
+
+/**
+ * Convierte un Readable stream a Buffer
+ */
+async function streamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  return new Promise((resolve, reject) => {
+    stream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(Buffer.concat(chunks)));
+  });
+}
+
+/**
+ * Sube un archivo a WhatsApp Media API y devuelve el media_id
+ * Este media_id puede ser usado para enviar el archivo a través de WhatsApp
+ */
+export async function uploadToWhatsAppMedia(options: {
+  stream: Readable;
+  filename: string;
+  mimeType: string;
+  channelConnectionId?: string | null; // NEW: Specify which WhatsApp number to use
+}): Promise<WhatsAppMediaUploadResult> {
+  // Try to get specific connection credentials if channelConnectionId is provided
+  let phoneNumberId: string;
+  let accessToken: string;
+
+  if (options.channelConnectionId) {
+    const credentials = await getWhatsAppCredentials(options.channelConnectionId);
+    if (credentials) {
+      phoneNumberId = credentials.phoneNumberId;
+      accessToken = credentials.accessToken;
+    } else {
+      const config = getWhatsAppEnv();
+      phoneNumberId = config.phoneNumberId || "";
+      accessToken = config.accessToken || "";
+    }
+  } else {
+    const config = getWhatsAppEnv();
+    phoneNumberId = config.phoneNumberId || "";
+    accessToken = config.accessToken || "";
+  }
+
+  if (!phoneNumberId || !accessToken) {
+    return { ok: false, error: "not_configured" };
+  }
+
+  try {
+    // Convertir stream a buffer
+    const buffer = await streamToBuffer(options.stream);
+
+    // Crear Blob desde buffer (Node.js 18+ tiene Blob nativo)
+    const blob = new Blob([buffer as any], { type: options.mimeType });
+
+    // Crear FormData (Node.js 18+ tiene FormData nativo)
+    const form = new FormData();
+    form.append("file", blob, options.filename);
+    form.append("messaging_product", "whatsapp");
+
+    const config = getWhatsAppEnv();
+    const url = `${config.baseUrl.replace(/\/$/, "")}/${config.apiVersion}/${phoneNumberId}/media`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: form,
+    });
+
+    const body = await response.json() as { id?: string; error?: { message?: string } };
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: body.error?.message || `Upload failed with status ${response.status}`,
+      };
+    }
+
+    if (!body.id) {
+      return { ok: false, error: "No media_id returned" };
+    }
+
+    return { ok: true, mediaId: body.id };
+  } catch (error) {
+    console.error("[WhatsApp] Media upload error:", error);
+    return { ok: false, error: String(error) };
+  }
+}

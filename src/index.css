@@ -1,0 +1,316 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fuente Cream Cake */
+@font-face {
+  font-family: 'Cream Cake';
+  src: url('/fonts/Cream Cake.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Cream Cake';
+  src: url('/fonts/Cream Cake Bold.otf') format('opentype');
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root{
+  --ink:#1E293B;
+  --surface:#F7F8FA;
+  --pastel-mint:#D6F5E5;
+  --pastel-blue:#DDEBFF;
+  --pastel-lilac:#ECE3FF;
+  --pastel-peach:#FFE2D6;
+  --pastel-yellow:#FFF5CC;
+  --pastel-teal:#DFF7F5;
+  --grid-dot: #e2e8f0;
+}
+
+body{
+  color: var(--ink);
+  background-color: var(--surface);
+}
+
+/* ===== BUTTON STYLES ===== */
+.btn {
+  @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none;
+}
+
+/* Primary Button - Elegant emerald gradient */
+.btn--primary {
+  @apply bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:from-emerald-600 hover:to-teal-600 focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2;
+}
+
+/* Secondary Button - Soft blue gradient */
+.btn--secondary {
+  @apply bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-600 hover:to-indigo-600 focus:ring-2 focus:ring-blue-400 focus:ring-offset-2;
+}
+
+/* Ghost Button - Subtle with pastel hover */
+.btn--ghost {
+  @apply bg-white text-slate-700 border border-slate-200 hover:bg-gradient-to-r hover:from-slate-50 hover:to-slate-100 hover:border-slate-300 focus:ring-2 focus:ring-slate-300 focus:ring-offset-1;
+}
+
+/* Danger Button - Soft rose gradient */
+.btn--danger {
+  @apply bg-gradient-to-r from-rose-500 to-pink-500 text-white hover:from-rose-600 hover:to-pink-600 focus:ring-2 focus:ring-rose-400 focus:ring-offset-2;
+}
+
+/* Success Button - Mint to emerald */
+.btn--success {
+  @apply bg-gradient-to-r from-emerald-400 to-green-500 text-white hover:from-emerald-500 hover:to-green-600 focus:ring-2 focus:ring-emerald-300 focus:ring-offset-2;
+}
+
+/* Warning Button - Soft amber gradient */
+.btn--warning {
+  @apply bg-gradient-to-r from-amber-400 to-orange-400 text-white hover:from-amber-500 hover:to-orange-500 focus:ring-2 focus:ring-amber-300 focus:ring-offset-2;
+}
+
+/* Pastel variants for softer look */
+.btn--pastel-mint {
+  @apply bg-gradient-to-br from-emerald-100 to-teal-100 text-emerald-800 border border-emerald-200 hover:from-emerald-200 hover:to-teal-200 hover:border-emerald-300 focus:ring-2 focus:ring-emerald-200;
+}
+
+.btn--pastel-blue {
+  @apply bg-gradient-to-br from-blue-100 to-indigo-100 text-blue-800 border border-blue-200 hover:from-blue-200 hover:to-indigo-200 hover:border-blue-300 focus:ring-2 focus:ring-blue-200;
+}
+
+.btn--pastel-rose {
+  @apply bg-gradient-to-br from-rose-100 to-pink-100 text-rose-800 border border-rose-200 hover:from-rose-200 hover:to-pink-200 hover:border-rose-300 focus:ring-2 focus:ring-rose-200;
+}
+
+/* Small button variant */
+.btn--sm {
+  @apply px-3 py-1.5 text-xs;
+}
+
+/* Large button variant */
+.btn--lg {
+  @apply px-6 py-3 text-base;
+}
+
+/* Icon-only button */
+.btn--icon {
+  @apply p-2 aspect-square;
+}
+
+/* ===== END BUTTON STYLES ===== */
+
+/* ===== MESSAGE HIGHLIGHT ANIMATION ===== */
+@keyframes highlight-pulse {
+  0%, 100% {
+    background-color: transparent;
+    transform: scale(1);
+  }
+  50% {
+    background-color: rgba(16, 185, 129, 0.15);
+    transform: scale(1.02);
+  }
+}
+
+.highlight-message {
+  animation: highlight-pulse 2s ease-in-out;
+  border-radius: 1rem;
+}
+
+/* ===== END MESSAGE HIGHLIGHT ===== */
+
+.react-flow__edge.flow-edge path {
+  stroke: #94a3b8;
+  stroke-width: 2px;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+
+.react-flow__edge.flow-edge.selected path {
+  stroke: #10b981;
+  stroke-width: 3px;
+}
+
+.react-flow__node {
+  z-index: 5 !important;
+}
+
+/* ===== TOAST ANIMATION ===== */
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
+/* ===== END TOAST ANIMATION ===== */
+
+/* ===== DROPDOWN CURTAIN ANIMATION ===== */
+@keyframes dropdown-curtain {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.dropdown-curtain {
+  animation: dropdown-curtain 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-origin: top;
+}
+/* ===== END DROPDOWN CURTAIN ANIMATION ===== */
+
+/* ===== CONVERSATION PULSE GLOW ANIMATION ===== */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    background-color: rgba(16, 185, 129, 0);
+  }
+  50% {
+    box-shadow: 0 0 20px 2px rgba(16, 185, 129, 0.4), inset 0 0 20px rgba(16, 185, 129, 0.1);
+    background-color: rgba(16, 185, 129, 0.08);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 1.5s ease-in-out 6;
+  /* Pulsa 6 veces (9 segundos), luego mantiene estado estático */
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.05) 0%, transparent 100%);
+  border-left-width: 4px !important;
+  border-left-color: #10b981 !important;
+}
+
+.animate-pulse-glow:hover {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.12) 0%, rgba(16, 185, 129, 0.03) 100%);
+}
+/* ===== END CONVERSATION PULSE GLOW ANIMATION ===== */
+
+/* ===== MODERN TAB NAVIGATION ===== */
+.topbar-tab {
+  @apply relative px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300;
+  @apply text-slate-600 hover:text-indigo-600 hover:bg-white/50;
+}
+
+.topbar-tab.is-active {
+  @apply text-white bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600;
+  @apply shadow-lg shadow-indigo-500/30;
+  transform: translateY(-2px);
+}
+
+.topbar-tab:not(.is-active):hover {
+  transform: translateY(-1px);
+}
+
+.topbar-tab.is-active::before {
+  content: '';
+  @apply absolute inset-0 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600;
+  filter: blur(12px);
+  opacity: 0.4;
+  z-index: -1;
+}
+/* ===== END MODERN TAB NAVIGATION ===== */
+
+/* ===== MODERN BUTTON HOVER EFFECTS ===== */
+.btn-modern {
+  @apply relative overflow-hidden;
+}
+
+.btn-modern::before {
+  content: '';
+  @apply absolute inset-0 bg-white/20;
+  transform: translateX(-100%) skewX(-15deg);
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-modern:hover::before {
+  transform: translateX(100%) skewX(-15deg);
+}
+/* ===== END MODERN BUTTON HOVER EFFECTS ===== */
+
+/* ===== GLASSMORPHISM UTILITIES ===== */
+.glass {
+  @apply backdrop-blur-xl bg-white/70 border border-white/20;
+}
+
+.glass-dark {
+  @apply backdrop-blur-xl bg-slate-900/70 border border-white/10;
+}
+/* ===== END GLASSMORPHISM UTILITIES ===== */
+
+/* ===== TYPEWRITER ANIMATION ===== */
+@keyframes typewriter {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+@keyframes blink-caret {
+  from, to {
+    border-color: transparent;
+  }
+  50% {
+    border-color: currentColor;
+  }
+}
+
+.typewriter {
+  font-family: 'Cream Cake', cursive;
+  overflow: hidden;
+  white-space: nowrap;
+  margin: 0;
+  letter-spacing: 0.1em;
+  animation: typewriter 2s steps(7) forwards;
+  animation-iteration-count: infinite;
+  animation-delay: 0s;
+  width: 0;
+}
+
+@keyframes typewriter-reset {
+  0% { width: 0; }
+  25% { width: 100%; }
+  75% { width: 100%; }
+  100% { width: 0; }
+}
+
+.typewriter-loop {
+  font-family: 'Cream Cake', cursive;
+  overflow: hidden;
+  white-space: nowrap;
+  margin: 0;
+  letter-spacing: 0;
+  animation: typewriter-reset 6s ease-in-out infinite;
+  display: inline-block;
+}
+
+.typewriter-container {
+  display: inline-block;
+}
+/* ===== END TYPEWRITER ANIMATION ===== */
+/* ===== TICKETS SYSTEM ANIMATIONS ===== */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}

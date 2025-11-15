@@ -1,0 +1,254 @@
+/**
+ * Real-time CRM Metrics Service
+ * Provides live metrics from PostgreSQL database
+ */
+
+import { crmDb } from './db-postgres';
+import { metricsTrackerDB } from './metrics-tracker-db';
+import { errorTracker } from './error-tracker';
+
+export interface CRMStats {
+  activeConversations: number;
+  totalConversations: number;
+  totalMessages: number;
+  messagesLast24h: number;
+  messagesPerMinute: number;
+  averageResponseTime: number;
+  errorRate: number;
+  uptime: number;
+
+  // Additional CRM stats
+  archivedConversations: number;
+  closedConversations: number;
+  unreadCount: number;
+  queuedConversations: number;
+}
+
+export interface ConversationMetric {
+  sessionId: string;
+  flowId: string;
+  startedAt: string;
+  endedAt?: string;
+  duration?: number;
+  messagesReceived: number;
+  messagesSent: number;
+  nodesExecuted: number;
+  webhooksCalled: number;
+  errors: number;
+  status: 'active' | 'ended' | 'error';
+  channelType?: string;
+  whatsappNumberId?: string;
+}
+
+class RealtimeMetricsService {
+  private startTime: number = Date.now();
+  private messageCountCache: Map<string, { count: number; timestamp: number }> = new Map();
+  private cacheTimeout = 30000; // 30 seconds cache
+
+  /**
+   * Get comprehensive CRM statistics
+   */
+  async getStats(): Promise<CRMStats> {
+    try {
+      const conversations = await crmDb.listConversations();
+
+      const now = Date.now();
+      const last24h = now - (24 * 60 * 60 * 1000);
+
+      // Count by status
+      const active = conversations.filter(c => c.status === 'active').length;
+      const archived = conversations.filter(c => c.status === 'archived').length;
+      const closed = conversations.filter(c => c.status === 'closed').length;
+      const queued = conversations.filter(c => c.queueId && c.status === 'active').length;
+
+      // Unread messages
+      const unread = conversations.reduce((sum, c) => sum + (c.unread || 0), 0);
+
+      // Messages - get real counts from crm_messages table
+      let messagesLast24h = 0;
+      let totalMessages = 0;
+      let messagesPerMinute = 0;
+
+      try {
+        // Query real message counts from database
+        const messageStats = await crmDb.pool.query(`
+          SELECT
+            COUNT(*) as total_messages,
+            COUNT(*) FILTER (WHERE timestamp > $1) as last_24h,
+            COUNT(*) FILTER (WHERE timestamp > $2) as last_hour
+          FROM crm_messages
+        `, [last24h, now - (60 * 60 * 1000)]);
+
+        if (messageStats.rows.length > 0) {
+          totalMessages = parseInt(messageStats.rows[0].total_messages) || 0;
+          messagesLast24h = parseInt(messageStats.rows[0].last_24h) || 0;
+          const messagesLastHour = parseInt(messageStats.rows[0].last_hour) || 0;
+          messagesPerMinute = Math.round(messagesLastHour / 60);
+        }
+      } catch (error) {
+        console.error('[RealtimeMetrics] Error counting messages:', error);
+        // Fallback to 0 if query fails
+        totalMessages = 0;
+        messagesLast24h = 0;
+        messagesPerMinute = 0;
+      }
+
+      // Response time - get average from metrics tracker for last 24h
+      let avgResponseTime = 0;
+      try {
+        // Get KPIs for recent period to calculate average first response time
+        const allMetrics = await metricsTrackerDB.getAllMetrics(last24h, now);
+
+        // Calculate average first response time across all recent conversations
+        const firstResponseTimes = allMetrics
+          .filter(m => m.firstResponseAt && m.startedAt)
+          .map(m => m.firstResponseAt! - m.startedAt);
+
+        if (firstResponseTimes.length > 0) {
+          avgResponseTime = Math.round(
+            firstResponseTimes.reduce((sum, time) => sum + time, 0) / firstResponseTimes.length
+          );
+        }
+      } catch (error) {
+        console.error('[RealtimeMetrics] Error calculating response time:', error);
+        avgResponseTime = 0;
+      }
+
+      // Error rate - get real error rate from error tracker (last 24h)
+      let errorRate = 0;
+      try {
+        errorRate = await errorTracker.getErrorRate(last24h, now);
+      } catch (error) {
+        console.error('[RealtimeMetrics] Error calculating error rate:', error);
+        errorRate = 0;
+      }
+
+      return {
+        activeConversations: active,
+        totalConversations: conversations.length,
+        totalMessages,
+        messagesLast24h,
+        messagesPerMinute,
+        averageResponseTime: avgResponseTime,
+        errorRate, // Real error rate from error_logs table
+        uptime: (now - this.startTime) / 1000,
+        archivedConversations: archived,
+        closedConversations: closed,
+        unreadCount: unread,
+        queuedConversations: queued,
+      };
+    } catch (error) {
+      console.error('[RealtimeMetrics] Error getting stats:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get message count for a conversation (with caching and direction breakdown)
+   */
+  private async getMessageCount(conversationId: string): Promise<{ total: number; incoming: number; outgoing: number }> {
+    const cached = this.messageCountCache.get(conversationId);
+    const now = Date.now();
+
+    if (cached && (now - cached.timestamp) < this.cacheTimeout) {
+      return cached.count as any;
+    }
+
+    try {
+      // Query real message counts with direction from database
+      const result = await crmDb.pool.query(`
+        SELECT
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE direction = 'incoming') as incoming,
+          COUNT(*) FILTER (WHERE direction = 'outgoing') as outgoing
+        FROM crm_messages
+        WHERE conversation_id = $1
+      `, [conversationId]);
+
+      const counts = {
+        total: parseInt(result.rows[0]?.total) || 0,
+        incoming: parseInt(result.rows[0]?.incoming) || 0,
+        outgoing: parseInt(result.rows[0]?.outgoing) || 0,
+      };
+
+      this.messageCountCache.set(conversationId, { count: counts as any, timestamp: now });
+
+      return counts;
+    } catch (error) {
+      console.error('[RealtimeMetrics] Error counting messages for conversation:', error);
+      return { total: 0, incoming: 0, outgoing: 0 };
+    }
+  }
+
+  /**
+   * Get conversation metrics (compatible with MetricsPanel interface)
+   */
+  async getConversationMetrics(): Promise<ConversationMetric[]> {
+    try {
+      const conversations = await crmDb.listConversations();
+      const metrics: ConversationMetric[] = [];
+
+      // Process all conversations (no artificial limit)
+      for (const conv of conversations) {
+        const messageCounts = await this.getMessageCount(conv.id);
+
+        let duration: number | undefined;
+        let endedAt: string | undefined;
+
+        if (conv.status === 'archived' || conv.status === 'closed') {
+          // Calculate real duration from first to last message
+          duration = conv.lastMessageAt - (conv.queuedAt || conv.lastMessageAt);
+          endedAt = new Date(conv.lastMessageAt).toISOString();
+        }
+
+        metrics.push({
+          sessionId: conv.id,
+          flowId: conv.botFlowId || 'crm',
+          startedAt: new Date(conv.queuedAt || conv.lastMessageAt).toISOString(),
+          endedAt,
+          duration,
+          messagesReceived: messageCounts.incoming,
+          messagesSent: messageCounts.outgoing,
+          nodesExecuted: 0,
+          webhooksCalled: 0,
+          errors: 0,
+          status: conv.status === 'active' ? 'active' : 'ended',
+          channelType: conv.channel,
+          whatsappNumberId: conv.channelConnectionId,
+        });
+      }
+
+      return metrics;
+    } catch (error) {
+      console.error('[RealtimeMetrics] Error getting conversation metrics:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get active conversations
+   */
+  async getActiveConversations(): Promise<ConversationMetric[]> {
+    const allMetrics = await this.getConversationMetrics();
+    return allMetrics.filter(m => m.status === 'active');
+  }
+
+  /**
+   * Clear old cache entries
+   */
+  clearCache(): void {
+    const now = Date.now();
+    for (const [key, value] of this.messageCountCache.entries()) {
+      if ((now - value.timestamp) > this.cacheTimeout) {
+        this.messageCountCache.delete(key);
+      }
+    }
+  }
+}
+
+export const realtimeMetrics = new RealtimeMetricsService();
+
+// Clean cache every 5 minutes
+setInterval(() => {
+  realtimeMetrics.clearCache();
+}, 5 * 60 * 1000);

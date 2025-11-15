@@ -1,0 +1,31 @@
+========================================
+REPORTE DE VALIDACIÓN DE CONFIGURACIÓN
+Fecha: 2025-11-15 03:00:02
+========================================
+
+✓ [1/5] Verificando que bounce-service NO esté activo...
+  ✅ bounce-service NO está activo (correcto)
+  ✅ bounce-service.ts no existe (correcto)
+
+✓ [2/5] Verificando configuración de colas...
+  ⚠️  ADVERTENCIA: No se pudo verificar colas en BD (psql no disponible)
+  💡 Esto no afecta el funcionamiento si el servicio está corriendo
+
+✓ [3/5] Verificando código de distribución equitativa...
+  ✅ Código de distribución equitativa presente
+  ✅ Protección contra remoción de chats presente
+
+✓ [4/5] Verificando redistribución por cambio de estado...
+  ✅ Código de redistribución inmediata presente
+
+✓ [5/5] Verificando estado del servicio flowbuilder...
+  ✅ Servicio flowbuilder está activo
+  ⚠️  ADVERTENCIA: 1 error(es) en logs recientes
+
+========================================
+RESUMEN DE VALIDACIÓN
+========================================
+Errores críticos: 0
+Advertencias: 2
+
+⚠️  Sistema funcional pero con advertencias. Revisar.
