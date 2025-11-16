@@ -4,9 +4,8 @@
  * Prevents configuration errors and failures
  */
 
-import { promises as fs } from 'fs';
-import path from 'path';
 import { fetchMessageTemplates } from '../../src/api/whatsapp-sender';
+import { getWhatsAppConnection } from '../services/whatsapp-connections';
 
 interface HealthCheckResult {
   ok: boolean;
@@ -35,12 +34,8 @@ export async function validateWhatsAppConnection(phoneNumberId: string): Promise
   };
 
   try {
-    const connectionsPath = path.join(process.cwd(), 'data', 'whatsapp-connections.json');
-    const data = await fs.readFile(connectionsPath, 'utf-8');
-    const parsed = JSON.parse(data);
-    const connection: WhatsAppConnection | undefined = parsed.connections?.find(
-      (c: any) => c.phoneNumberId === phoneNumberId
-    );
+    // Read from PostgreSQL
+    const connection = await getWhatsAppConnection(phoneNumberId);
 
     if (!connection) {
       result.ok = false;
@@ -89,10 +84,8 @@ export async function validateTemplate(
   };
 
   try {
-    const connectionsPath = path.join(process.cwd(), 'data', 'whatsapp-connections.json');
-    const data = await fs.readFile(connectionsPath, 'utf-8');
-    const parsed = JSON.parse(data);
-    const connection = parsed.connections?.find((c: any) => c.phoneNumberId === phoneNumberId);
+    // Read from PostgreSQL
+    const connection = await getWhatsAppConnection(phoneNumberId);
 
     if (!connection || !connection.wabaId || !connection.accessToken) {
       result.ok = false;

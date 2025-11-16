@@ -11,8 +11,7 @@ import { getCachedProfilePicture } from "../services/whatsapp-profile";
 import { adminDb } from "../admin-db";
 import { errorTracker } from "./error-tracker";
 import axios from "axios";
-import fs from "fs/promises";
-import path from "path";
+import { Pool } from "pg";
 
 /**
  * Update connection with WABA ID from webhook
@@ -20,21 +19,29 @@ import path from "path";
  */
 async function updateConnectionWabaId(phoneNumberId: string, wabaId: string): Promise<void> {
   try {
-    const connectionsPath = path.join(process.cwd(), "data", "whatsapp-connections.json");
-    const data = await fs.readFile(connectionsPath, "utf-8");
-    const parsed = JSON.parse(data);
+    // Read from PostgreSQL
+    const pool = new Pool({
+      user: process.env.POSTGRES_USER || 'whatsapp_user',
+      host: process.env.POSTGRES_HOST || 'localhost',
+      database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+      password: process.env.POSTGRES_PASSWORD || 'azaleia_pg_2025_secure',
+      port: parseInt(process.env.POSTGRES_PORT || '5432'),
+    });
 
-    if (!parsed.connections) {
-      return;
-    }
+    // Update WABA ID if not already set
+    const result = await pool.query(
+      `UPDATE whatsapp_connections
+       SET waba_id = $1, updated_at = NOW()
+       WHERE phone_number_id = $2 AND (waba_id IS NULL OR waba_id = '')
+       RETURNING id, alias`,
+      [wabaId, phoneNumberId]
+    );
 
-    // Find connection by phoneNumberId
-    const connection = parsed.connections.find((c: any) => c.phoneNumberId === phoneNumberId);
+    await pool.end();
 
-    if (connection && !connection.wabaId) {
-      connection.wabaId = wabaId;
-      await fs.writeFile(connectionsPath, JSON.stringify(parsed, null, 2), "utf-8");
-      logDebug(`[CRM] Updated connection ${connection.id} with WABA ID: ${wabaId}`);
+    if (result.rows.length > 0) {
+      const connection = result.rows[0];
+      logDebug(`[CRM] Updated connection ${connection.id} (${connection.alias}) with WABA ID: ${wabaId}`);
     }
   } catch (error) {
     logError(`[CRM] Failed to update connection with WABA ID:`, error);

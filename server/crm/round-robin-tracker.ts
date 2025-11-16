@@ -1,12 +1,26 @@
 /**
  * Round-Robin Tracker
  * Manages fair distribution of conversations across advisors in a queue
+ * MIGRATED TO POSTGRESQL - Uses queue_round_robin_state table
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
+import { Pool } from 'pg';
 
-const TRACKER_FILE = path.join(process.cwd(), 'data', 'admin', 'round-robin-state.json');
+// PostgreSQL connection pool
+const pool = new Pool({
+  user: process.env.POSTGRES_USER || 'whatsapp_user',
+  host: process.env.POSTGRES_HOST || 'localhost',
+  database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+  password: process.env.POSTGRES_PASSWORD || 'azaleia_pg_2025_secure',
+  port: parseInt(process.env.POSTGRES_PORT || '5432'),
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+pool.on('error', (err) => {
+  console.error('[RoundRobin] Unexpected pool error:', err);
+});
 
 interface RoundRobinState {
   [queueId: string]: {
@@ -20,41 +34,56 @@ class RoundRobinTracker {
   private state: RoundRobinState = {};
 
   constructor() {
-    this.loadState();
+    this.loadState().catch(err => {
+      console.error('[RoundRobin] Failed to load initial state:', err);
+    });
   }
 
   /**
-   * Load state from disk
+   * Load state from PostgreSQL
    */
-  private loadState(): void {
+  private async loadState(): Promise<void> {
     try {
-      if (fs.existsSync(TRACKER_FILE)) {
-        const data = fs.readFileSync(TRACKER_FILE, 'utf8');
-        this.state = JSON.parse(data);
-        console.log('[RoundRobin] Loaded state:', Object.keys(this.state).length, 'queues');
-      } else {
-        this.state = {};
-        this.saveState();
-        console.log('[RoundRobin] Initialized new state file');
+      const result = await pool.query(
+        'SELECT queue_id, last_index, last_advisor_id, total_assignments FROM queue_round_robin_state'
+      );
+
+      this.state = {};
+      for (const row of result.rows) {
+        this.state[row.queue_id] = {
+          lastIndex: row.last_index,
+          lastAdvisorId: row.last_advisor_id,
+          totalAssignments: parseInt(row.total_assignments),
+        };
       }
+
+      console.log('[RoundRobin] 🐘 Loaded state from PostgreSQL:', Object.keys(this.state).length, 'queues');
     } catch (error) {
-      console.error('[RoundRobin] Error loading state:', error);
+      console.error('[RoundRobin] Error loading state from PostgreSQL:', error);
       this.state = {};
     }
   }
 
   /**
-   * Save state to disk
+   * Save state to PostgreSQL
    */
-  private saveState(): void {
+  private async saveState(queueId: string): Promise<void> {
     try {
-      const dir = path.dirname(TRACKER_FILE);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      fs.writeFileSync(TRACKER_FILE, JSON.stringify(this.state, null, 2));
+      const queueState = this.state[queueId];
+      if (!queueState) return;
+
+      await pool.query(
+        `INSERT INTO queue_round_robin_state (queue_id, last_index, last_advisor_id, total_assignments)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (queue_id) DO UPDATE SET
+           last_index = EXCLUDED.last_index,
+           last_advisor_id = EXCLUDED.last_advisor_id,
+           total_assignments = EXCLUDED.total_assignments,
+           updated_at = NOW()`,
+        [queueId, queueState.lastIndex, queueState.lastAdvisorId, queueState.totalAssignments]
+      );
     } catch (error) {
-      console.error('[RoundRobin] Error saving state:', error);
+      console.error('[RoundRobin] Error saving state to PostgreSQL:', error);
     }
   }
 
@@ -64,7 +93,7 @@ class RoundRobinTracker {
    * @param availableAdvisors - Array of available advisor IDs
    * @returns The next advisor ID to assign
    */
-  getNextAdvisor(queueId: string, availableAdvisors: string[]): string | null {
+  async getNextAdvisor(queueId: string, availableAdvisors: string[]): Promise<string | null> {
     if (availableAdvisors.length === 0) {
       console.warn(`[RoundRobin] No available advisors in queue ${queueId}`);
       return null;
@@ -90,8 +119,8 @@ class RoundRobinTracker {
     queueState.lastAdvisorId = nextAdvisor;
     queueState.totalAssignments++;
 
-    // Save to disk
-    this.saveState();
+    // Save to PostgreSQL
+    await this.saveState(queueId);
 
     console.log(`[RoundRobin] Queue ${queueId}: Assigned to advisor ${nextIndex + 1}/${availableAdvisors.length} (${nextAdvisor}) - Total assignments: ${queueState.totalAssignments}`);
 
@@ -108,14 +137,14 @@ class RoundRobinTracker {
   /**
    * Reset state for a queue
    */
-  resetQueue(queueId: string): void {
+  async resetQueue(queueId: string): Promise<void> {
     if (this.state[queueId]) {
       this.state[queueId] = {
         lastIndex: -1,
         lastAdvisorId: null,
         totalAssignments: 0
       };
-      this.saveState();
+      await this.saveState(queueId);
       console.log(`[RoundRobin] Reset state for queue ${queueId}`);
     }
   }

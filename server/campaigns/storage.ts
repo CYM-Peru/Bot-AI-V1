@@ -182,19 +182,10 @@ export class CampaignStorage {
   }
 }
 
-// Select storage based on environment variable
+// MIGRATION COMPLETE: PostgreSQL only (JSON fallback removed)
 import { campaignStorageDB } from './storage-db';
 
-const storageMode = process.env.CAMPAIGNS_STORAGE_MODE || 'postgres';
+console.log('[Campaigns] 🐘 Using PostgreSQL storage (JSON mode deprecated)');
 
-let campaignStorageInstance: any;
-
-if (storageMode === 'postgres') {
-  console.log('[Campaigns] 🐘 Using PostgreSQL storage mode');
-  campaignStorageInstance = campaignStorageDB;
-} else {
-  console.log('[Campaigns] 📄 Using JSON file storage mode');
-  campaignStorageInstance = new CampaignStorage();
-}
-
-export const campaignStorage = campaignStorageInstance;
+// Force PostgreSQL - JSON fallback has been removed
+export const campaignStorage = campaignStorageDB;

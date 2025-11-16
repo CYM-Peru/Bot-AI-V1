@@ -402,19 +402,10 @@ export class CRMDatabase {
   }
 }
 
-// Select storage based on environment variable
+// MIGRATION COMPLETE: PostgreSQL only (JSON fallback removed)
 import { postgresCrmDb } from './db-postgres';
 
-const storageMode = process.env.CRM_STORAGE_MODE || 'json';
+console.log('[CRM] 🐘 Using PostgreSQL storage (JSON mode deprecated)');
 
-let crmDbInstance: any;
-
-if (storageMode === 'postgres') {
-  console.log('[CRM] 🐘 Using PostgreSQL storage mode');
-  crmDbInstance = postgresCrmDb;
-} else {
-  console.log('[CRM] 📄 Using JSON file storage mode');
-  crmDbInstance = new CRMDatabase();
-}
-
-export const crmDb = crmDbInstance;
+// Force PostgreSQL - JSON fallback has been removed
+export const crmDb = postgresCrmDb;

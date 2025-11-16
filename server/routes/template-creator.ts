@@ -59,22 +59,32 @@ router.post('/create', requireSupervisor, async (req, res) => {
       });
     }
 
-    // Obtener configuración de WhatsApp desde archivo JSON
-    const connectionsPath = path.join(process.cwd(), "data", "whatsapp-connections.json");
-    const fileContent = await fs.readFile(connectionsPath, "utf-8");
-    const parsed = JSON.parse(fileContent);
-    const connections = parsed.connections || [];
+    // Obtener configuración de WhatsApp desde PostgreSQL
+    const { Pool } = await import('pg');
+    const pool = new Pool({
+      user: process.env.POSTGRES_USER || 'whatsapp_user',
+      host: process.env.POSTGRES_HOST || 'localhost',
+      database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+      password: process.env.POSTGRES_PASSWORD || 'azaleia_pg_2025_secure',
+      port: parseInt(process.env.POSTGRES_PORT || '5432'),
+    });
 
-    if (connections.length === 0) {
+    const result = await pool.query(
+      'SELECT id, alias, phone_number_id, access_token FROM whatsapp_connections WHERE is_active = true LIMIT 1'
+    );
+
+    await pool.end();
+
+    if (result.rows.length === 0) {
       return res.status(500).json({
         error: 'No hay números de WhatsApp configurados'
       });
     }
 
     // Usar el primer número configurado para obtener el access token y phoneNumberId
-    const firstConnection = connections[0];
-    const accessToken = firstConnection.accessToken;
-    const phoneNumberId = firstConnection.phoneNumberId;
+    const firstConnection = result.rows[0];
+    const accessToken = firstConnection.access_token;
+    const phoneNumberId = firstConnection.phone_number_id;
 
     if (!accessToken) {
       return res.status(500).json({
@@ -289,17 +299,27 @@ router.get('/status/:templateId', requireSupervisor, async (req, res) => {
   try {
     const { templateId } = req.params;
 
-    // Obtener access token desde archivo JSON
-    const connectionsPath = path.join(process.cwd(), "data", "whatsapp-connections.json");
-    const fileContent = await fs.readFile(connectionsPath, "utf-8");
-    const parsed = JSON.parse(fileContent);
-    const connections = parsed.connections || [];
+    // Obtener access token desde PostgreSQL
+    const { Pool } = await import('pg');
+    const pool = new Pool({
+      user: process.env.POSTGRES_USER || 'whatsapp_user',
+      host: process.env.POSTGRES_HOST || 'localhost',
+      database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+      password: process.env.POSTGRES_PASSWORD || 'azaleia_pg_2025_secure',
+      port: parseInt(process.env.POSTGRES_PORT || '5432'),
+    });
 
-    if (connections.length === 0) {
+    const result = await pool.query(
+      'SELECT access_token FROM whatsapp_connections WHERE is_active = true LIMIT 1'
+    );
+
+    await pool.end();
+
+    if (result.rows.length === 0) {
       return res.status(500).json({ error: 'No hay números de WhatsApp configurados' });
     }
 
-    const accessToken = connections[0].accessToken;
+    const accessToken = result.rows[0].access_token;
     if (!accessToken) {
       return res.status(500).json({ error: 'No se encontró access token' });
     }
@@ -345,18 +365,24 @@ router.get('/status/:templateId', requireSupervisor, async (req, res) => {
  */
 router.get('/waba-ids', requireSupervisor, async (req, res) => {
   try {
-    // Leer configuración desde archivo JSON
-    const connectionsPath = path.join(process.cwd(), "data", "whatsapp-connections.json");
-    const fileContent = await fs.readFile(connectionsPath, "utf-8");
-    const parsed = JSON.parse(fileContent);
-    const connections = parsed.connections || [];
+    // Leer configuración desde PostgreSQL
+    const { Pool } = await import('pg');
+    const pool = new Pool({
+      user: process.env.POSTGRES_USER || 'whatsapp_user',
+      host: process.env.POSTGRES_HOST || 'localhost',
+      database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+      password: process.env.POSTGRES_PASSWORD || 'azaleia_pg_2025_secure',
+      port: parseInt(process.env.POSTGRES_PORT || '5432'),
+    });
+
+    const result = await pool.query(
+      'SELECT DISTINCT waba_id FROM whatsapp_connections WHERE is_active = true AND waba_id IS NOT NULL'
+    );
+
+    await pool.end();
 
     // Extraer WABAs únicos
-    const wabaIds = [...new Set(
-      connections
-        .map((conn: any) => conn.wabaId)
-        .filter((id: any) => id)
-    )];
+    const wabaIds = result.rows.map(row => row.waba_id);
 
     if (wabaIds.length === 0) {
       return res.json({

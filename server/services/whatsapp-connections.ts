@@ -1,5 +1,4 @@
-import fs from "fs/promises";
-import path from "path";
+import { Pool } from 'pg';
 
 interface WhatsAppConnection {
   id: string;
@@ -14,18 +13,28 @@ interface WhatsAppConnection {
   updatedAt: number;
 }
 
-interface WhatsAppConnectionsData {
-  connections: WhatsAppConnection[];
-}
+// PostgreSQL connection pool
+const pool = new Pool({
+  user: process.env.POSTGRES_USER || 'whatsapp_user',
+  host: process.env.POSTGRES_HOST || 'localhost',
+  database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+  password: process.env.POSTGRES_PASSWORD || 'azaleia_pg_2025_secure',
+  port: parseInt(process.env.POSTGRES_PORT || '5432'),
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
 
-const CONNECTIONS_PATH = path.join(process.cwd(), "data", "whatsapp-connections.json");
+pool.on('error', (err) => {
+  console.error('[WhatsApp Connections] Unexpected pool error:', err);
+});
 
 let cachedConnections: WhatsAppConnection[] | null = null;
 let lastLoadTime = 0;
 const CACHE_TTL = 30000; // 30 seconds
 
 /**
- * Load WhatsApp connections from file with caching
+ * Load WhatsApp connections from PostgreSQL with caching
  */
 async function loadConnections(): Promise<WhatsAppConnection[]> {
   const now = Date.now();
@@ -34,13 +43,27 @@ async function loadConnections(): Promise<WhatsAppConnection[]> {
   }
 
   try {
-    const data = await fs.readFile(CONNECTIONS_PATH, "utf-8");
-    const parsed = JSON.parse(data) as WhatsAppConnectionsData;
-    cachedConnections = parsed.connections || [];
+    const result = await pool.query(
+      'SELECT id, alias, phone_number_id, display_number, access_token, verify_token, waba_id, is_active, created_at, updated_at FROM whatsapp_connections WHERE is_active = true ORDER BY created_at'
+    );
+
+    cachedConnections = result.rows.map(row => ({
+      id: row.id,
+      alias: row.alias,
+      phoneNumberId: row.phone_number_id,
+      displayNumber: row.display_number,
+      accessToken: row.access_token,
+      verifyToken: row.verify_token,
+      wabaId: row.waba_id,
+      isActive: row.is_active,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+
     lastLoadTime = now;
     return cachedConnections;
   } catch (error) {
-    console.error("[WhatsApp Connections] Error loading connections:", error);
+    console.error("[WhatsApp Connections] Error loading connections from PostgreSQL:", error);
     return [];
   }
 }
@@ -104,3 +127,5 @@ export function invalidateConnectionsCache(): void {
   cachedConnections = null;
   lastLoadTime = 0;
 }
+
+console.log('[WhatsApp Connections] 🐘 Using PostgreSQL storage');

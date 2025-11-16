@@ -1,10 +1,23 @@
 import { crmDb } from "./crm/db-postgres";
 import type { CrmRealtimeManager } from "./crm/ws";
 import { ConversationStatus } from "./crm/conversation-status";
-import { readFileSync, writeFileSync, existsSync } from "fs";
-import { resolve } from "path";
+import { Pool } from "pg";
 
-const BOT_CONFIG_PATH = resolve(process.cwd(), "data", "bot-config.json");
+// PostgreSQL connection pool
+const pool = new Pool({
+  user: process.env.POSTGRES_USER || 'whatsapp_user',
+  host: process.env.POSTGRES_HOST || 'localhost',
+  database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+  password: process.env.POSTGRES_PASSWORD || 'azaleia_pg_2025_secure',
+  port: parseInt(process.env.POSTGRES_PORT || '5432'),
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+pool.on('error', (err) => {
+  console.error('[BotTimeoutScheduler] Unexpected pool error:', err);
+});
 
 interface BotConfig {
   perFlowConfig: Record<string, { botTimeout: number; fallbackQueue: string }>;
@@ -23,7 +36,10 @@ export class BotTimeoutScheduler {
 
   constructor(socketManager?: CrmRealtimeManager) {
     this.socketManager = socketManager || null;
-    this.loadConfig();
+    // Load config async (don't block constructor)
+    this.loadConfig().catch(err => {
+      console.error('[BotTimeoutScheduler] Failed to load initial config:', err);
+    });
   }
 
   setSocketManager(socketManager: CrmRealtimeManager): void {
@@ -31,33 +47,55 @@ export class BotTimeoutScheduler {
   }
 
   /**
-   * Load bot config from file
+   * Load bot config from PostgreSQL
    */
-  private loadConfig(): void {
+  private async loadConfig(): Promise<void> {
     try {
-      if (existsSync(BOT_CONFIG_PATH)) {
-        const data = readFileSync(BOT_CONFIG_PATH, "utf8");
-        this.config = JSON.parse(data);
-        console.log(`[BotTimeoutScheduler] Loaded config for ${Object.keys(this.config.perFlowConfig).length} flows`);
-      } else {
-        console.log("[BotTimeoutScheduler] No config file found, using empty config");
+      const result = await pool.query(
+        'SELECT flow_id, bot_timeout, fallback_queue FROM bot_flow_configs'
+      );
+
+      this.config = { perFlowConfig: {} };
+
+      for (const row of result.rows) {
+        this.config.perFlowConfig[row.flow_id] = {
+          botTimeout: row.bot_timeout,
+          fallbackQueue: row.fallback_queue,
+        };
       }
+
+      console.log(`[BotTimeoutScheduler] 🐘 Loaded config from PostgreSQL for ${result.rows.length} flows`);
     } catch (error) {
-      console.error("[BotTimeoutScheduler] Error loading config:", error);
+      console.error("[BotTimeoutScheduler] Error loading config from PostgreSQL:", error);
       this.config = { perFlowConfig: {} };
     }
   }
 
   /**
-   * Save bot config to file
+   * Save bot config to PostgreSQL
    */
-  saveConfig(config: BotConfig): void {
+  async saveConfig(config: BotConfig): Promise<void> {
     try {
-      writeFileSync(BOT_CONFIG_PATH, JSON.stringify(config, null, 2), "utf8");
+      // Delete all existing configs
+      await pool.query('DELETE FROM bot_flow_configs');
+
+      // Insert new configs
+      for (const [flowId, flowConfig] of Object.entries(config.perFlowConfig)) {
+        await pool.query(
+          `INSERT INTO bot_flow_configs (flow_id, bot_timeout, fallback_queue)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (flow_id) DO UPDATE SET
+             bot_timeout = EXCLUDED.bot_timeout,
+             fallback_queue = EXCLUDED.fallback_queue,
+             updated_at = NOW()`,
+          [flowId, flowConfig.botTimeout, flowConfig.fallbackQueue]
+        );
+      }
+
       this.config = config;
-      console.log(`[BotTimeoutScheduler] Saved config for ${Object.keys(config.perFlowConfig).length} flows`);
+      console.log(`[BotTimeoutScheduler] 🐘 Saved config to PostgreSQL for ${Object.keys(config.perFlowConfig).length} flows`);
     } catch (error) {
-      console.error("[BotTimeoutScheduler] Error saving config:", error);
+      console.error("[BotTimeoutScheduler] Error saving config to PostgreSQL:", error);
       throw error;
     }
   }

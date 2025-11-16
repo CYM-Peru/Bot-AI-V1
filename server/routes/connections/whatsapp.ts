@@ -6,8 +6,7 @@ import {
   type WhatsAppCheckResult,
 } from "../../services/whatsapp";
 import { adminDb } from "../../admin-db";
-import fs from "fs/promises";
-import path from "path";
+import { Pool } from 'pg';
 
 interface SavePayload {
   phoneNumberId?: unknown;
@@ -115,21 +114,30 @@ export function createWhatsAppConnectionsRouter() {
    */
   router.get("/list", async (_req, res) => {
     try {
-      // Read from the correct connections file (not the old whatsapp-numbers.json)
-      const connectionsPath = path.join(process.cwd(), "data", "whatsapp-connections.json");
-      const data = await fs.readFile(connectionsPath, "utf-8");
-      const parsed = JSON.parse(data);
-      const connections = parsed.connections || [];
+      // Read from PostgreSQL
+      const pool = new Pool({
+        user: process.env.POSTGRES_USER || 'whatsapp_user',
+        host: process.env.POSTGRES_HOST || 'localhost',
+        database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+        password: process.env.POSTGRES_PASSWORD || 'azaleia_pg_2025_secure',
+        port: parseInt(process.env.POSTGRES_PORT || '5432'),
+      });
+
+      const result = await pool.query(
+        'SELECT id, alias, phone_number_id, display_number, is_active FROM whatsapp_connections WHERE is_active = true ORDER BY created_at'
+      );
+
+      await pool.end();
 
       // Return in expected format
       res.json({
         ok: true,
-        connections: connections.map((conn: any) => ({
+        connections: result.rows.map((conn: any) => ({
           id: conn.id,
           alias: conn.alias,
-          phoneNumberId: conn.phoneNumberId,
-          displayNumber: conn.displayNumber,
-          isActive: conn.isActive ?? true,
+          phoneNumberId: conn.phone_number_id,
+          displayNumber: conn.display_number,
+          isActive: conn.is_active,
         }))
       });
     } catch (error) {

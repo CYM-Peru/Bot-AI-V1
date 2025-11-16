@@ -163,10 +163,26 @@ export class LocalStorageFlowProvider implements FlowProvider {
    */
   private async getPhoneNumberIdMappings(): Promise<Record<string, string>> {
     try {
-      // Load WhatsApp connections (has phoneNumberId + displayNumber)
-      const connectionsPath = path.join(process.cwd(), "data", "whatsapp-connections.json");
-      const connectionsData = await fs.readFile(connectionsPath, "utf-8");
-      const connections = JSON.parse(connectionsData).connections || [];
+      // Load WhatsApp connections from PostgreSQL (has phoneNumberId + displayNumber)
+      const { Pool } = await import('pg');
+      const pool = new Pool({
+        user: process.env.POSTGRES_USER || 'whatsapp_user',
+        host: process.env.POSTGRES_HOST || 'localhost',
+        database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+        password: process.env.POSTGRES_PASSWORD || 'azaleia_pg_2025_secure',
+        port: parseInt(process.env.POSTGRES_PORT || '5432'),
+      });
+
+      const result = await pool.query(
+        'SELECT phone_number_id, display_number FROM whatsapp_connections WHERE is_active = true'
+      );
+
+      await pool.end();
+
+      const connections = result.rows.map(row => ({
+        phoneNumberId: row.phone_number_id,
+        displayNumber: row.display_number
+      }));
 
       // Load admin WhatsApp numbers (has numberId + phoneNumber)
       const adminNumbersPath = path.join(process.cwd(), "data", "admin", "whatsapp-numbers.json");

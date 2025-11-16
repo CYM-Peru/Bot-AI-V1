@@ -3,9 +3,7 @@ import { fetchMessageTemplates, sendTemplateMessage, type WhatsAppTemplate } fro
 import { getWhatsAppEnv } from "../../utils/env";
 import { crmDb } from "../db-postgres";
 import type { CrmRealtimeManager } from "../ws";
-import { getWhatsAppCredentials } from "../../services/whatsapp-connections";
-import fs from "fs/promises";
-import path from "path";
+import { getWhatsAppCredentials, getWhatsAppConnection } from "../../services/whatsapp-connections";
 import { registerTemplateUsage } from "../template-usage-tracker";
 import { adminDb } from "../../admin-db-postgres";
 
@@ -22,18 +20,14 @@ export function createTemplatesRouter(socketManager: CrmRealtimeManager) {
     try {
       const { phoneNumberId } = req.query;
 
-      // Load connections to find the right access token
-      const connectionsPath = path.join(process.cwd(), "data", "whatsapp-connections.json");
+      // Load connections from PostgreSQL
       let accessToken: string;
       let wabaId: string;
 
       if (phoneNumberId && typeof phoneNumberId === "string") {
         // Find specific connection by phoneNumberId
         try {
-          const data = await fs.readFile(connectionsPath, "utf-8");
-          const parsed = JSON.parse(data);
-          // Search by phoneNumberId field (Meta's Phone Number ID)
-          const connection = parsed.connections?.find((c: any) => c.phoneNumberId === phoneNumberId);
+          const connection = await getWhatsAppConnection(phoneNumberId);
 
           if (connection && connection.accessToken) {
             accessToken = connection.accessToken;
@@ -47,7 +41,7 @@ export function createTemplatesRouter(socketManager: CrmRealtimeManager) {
           }
         } catch (error) {
           console.error('[Templates] Error reading connections:', error);
-          // Fallback to env config if file read fails
+          // Fallback to env config if connection lookup fails
           const config = getWhatsAppEnv();
           accessToken = config.accessToken;
           wabaId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || config.phoneNumberId;
@@ -147,12 +141,10 @@ export function createTemplatesRouter(socketManager: CrmRealtimeManager) {
       const advisorId = (req as any).user?.userId || null;
       const advisorName = (req as any).user?.name || (req as any).user?.username || 'Sistema';
 
-      // LOOKUP displayNumber from connections file
+      // LOOKUP displayNumber from PostgreSQL connections
       let displayNumber: string | null = null;
       try {
-        const connectionsData = await fs.readFile(path.join(process.cwd(), "data", "whatsapp-connections.json"), "utf-8");
-        const parsed = JSON.parse(connectionsData);
-        const connection = parsed.connections?.find((c: any) => c.phoneNumberId === phoneNumberIdToUse);
+        const connection = await getWhatsAppConnection(phoneNumberIdToUse);
         if (connection?.displayNumber) {
           displayNumber = connection.displayNumber;
         }
@@ -418,11 +410,42 @@ export function createTemplatesRouter(socketManager: CrmRealtimeManager) {
         return;
       }
 
-      // Load connections to get access token and WABA ID
-      const connectionsPath = path.join(process.cwd(), "data", "whatsapp-connections.json");
-      const data = await fs.readFile(connectionsPath, "utf-8");
-      const parsed = JSON.parse(data);
-      const connection = parsed.connections?.[0];
+      // Load connections from PostgreSQL to get access token and WABA ID
+      // Get first active connection (or use phoneNumberId from query if provided)
+      const { phoneNumberId } = req.query;
+      let connection;
+
+      if (phoneNumberId && typeof phoneNumberId === "string") {
+        connection = await getWhatsAppConnection(phoneNumberId);
+      } else {
+        // Get any active connection
+        const { Pool } = await import('pg');
+        const pool = new Pool({
+          user: process.env.POSTGRES_USER || 'whatsapp_user',
+          host: process.env.POSTGRES_HOST || 'localhost',
+          database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+          password: process.env.POSTGRES_PASSWORD || 'azaleia_pg_2025_secure',
+          port: parseInt(process.env.POSTGRES_PORT || '5432'),
+        });
+
+        const result = await pool.query(
+          'SELECT id, alias, phone_number_id, display_number, access_token, waba_id FROM whatsapp_connections WHERE is_active = true LIMIT 1'
+        );
+
+        await pool.end();
+
+        if (result.rows.length > 0) {
+          const row = result.rows[0];
+          connection = {
+            id: row.id,
+            alias: row.alias,
+            phoneNumberId: row.phone_number_id,
+            displayNumber: row.display_number,
+            accessToken: row.access_token,
+            wabaId: row.waba_id,
+          };
+        }
+      }
 
       if (!connection || !connection.accessToken || !connection.wabaId) {
         res.status(400).json({

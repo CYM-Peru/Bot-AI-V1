@@ -222,10 +222,9 @@ export function createCampaignsRouter(socketManager?: CrmRealtimeManager) {
  */
 async function getWhatsAppConfigForCampaign(phoneNumberId: string): Promise<any> {
   try {
-    const connectionsPath = path.join(process.cwd(), "data", "whatsapp-connections.json");
-    const data = await fs.readFile(connectionsPath, "utf-8");
-    const parsed = JSON.parse(data);
-    const connection = parsed.connections?.find((c: any) => c.phoneNumberId === phoneNumberId);
+    // Read from PostgreSQL using whatsapp-connections service
+    const { getWhatsAppConnection } = await import('../services/whatsapp-connections');
+    const connection = await getWhatsAppConnection(phoneNumberId);
 
     if (connection && connection.accessToken) {
       const baseEnv = getWhatsAppEnv();

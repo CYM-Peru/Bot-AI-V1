@@ -178,19 +178,10 @@ class SessionsStorage {
   }
 }
 
-// Select storage based on environment variable
-import { sessionsStorageDB } from './sessions-db';
+// MIGRATION COMPLETE: PostgreSQL only (JSON fallback removed)
+import { sessionsStorageDB} from './sessions-db';
 
-const storageMode = process.env.SESSIONS_STORAGE_MODE || 'postgres';
+console.log('[Sessions] 🐘 Using PostgreSQL storage (JSON mode deprecated)');
 
-let sessionsStorageInstance: any;
-
-if (storageMode === 'postgres') {
-  console.log('[Sessions] 🐘 Using PostgreSQL storage mode');
-  sessionsStorageInstance = sessionsStorageDB;
-} else {
-  console.log('[Sessions] 📄 Using JSON file storage mode');
-  sessionsStorageInstance = new SessionsStorage();
-}
-
-export const sessionsStorage = sessionsStorageInstance;
+// Force PostgreSQL - JSON fallback has been removed
+export const sessionsStorage = sessionsStorageDB;

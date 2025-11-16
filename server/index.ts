@@ -348,13 +348,11 @@ async function createWhatsAppHandler() {
     },
     messageGroupingService: messageGroupingService, // Pass message grouping service for IA Agent
     resolveApiConfig: async (phoneNumberId: string) => {
-      // CRITICAL: Find correct WhatsApp connection by phoneNumberId
+      // CRITICAL: Find correct WhatsApp connection by phoneNumberId from PostgreSQL
       try {
-        const connectionsPath = path.join(process.cwd(), "data", "whatsapp-connections.json");
-        const data = await fs.readFile(connectionsPath, "utf-8");
-        const parsed = JSON.parse(data);
+        const { getWhatsAppConnection } = await import('./services/whatsapp-connections');
+        const connection = await getWhatsAppConnection(phoneNumberId);
 
-        const connection = parsed.connections?.find((c: any) => c.phoneNumberId === phoneNumberId);
         if (connection) {
           logger.info(`[WhatsApp] ✅ Resolved API config for phoneNumberId: ${phoneNumberId} (${connection.displayNumber})`);
           return {
@@ -559,7 +557,7 @@ async function createWhatsAppHandler() {
 
                 if (availableAdvisors.length > 0) {
                   // Use round-robin to select next advisor
-                  const selectedAdvisor = roundRobinTracker.getNextAdvisor(queueId, availableAdvisors);
+                  const selectedAdvisor = await roundRobinTracker.getNextAdvisor(queueId, availableAdvisors);
 
                   if (selectedAdvisor) {
                     const assigned = await crmDb.assignConversation(conversation.id, selectedAdvisor);

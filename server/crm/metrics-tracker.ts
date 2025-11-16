@@ -652,19 +652,10 @@ export class MetricsTracker {
   }
 }
 
-// Select storage based on environment variable
+// MIGRATION COMPLETE: PostgreSQL only (JSON fallback removed)
 import { metricsTrackerDB } from './metrics-tracker-db';
 
-const storageMode = process.env.METRICS_STORAGE_MODE || 'postgres';
+console.log('[Metrics] 🐘 Using PostgreSQL storage (JSON mode deprecated)');
 
-let metricsTrackerInstance: any;
-
-if (storageMode === 'postgres') {
-  console.log('[Metrics] 🐘 Using PostgreSQL storage mode');
-  metricsTrackerInstance = metricsTrackerDB;
-} else {
-  console.log('[Metrics] 📄 Using JSON file storage mode');
-  metricsTrackerInstance = new MetricsTracker();
-}
-
-export const metricsTracker = metricsTrackerInstance;
+// Force PostgreSQL - JSON fallback has been removed
+export const metricsTracker = metricsTrackerDB;
