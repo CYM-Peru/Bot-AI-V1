@@ -1,10 +1,8 @@
-import { apiUrl } from "../lib/apiBase";
+import { authFetch } from "../lib/apiBase";
 import type { Attachment, Conversation, Message } from "./types";
 
 export async function fetchConversations(): Promise<Conversation[]> {
-  const response = await fetch(apiUrl("/api/crm/conversations"), {
-    credentials: "include",
-  });
+  const response = await authFetch("/api/crm/conversations");
   if (!response.ok) {
     throw new Error("No se pudieron cargar las conversaciones");
   }
@@ -13,9 +11,7 @@ export async function fetchConversations(): Promise<Conversation[]> {
 }
 
 export async function fetchMessages(convId: string): Promise<{ messages: Message[]; attachments: Attachment[] }> {
-  const response = await fetch(apiUrl(`/api/crm/conversations/${convId}/messages`), {
-    credentials: "include",
-  });
+  const response = await authFetch(`/api/crm/conversations/${convId}/messages`);
   if (!response.ok) {
     throw new Error("No se pudieron cargar los mensajes");
   }
@@ -42,10 +38,9 @@ export interface SendMessageResult {
 }
 
 export async function sendMessage(payload: SendMessagePayload): Promise<SendMessageResult> {
-  const response = await fetch(apiUrl("/api/crm/messages/send"), {
+  const response = await authFetch("/api/crm/messages/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
@@ -61,10 +56,9 @@ export async function sendMessage(payload: SendMessagePayload): Promise<SendMess
 
 export async function uploadAttachment(file: File) {
   const base64 = await fileToBase64(file);
-  const response = await fetch(apiUrl("/api/crm/attachments/upload"), {
+  const response = await authFetch("/api/crm/attachments/upload", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify({ filename: file.name, mime: file.type || "application/octet-stream", data: base64 }),
   });
   if (!response.ok) {
@@ -87,9 +81,8 @@ async function fileToBase64(file: File): Promise<string> {
 }
 
 export async function archiveConversation(convId: string) {
-  const response = await fetch(apiUrl(`/api/crm/conversations/${convId}/archive`), {
+  const response = await authFetch(`/api/crm/conversations/${convId}/archive`, {
     method: "POST",
-    credentials: "include",
   });
   if (!response.ok) {
     throw new Error("No se pudo archivar la conversación");

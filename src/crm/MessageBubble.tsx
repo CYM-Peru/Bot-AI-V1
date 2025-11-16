@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Attachment, Message } from "./types";
 import AttachmentPreview from "./AttachmentPreview";
-import { apiUrl } from "../lib/apiBase";
+import { authFetch } from "../lib/apiBase";
 
 interface MessageBubbleProps {
   message: Message;
@@ -57,9 +57,7 @@ export default function MessageBubble({ message, attachments, repliedTo, replied
 
   const loadTheme = async () => {
     try {
-      const response = await fetch(apiUrl("/api/user-profile/chat-theme"), {
-        credentials: "include",
-      });
+      const response = await authFetch("/api/user-profile/chat-theme");
       if (response.ok) {
         const data = await response.json();
         if (data.ok && data.preferences) {

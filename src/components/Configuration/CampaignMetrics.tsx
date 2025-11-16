@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { authFetch } from "../../lib/apiBase";
 import { TrendingUp, Target, Users, BarChart3, Megaphone, HelpCircle, X } from "lucide-react";
 
 interface CampaignRecord {
@@ -78,9 +78,7 @@ export function CampaignMetrics() {
 
   async function loadData() {
     try {
-      const response = await fetch(apiUrl("/api/crm/metrics/campaign-tracking?limit=50"), {
-        credentials: "include",
-      });
+      const response = await authFetch("/api/crm/metrics/campaign-tracking?limit=50");
 
       if (response.ok) {
         const result = await response.json();

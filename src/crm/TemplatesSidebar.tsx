@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { authFetch } from "../lib/apiBase";
 import type { WhatsAppTemplate } from "../api/whatsapp-sender";
 
 interface TemplatesSidebarProps {
@@ -27,10 +27,10 @@ export default function TemplatesSidebar({ phone, phoneNumberId, onSend, onClose
     try {
       // Pass phoneNumberId to get templates for specific WhatsApp account
       const url = phoneNumberId
-        ? apiUrl(`/api/crm/templates?phoneNumberId=${phoneNumberId}`)
-        : apiUrl("/api/crm/templates");
+        ? `/api/crm/templates?phoneNumberId=${phoneNumberId}`
+        : "/api/crm/templates";
 
-      const response = await fetch(url);
+      const response = await authFetch(url);
       if (response.ok) {
         const data = await response.json();
         setTemplates(data.templates || []);

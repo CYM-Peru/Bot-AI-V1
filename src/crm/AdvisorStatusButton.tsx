@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { authFetch } from "../lib/apiBase";
 
 interface AdvisorStatus {
   id: string;
@@ -44,9 +44,7 @@ export function AdvisorStatusButton({ userId, compact = false }: AdvisorStatusBu
 
   const loadStatuses = async () => {
     try {
-      const response = await fetch(apiUrl("/api/admin/advisor-statuses"), {
-        credentials: "include",
-      });
+      const response = await authFetch("/api/admin/advisor-statuses");
       if (response.ok) {
         const data = await response.json();
         setAvailableStatuses(data.statuses || []);
@@ -59,9 +57,7 @@ export function AdvisorStatusButton({ userId, compact = false }: AdvisorStatusBu
   const loadCurrentStatus = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl(`/api/admin/advisor-status/${userId}`), {
-        credentials: "include",
-      });
+      const response = await authFetch(`/api/admin/advisor-status/${userId}`);
       if (response.ok) {
         const data = await response.json();
         if (data.status) {
@@ -79,10 +75,9 @@ export function AdvisorStatusButton({ userId, compact = false }: AdvisorStatusBu
 
   const handleChangeStatus = async (status: AdvisorStatus) => {
     try {
-      const response = await fetch(apiUrl(`/api/admin/advisor-status/${userId}`), {
+      const response = await authFetch(`/api/admin/advisor-status/${userId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ statusId: status.id }),
       });
 

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { authFetch } from '../lib/apiBase';
 
 interface ConversationSummary {
   id: string;
@@ -43,9 +44,7 @@ export default function AIAnalyticsPanel() {
   const loadConversations = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/crm/conversations/analytics?from=${dateRange.from}&to=${dateRange.to}`, {
-        credentials: 'include'
-      });
+      const response = await authFetch(`/api/crm/conversations/analytics?from=${dateRange.from}&to=${dateRange.to}`);
 
       if (response.ok) {
         const data = await response.json();
@@ -68,9 +67,8 @@ export default function AIAnalyticsPanel() {
         )
       })));
 
-      const response = await fetch(`/api/crm/conversations/${conversationId}/analyze`, {
-        method: 'POST',
-        credentials: 'include'
+      const response = await authFetch(`/api/crm/conversations/${conversationId}/analyze`, {
+        method: 'POST'
       });
 
       if (response.ok) {

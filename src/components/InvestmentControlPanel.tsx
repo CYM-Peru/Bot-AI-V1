@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiUrl } from '../lib/apiBase';
+import { authFetch } from '../lib/apiBase';
 
 interface TemplateUsageRecord {
   id: number;
@@ -104,9 +104,7 @@ export default function InvestmentControlPanel() {
       params.append('limit', recordsPerPage.toString());
       params.append('offset', ((currentPage - 1) * recordsPerPage).toString());
 
-      const response = await fetch(apiUrl(`/api/crm/metrics/template-usage?${params.toString()}`), {
-        credentials: 'include'
-      });
+      const response = await authFetch(`/api/crm/metrics/template-usage?${params.toString()}`);
 
       if (!response.ok) {
         throw new Error('Error al cargar datos de inversión');
@@ -136,9 +134,7 @@ export default function InvestmentControlPanel() {
       params.append('limit', recordsPerPage.toString());
       params.append('offset', ((currentPage - 1) * recordsPerPage).toString());
 
-      const response = await fetch(apiUrl(`/api/crm/metrics/rag-usage?${params.toString()}`), {
-        credentials: 'include'
-      });
+      const response = await authFetch(`/api/crm/metrics/rag-usage?${params.toString()}`);
 
       if (!response.ok) {
         throw new Error('Error al cargar datos de RAG');

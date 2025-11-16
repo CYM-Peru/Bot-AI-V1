@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { authFetch } from "../lib/apiBase";
 import { SendTemplateModal } from "./SendTemplateModal";
 import { Search, RefreshCw, Send, Phone, MessageCircle, Eye, ChevronLeft, ChevronRight, Filter, X } from "lucide-react";
 
@@ -102,9 +102,7 @@ export default function AgendaPage() {
         ...(comp ? { company: comp } : {}),
       });
 
-      const response = await fetch(apiUrl(`/api/bitrix/contacts?${params}`), {
-        credentials: "include",
-      });
+      const response = await authFetch(`/api/bitrix/contacts?${params}`);
 
       if (!response.ok) {
         throw new Error("Failed to fetch contacts");
@@ -474,9 +472,7 @@ export default function AgendaPage() {
                             setLoadingConversations(true);
                             try {
                               const phone = getPhone(contact).replace(/[^0-9]/g, "");
-                              const response = await fetch(apiUrl(`/api/crm/conversations/search-by-phone?phone=${phone}`), {
-                                credentials: "include",
-                              });
+                              const response = await authFetch(`/api/crm/conversations/search-by-phone?phone=${phone}`);
                               if (response.ok) {
                                 const data = await response.json();
                                 setPhoneSelectConversations(data.conversations || []);

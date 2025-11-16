@@ -1,6 +1,7 @@
 import type { Message } from "./types";
 import { useAuth } from "../hooks/useAuth";
 import { Trash2 } from "lucide-react";
+import { authFetch } from "../lib/apiBase";
 
 interface EventBubbleProps {
   message: Message;
@@ -77,9 +78,8 @@ export default function EventBubble({ message, onDelete }: EventBubbleProps) {
     if (!confirm("¿Eliminar este mensaje del sistema?")) return;
 
     try {
-      const response = await fetch(`/api/crm/messages/${message.id}`, {
-        method: 'DELETE',
-        credentials: 'include'
+      const response = await authFetch(`/api/crm/messages/${message.id}`, {
+        method: 'DELETE'
       });
 
       if (!response.ok) {

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import type { Flow } from "../flow/types";
 import { X, Trash2, Edit3, MoreVertical, Download, Upload } from "lucide-react";
+import { authFetch } from "../lib/apiBase";
 
 interface FlowsGalleryProps {
   currentFlowId: string;
@@ -30,7 +31,7 @@ export function FlowsGallery({ currentFlowId, onSelectFlow, onClose }: FlowsGall
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch("/api/flows");
+      const response = await authFetch("/api/flows");
 
       if (!response.ok) {
         throw new Error(`Failed to load flows: ${response.status}`);
@@ -77,7 +78,7 @@ export function FlowsGallery({ currentFlowId, onSelectFlow, onClose }: FlowsGall
     }
 
     try {
-      const response = await fetch(`/api/flows/${flowId}`, {
+      const response = await authFetch(`/api/flows/${flowId}`, {
         method: "DELETE",
       });
 
@@ -114,7 +115,7 @@ export function FlowsGallery({ currentFlowId, onSelectFlow, onClose }: FlowsGall
 
     try {
       // Cargar el flujo completo desde el servidor para obtener las posiciones
-      const response = await fetch(`/api/flows/${flowId}`);
+      const response = await authFetch(`/api/flows/${flowId}`);
       if (!response.ok) throw new Error("Failed to load flow");
 
       const data = await response.json();
@@ -157,7 +158,7 @@ export function FlowsGallery({ currentFlowId, onSelectFlow, onClose }: FlowsGall
       }
 
       // Actualizar el flujo existente con el contenido importado
-      const response = await fetch(`/api/flows/${importingFlowId}`, {
+      const response = await authFetch(`/api/flows/${importingFlowId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

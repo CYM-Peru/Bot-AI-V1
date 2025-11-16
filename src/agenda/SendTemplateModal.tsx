@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { X, Send, CheckCircle, XCircle, Loader } from "lucide-react";
-import { apiUrl } from "../lib/apiBase";
+import { authFetch } from "../lib/apiBase";
 
 interface BitrixContact {
   ID: string;
@@ -69,9 +69,7 @@ export function SendTemplateModal({ contact, onClose }: SendTemplateModalProps) 
   const fetchSavedImages = async () => {
     try {
       setLoadingImages(true);
-      const response = await fetch(apiUrl("/api/template-images"), {
-        credentials: "include",
-      });
+      const response = await authFetch("/api/template-images");
       if (response.ok) {
         const data = await response.json();
         setSavedImages(data.images || []);
@@ -180,9 +178,8 @@ export function SendTemplateModal({ contact, onClose }: SendTemplateModalProps) 
       const formData = new FormData();
       formData.append('image', file);
 
-      const uploadResponse = await fetch(apiUrl("/api/template-images/upload"), {
+      const uploadResponse = await authFetch("/api/template-images/upload", {
         method: "POST",
-        credentials: "include",
         body: formData,
       });
 
@@ -245,9 +242,7 @@ export function SendTemplateModal({ contact, onClose }: SendTemplateModalProps) 
       setLoading(true);
 
       // Fetch WhatsApp connections
-      const connectionsResponse = await fetch(apiUrl("/api/connections/whatsapp/list"), {
-        credentials: "include",
-      });
+      const connectionsResponse = await authFetch("/api/connections/whatsapp/list");
 
       if (connectionsResponse.ok) {
         const connectionsData = await connectionsResponse.json();
@@ -262,9 +257,7 @@ export function SendTemplateModal({ contact, onClose }: SendTemplateModalProps) 
       }
 
       // Fetch templates
-      const templatesResponse = await fetch(apiUrl("/api/crm/templates"), {
-        credentials: "include",
-      });
+      const templatesResponse = await authFetch("/api/crm/templates");
 
       if (!templatesResponse.ok) {
         throw new Error("Failed to fetch templates");
@@ -335,12 +328,11 @@ export function SendTemplateModal({ contact, onClose }: SendTemplateModalProps) 
         components: components.length > 0 ? components : undefined,
       });
 
-      const response = await fetch(apiUrl("/api/crm/templates/send"), {
+      const response = await authFetch("/api/crm/templates/send", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        credentials: "include",
         body: JSON.stringify({
           phone,
           templateName: selectedTemplate,

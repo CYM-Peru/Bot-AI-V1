@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { authFetch } from "../lib/apiBase";
 
 interface User {
   id: string;
@@ -27,9 +27,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(apiUrl("/api/auth/me"), {
-        credentials: "include",
-      });
+      const response = await authFetch("/api/auth/me");
 
       if (response.ok) {
         const data = await response.json();

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { authFetch } from "../../lib/apiBase";
 
 interface User {
   id: string;
@@ -46,9 +46,7 @@ export function UserManagement() {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/users"), {
-        credentials: "include",
-      });
+      const response = await authFetch("/api/admin/users");
       if (response.ok) {
         const data = await response.json();
         setUsers(data.users || []);
@@ -62,9 +60,7 @@ export function UserManagement() {
 
   const loadRoles = async () => {
     try {
-      const response = await fetch(apiUrl("/api/admin/roles"), {
-        credentials: "include",
-      });
+      const response = await authFetch("/api/admin/roles");
       if (response.ok) {
         const data = await response.json();
         setRoles(data.roles || []);
@@ -78,8 +74,8 @@ export function UserManagement() {
     e.preventDefault();
     try {
       const url = editingUser
-        ? apiUrl(`/api/admin/users/${editingUser.id}`)
-        : apiUrl("/api/admin/users");
+        ? `/api/admin/users/${editingUser.id}`
+        : "/api/admin/users";
       const method = editingUser ? "PUT" : "POST";
 
       // Prepare payload - only include password if it's provided
@@ -98,10 +94,9 @@ export function UserManagement() {
         payload.password = formData.password;
       }
 
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify(payload),
       });
 
@@ -118,9 +113,8 @@ export function UserManagement() {
     if (!confirm("¿Estás seguro de eliminar este usuario?")) return;
 
     try {
-      const response = await fetch(apiUrl(`/api/admin/users/${userId}`), {
+      const response = await authFetch(`/api/admin/users/${userId}`, {
         method: "DELETE",
-        credentials: "include",
       });
 
       if (response.ok) {

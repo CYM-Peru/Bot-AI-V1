@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Avatar } from "./Avatar";
 import type { Conversation } from "./types";
+import { authFetch } from "../lib/apiBase";
 
 interface ChatWindowHeaderProps {
   conversation: Conversation;
@@ -136,11 +137,10 @@ export default function ChatWindowHeader({
   const handleToggleFavorite = async () => {
     setTogglingFavorite(true);
     try {
-      const response = await fetch(`/api/crm/conversations/${conversation.id}/favorite`, {
+      const response = await authFetch(`/api/crm/conversations/${conversation.id}/favorite`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isFavorite: !conversation.isFavorite }),
-        credentials: 'include',
       });
       if (!response.ok) {
         console.error('Error toggling favorite');
@@ -162,11 +162,10 @@ export default function ChatWindowHeader({
 
     setSavingName(true);
     try {
-      const response = await fetch(`/api/crm/conversations/${conversation.id}/contact-name`, {
+      const response = await authFetch(`/api/crm/conversations/${conversation.id}/contact-name`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contactName: editedName.trim() }),
-        credentials: 'include',
       });
       if (!response.ok) {
         console.error('Error updating contact name');

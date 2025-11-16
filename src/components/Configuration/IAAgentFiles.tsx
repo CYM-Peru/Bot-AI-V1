@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { authFetch } from "../../lib/apiBase";
 import { Upload, FileText, Trash2, Edit, Eye, EyeOff, Plus, Download } from "lucide-react";
 
 type FileCategory = 'catalog' | 'flyer' | 'info' | 'other';
@@ -68,12 +68,10 @@ export function IAAgentFiles() {
   async function loadFiles() {
     try {
       const url = filterCategory === 'all'
-        ? apiUrl("/api/ia-agent-files")
-        : apiUrl(`/api/ia-agent-files?category=${filterCategory}`);
+        ? "/api/ia-agent-files"
+        : `/api/ia-agent-files?category=${filterCategory}`;
 
-      const response = await fetch(url, {
-        credentials: "include",
-      });
+      const response = await authFetch(url);
 
       if (response.ok) {
         const data = await response.json();
@@ -92,9 +90,7 @@ export function IAAgentFiles() {
 
     try {
       // Get attachment details
-      const attachmentResponse = await fetch(apiUrl(`/api/crm/attachments/${formData.attachmentId}`), {
-        credentials: "include",
-      });
+      const attachmentResponse = await authFetch(`/api/crm/attachments/${formData.attachmentId}`);
 
       if (!attachmentResponse.ok) {
         alert("❌ Archivo no encontrado. Por favor sube el archivo primero.");
@@ -121,13 +117,12 @@ export function IAAgentFiles() {
       };
 
       const url = editingFile
-        ? apiUrl(`/api/ia-agent-files/${editingFile.id}`)
-        : apiUrl("/api/ia-agent-files");
+        ? `/api/ia-agent-files/${editingFile.id}`
+        : "/api/ia-agent-files";
 
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method: editingFile ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify(fileData),
       });
 
@@ -153,9 +148,8 @@ export function IAAgentFiles() {
     }
 
     try {
-      const response = await fetch(apiUrl(`/api/ia-agent-files/${file.id}`), {
+      const response = await authFetch(`/api/ia-agent-files/${file.id}`, {
         method: "DELETE",
-        credentials: "include",
       });
 
       if (response.ok) {
@@ -172,9 +166,8 @@ export function IAAgentFiles() {
 
   async function handleToggle(file: AgentFile) {
     try {
-      const response = await fetch(apiUrl(`/api/ia-agent-files/${file.id}/toggle`), {
+      const response = await authFetch(`/api/ia-agent-files/${file.id}/toggle`, {
         method: "POST",
-        credentials: "include",
       });
 
       if (response.ok) {

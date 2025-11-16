@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { authFetch } from "../../lib/apiBase";
 
 interface Queue {
   id: string;
@@ -52,8 +52,8 @@ export function QueueManagement() {
     setLoading(true);
     try {
       const [queuesRes, advisorsRes] = await Promise.all([
-        fetch(apiUrl("/api/admin/queues"), { credentials: "include" }),
-        fetch(apiUrl("/api/admin/advisors"), { credentials: "include" }),
+        authFetch("/api/admin/queues"),
+        authFetch("/api/admin/advisors"),
       ]);
 
       if (queuesRes.ok) {
@@ -127,11 +127,11 @@ export function QueueManagement() {
     e.preventDefault();
     try {
       const url = editingQueue
-        ? apiUrl(`/api/admin/queues/${editingQueue.id}`)
-        : apiUrl("/api/admin/queues");
+        ? `/api/admin/queues/${editingQueue.id}`
+        : "/api/admin/queues";
       const method = editingQueue ? "PUT" : "POST";
 
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
@@ -150,7 +150,7 @@ export function QueueManagement() {
     if (!confirm("¿Estás seguro de eliminar esta cola?")) return;
 
     try {
-      const response = await fetch(apiUrl(`/api/admin/queues/${queueId}`), {
+      const response = await authFetch(`/api/admin/queues/${queueId}`, {
         method: "DELETE",
       });
 

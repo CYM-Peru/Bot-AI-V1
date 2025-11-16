@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../lib/apiBase';
 
 interface KeywordUsageRecord {
   id: number;
@@ -54,9 +55,7 @@ export default function KeywordUsagePanel() {
       if (selectedFlow) params.append('flowId', selectedFlow);
       params.append('limit', '100');
 
-      const response = await fetch(`/api/crm/metrics/keyword-usage?${params.toString()}`, {
-        credentials: 'include'
-      });
+      const response = await authFetch(`/api/crm/metrics/keyword-usage?${params.toString()}`);
 
       if (!response.ok) {
         throw new Error('Error al cargar datos de palabras clave');

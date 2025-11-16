@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { CrmSocket, AdvisorPresence } from "./socket";
-import { apiUrl } from "../lib/apiBase";
+import { authFetch } from "../lib/apiBase";
 
 interface Props {
   socket: CrmSocket | null;
@@ -63,9 +63,7 @@ export function AdvisorStatusPanel({ socket }: Props) {
 
   const loadAdvisorPresence = async () => {
     try {
-      const response = await fetch(apiUrl("/api/admin/advisor-presence"), {
-        credentials: "include",
-      });
+      const response = await authFetch("/api/admin/advisor-presence");
 
       if (!response.ok) {
         throw new Error("Failed to load advisor presence");
@@ -83,9 +81,7 @@ export function AdvisorStatusPanel({ socket }: Props) {
   const loadActivityLogs = async () => {
     try {
       setLogsLoading(true);
-      const response = await fetch(apiUrl("/api/admin/advisor-activity-logs?limit=50"), {
-        credentials: "include",
-      });
+      const response = await authFetch("/api/admin/advisor-activity-logs?limit=50");
 
       if (!response.ok) {
         throw new Error("Failed to load activity logs");

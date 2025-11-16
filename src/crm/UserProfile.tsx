@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { authFetch } from "../lib/apiBase";
 import { Avatar } from "./Avatar";
 
 interface User {
@@ -103,9 +103,7 @@ export default function UserProfile({ user, onClose, onUserUpdate }: UserProfile
   const loadChatTheme = async () => {
     setLoadingTheme(true);
     try {
-      const response = await fetch(apiUrl("/api/user-profile/chat-theme"), {
-        credentials: "include",
-      });
+      const response = await authFetch("/api/user-profile/chat-theme");
       if (response.ok) {
         const data = await response.json();
         if (data.ok && data.preferences) {
@@ -153,10 +151,9 @@ export default function UserProfile({ user, onClose, onUserUpdate }: UserProfile
         const formData = new FormData();
         formData.append("avatar", avatarFile);
 
-        const uploadRes = await fetch(apiUrl("/api/user/avatar"), {
+        const uploadRes = await authFetch("/api/user/avatar", {
           method: "POST",
           body: formData,
-          credentials: "include",
         });
 
         if (!uploadRes.ok) {
@@ -168,10 +165,9 @@ export default function UserProfile({ user, onClose, onUserUpdate }: UserProfile
       }
 
       // Update profile
-      const response = await fetch(apiUrl("/api/user/profile"), {
+      const response = await authFetch("/api/user/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({
           name,
           email,
@@ -213,10 +209,9 @@ export default function UserProfile({ user, onClose, onUserUpdate }: UserProfile
     setMessage(null);
 
     try {
-      const response = await fetch(apiUrl("/api/user/password"), {
+      const response = await authFetch("/api/user/password", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({
           currentPassword,
           newPassword,
@@ -269,9 +264,8 @@ export default function UserProfile({ user, onClose, onUserUpdate }: UserProfile
     setMessage(null);
 
     try {
-      const response = await fetch(apiUrl("/api/user-profile/chat-theme"), {
+      const response = await authFetch("/api/user-profile/chat-theme", {
         method: "PUT",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ preferences: chatTheme }),
       });
@@ -965,9 +959,8 @@ export default function UserProfile({ user, onClose, onUserUpdate }: UserProfile
                                 const formData = new FormData();
                                 formData.append("background", file);
 
-                                const response = await fetch(apiUrl("/api/user-profile/chat-background"), {
+                                const response = await authFetch("/api/user-profile/chat-background", {
                                   method: "POST",
-                                  credentials: "include",
                                   body: formData,
                                 });
 

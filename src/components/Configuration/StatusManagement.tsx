@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { authFetch } from "../../lib/apiBase";
 
 interface AdvisorStatus {
   id: string;
@@ -49,7 +49,7 @@ export function StatusManagement() {
   const loadStatuses = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/advisor-statuses"), { credentials: "include" });
+      const response = await authFetch("/api/admin/advisor-statuses");
       if (response.ok) {
         const data = await response.json();
         setStatuses(data.statuses || []);
@@ -63,7 +63,7 @@ export function StatusManagement() {
 
   const loadQueues = async () => {
     try {
-      const response = await fetch(apiUrl("/api/admin/queues"), { credentials: "include" });
+      const response = await authFetch("/api/admin/queues");
       if (response.ok) {
         const data = await response.json();
         setQueues(data.queues || []);
@@ -77,14 +77,13 @@ export function StatusManagement() {
     e.preventDefault();
     try {
       const url = editingStatus
-        ? apiUrl(`/api/admin/advisor-statuses/${editingStatus.id}`)
-        : apiUrl("/api/admin/advisor-statuses");
+        ? `/api/admin/advisor-statuses/${editingStatus.id}`
+        : "/api/admin/advisor-statuses";
       const method = editingStatus ? "PUT" : "POST";
 
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify(formData),
       });
 
@@ -101,9 +100,8 @@ export function StatusManagement() {
     if (!confirm("¿Estás seguro de eliminar este estado?")) return;
 
     try {
-      const response = await fetch(apiUrl(`/api/admin/advisor-statuses/${statusId}`), {
+      const response = await authFetch(`/api/admin/advisor-statuses/${statusId}`, {
         method: "DELETE",
-        credentials: "include",
       });
 
       if (response.ok) {

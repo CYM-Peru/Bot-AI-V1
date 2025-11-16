@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { authFetch } from "../../lib/apiBase";
 import { Plus, Trash2, Edit2, Check, X, TrendingUp, Tag, BarChart3 } from "lucide-react";
 
 interface KeywordGroup {
@@ -38,9 +38,7 @@ export function KeywordTracking() {
   async function loadData() {
     try {
       // Load current configuration
-      const configResponse = await fetch(apiUrl("/api/ia-agent-config"), {
-        credentials: "include",
-      });
+      const configResponse = await authFetch("/api/ia-agent-config");
 
       if (configResponse.ok) {
         const config = await configResponse.json();
@@ -48,9 +46,7 @@ export function KeywordTracking() {
       }
 
       // Load usage statistics
-      const statsResponse = await fetch(apiUrl("/api/crm/metrics/keyword-usage?flowId=ia-agent&limit=50"), {
-        credentials: "include",
-      });
+      const statsResponse = await authFetch("/api/crm/metrics/keyword-usage?flowId=ia-agent&limit=50");
 
       if (statsResponse.ok) {
         const statsData = await statsResponse.json();
@@ -67,9 +63,7 @@ export function KeywordTracking() {
     setSaving(true);
     try {
       // Load full config
-      const configResponse = await fetch(apiUrl("/api/ia-agent-config"), {
-        credentials: "include",
-      });
+      const configResponse = await authFetch("/api/ia-agent-config");
 
       if (!configResponse.ok) {
         throw new Error("Failed to load config");
@@ -84,9 +78,8 @@ export function KeywordTracking() {
       };
 
       // Save back
-      const saveResponse = await fetch(apiUrl("/api/ia-agent-config"), {
+      const saveResponse = await authFetch("/api/ia-agent-config", {
         method: "PUT",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),
       });

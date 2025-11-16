@@ -3,6 +3,7 @@ import type { Conversation, ChannelType } from "./types";
 import { getChannelColor, getNumberLabel } from "./channelColors";
 import { Avatar } from "./Avatar";
 import { getConversationCategory, type ConversationCategory } from "../../shared/conversation-rules";
+import { authFetch } from "../lib/apiBase";
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -135,7 +136,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
 
   // Load WhatsApp connections for filter dropdown
   useEffect(() => {
-    fetch('/api/connections/whatsapp/list')
+    authFetch('/api/connections/whatsapp/list')
       .then(res => res.json())
       .then(data => {
         if (data.ok) {
@@ -148,7 +149,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
   // Load advisors for showing real names/initials and online status
   useEffect(() => {
     const loadAdvisors = () => {
-      fetch('/api/admin/advisors', { credentials: 'include' })
+      authFetch('/api/admin/advisors')
         .then(res => res.json())
         .then(data => {
           if (data.advisors) {
@@ -166,7 +167,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
 
   // Load queues for transfer dropdown
   useEffect(() => {
-    fetch('/api/admin/queues', { credentials: 'include' })
+    authFetch('/api/admin/queues')
       .then(res => res.json())
       .then(data => {
         if (data.queues) {

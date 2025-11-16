@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { authFetch } from "../../lib/apiBase";
 
 interface BotConfig {
   perFlowConfig: Record<string, { botTimeout: number; fallbackQueue: string }>;
@@ -33,18 +33,14 @@ export function BotConfig() {
     setLoading(true);
     try {
       // Load bot config
-      const configRes = await fetch(apiUrl("/api/admin/bot-config"), {
-        credentials: "include",
-      });
+      const configRes = await authFetch("/api/admin/bot-config");
       if (configRes.ok) {
         const data = await configRes.json();
         setConfig({ perFlowConfig: data.perFlowConfig || {} });
       }
 
       // Load queues
-      const queuesRes = await fetch(apiUrl("/api/admin/queues"), {
-        credentials: "include",
-      });
+      const queuesRes = await authFetch("/api/admin/queues");
       if (queuesRes.ok) {
         const queuesData = await queuesRes.json();
         // Handle both formats: array directly or { queues: [...] }
@@ -53,9 +49,7 @@ export function BotConfig() {
       }
 
       // Load flows
-      const flowsRes = await fetch(apiUrl("/api/flows"), {
-        credentials: "include",
-      });
+      const flowsRes = await authFetch("/api/flows");
       if (flowsRes.ok) {
         const flowsData = await flowsRes.json();
         // Handle both formats: { flows: [...] } or direct array
@@ -73,10 +67,9 @@ export function BotConfig() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/bot-config"), {
+      const response = await authFetch("/api/admin/bot-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify(config),
       });
 

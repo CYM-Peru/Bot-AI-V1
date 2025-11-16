@@ -5,6 +5,7 @@ import EventBubble from "./EventBubble";
 import CollapsibleNotifications from "./CollapsibleNotifications";
 import { useAuth } from "../hooks/useAuth";
 import { Trash2 } from "lucide-react";
+import { authFetch } from "../lib/apiBase";
 
 interface MessageListProps {
   messages: Message[];
@@ -23,7 +24,7 @@ export default function MessageList({ messages, attachments, onReply }: MessageL
     if (!confirm("¿Eliminar este mensaje del sistema?")) return;
 
     try {
-      const response = await fetch(`/api/crm/messages/${messageId}`, {
+      const response = await authFetch(`/api/crm/messages/${messageId}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' }
       });

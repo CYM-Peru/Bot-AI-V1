@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { apiUrl } from '../lib/apiBase';
+import { authFetch } from '../lib/apiBase';
 
 interface Campaign {
   id: string;
@@ -58,9 +58,7 @@ export default function CampaignsPage() {
   useEffect(() => {
     const loadWhatsAppNumbers = async () => {
       try {
-        const response = await fetch(apiUrl('/api/connections/whatsapp/list'), {
-          credentials: 'include',
-        });
+        const response = await authFetch('/api/connections/whatsapp/list');
         if (response.ok) {
           const data = await response.json();
           const connections = data.connections || [];
@@ -90,9 +88,7 @@ export default function CampaignsPage() {
   const loadCampaigns = async () => {
     try {
       setLoadingCampaigns(true);
-      const response = await fetch(apiUrl('/api/campaigns'), {
-        credentials: 'include',
-      });
+      const response = await authFetch('/api/campaigns');
       if (response.ok) {
         const data = await response.json();
         // Ensure campaigns is always an array
@@ -113,9 +109,7 @@ export default function CampaignsPage() {
   // Load flows list
   const loadFlows = async () => {
     try {
-      const response = await fetch(apiUrl('/api/flows'), {
-        credentials: 'include',
-      });
+      const response = await authFetch('/api/flows');
       if (response.ok) {
         const data = await response.json();
         setFlows(data.flows || []);
@@ -128,9 +122,7 @@ export default function CampaignsPage() {
   // Load queues list
   const loadQueues = async () => {
     try {
-      const response = await fetch(apiUrl('/api/admin/queues'), {
-        credentials: 'include',
-      });
+      const response = await authFetch('/api/admin/queues');
       if (response.ok) {
         const data = await response.json();
         setQueues(data.queues || []);
@@ -150,9 +142,7 @@ export default function CampaignsPage() {
 
       setLoadingTemplates(true);
       try {
-        const response = await fetch(apiUrl(`/api/crm/templates?phoneNumberId=${selectedWhatsAppNumber}`), {
-          credentials: 'include',
-        });
+        const response = await authFetch(`/api/crm/templates?phoneNumberId=${selectedWhatsAppNumber}`);
         if (response.ok) {
           const data = await response.json();
           const approvedTemplates = (data.templates || []).filter((t: Template) => t.status === 'APPROVED');
@@ -210,10 +200,9 @@ export default function CampaignsPage() {
           setSuccess('⏳ Descargando y subiendo imagen a WhatsApp...');
 
           try {
-            const uploadResponse = await fetch(apiUrl('/api/campaigns/media/upload-from-url'), {
+            const uploadResponse = await authFetch('/api/campaigns/media/upload-from-url', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
               body: JSON.stringify({
                 imageUrl: finalMediaId,
                 whatsappNumberId: selectedWhatsAppNumber,
@@ -252,10 +241,9 @@ export default function CampaignsPage() {
       }
 
       // Create campaign
-      const createResponse = await fetch(apiUrl('/api/campaigns'), {
+      const createResponse = await authFetch('/api/campaigns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           name: campaignName,
           whatsappNumberId: selectedWhatsAppNumber,
@@ -277,9 +265,8 @@ export default function CampaignsPage() {
       const { campaign } = await createResponse.json();
 
       // Start sending
-      const sendResponse = await fetch(apiUrl(`/api/campaigns/${campaign.id}/send`), {
+      const sendResponse = await authFetch(`/api/campaigns/${campaign.id}/send`, {
         method: 'POST',
-        credentials: 'include',
       });
 
       if (!sendResponse.ok) {
@@ -313,9 +300,8 @@ export default function CampaignsPage() {
     }
 
     try {
-      const response = await fetch(apiUrl(`/api/campaigns/${campaignId}`), {
+      const response = await authFetch(`/api/campaigns/${campaignId}`, {
         method: 'DELETE',
-        credentials: 'include',
       });
 
       if (!response.ok) {

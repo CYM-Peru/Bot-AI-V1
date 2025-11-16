@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { authFetch } from "../../lib/apiBase";
 
 interface Permission {
   id: string;
@@ -219,7 +219,7 @@ export function RoleManagement() {
   const loadRoles = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/roles"), { credentials: "include" });
+      const response = await authFetch("/api/admin/roles");
       if (response.ok) {
         const data = await response.json();
         setRoles(data.roles || []);
@@ -269,11 +269,11 @@ export function RoleManagement() {
     e.preventDefault();
     try {
       const url = selectedRole
-        ? apiUrl(`/api/admin/roles/${selectedRole.id}`)
-        : apiUrl("/api/admin/roles");
+        ? `/api/admin/roles/${selectedRole.id}`
+        : "/api/admin/roles";
       const method = selectedRole ? "PUT" : "POST";
 
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
@@ -296,7 +296,7 @@ export function RoleManagement() {
     if (!confirm("¿Estás seguro de eliminar este rol?")) return;
 
     try {
-      const response = await fetch(apiUrl(`/api/admin/roles/${roleId}`), {
+      const response = await authFetch(`/api/admin/roles/${roleId}`, {
         method: "DELETE",
       });
 

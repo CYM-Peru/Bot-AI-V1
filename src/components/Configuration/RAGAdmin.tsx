@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { authFetch } from "../../lib/apiBase";
 import { Brain, Upload, Trash2, RefreshCw, Check, X, Database, Sparkles, FileText, DollarSign, AlertCircle, HelpCircle } from "lucide-react";
 
 interface Document {
@@ -36,9 +36,7 @@ export function RAGAdmin() {
 
   async function loadStatus() {
     try {
-      const response = await fetch(apiUrl("/api/rag-admin/status"), {
-        credentials: "include",
-      });
+      const response = await authFetch("/api/rag-admin/status");
 
       if (response.ok) {
         const data = await response.json();
@@ -60,9 +58,8 @@ export function RAGAdmin() {
 
     setValidatingKey(true);
     try {
-      const response = await fetch(apiUrl("/api/rag-admin/save-api-key"), {
+      const response = await authFetch("/api/rag-admin/save-api-key", {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ apiKey }),
       });
@@ -92,9 +89,8 @@ export function RAGAdmin() {
 
     setIndexing(true);
     try {
-      const response = await fetch(apiUrl("/api/rag-admin/index"), {
+      const response = await authFetch("/api/rag-admin/index", {
         method: "POST",
-        credentials: "include",
       });
 
       if (response.ok) {
@@ -120,9 +116,8 @@ export function RAGAdmin() {
 
     setIndexing(true);
     try {
-      const response = await fetch(apiUrl(`/api/rag-admin/reindex/${docId}`), {
+      const response = await authFetch(`/api/rag-admin/reindex/${docId}`, {
         method: "POST",
-        credentials: "include",
       });
 
       if (response.ok) {
@@ -147,9 +142,8 @@ export function RAGAdmin() {
     }
 
     try {
-      const response = await fetch(apiUrl("/api/rag-admin/clear-index"), {
+      const response = await authFetch("/api/rag-admin/clear-index", {
         method: "DELETE",
-        credentials: "include",
       });
 
       if (response.ok) {
@@ -181,9 +175,8 @@ export function RAGAdmin() {
       const formData = new FormData();
       formData.append('pdf', selectedFile);
 
-      const response = await fetch(apiUrl("/api/rag-admin/upload-pdf"), {
+      const response = await authFetch("/api/rag-admin/upload-pdf", {
         method: "POST",
-        credentials: "include",
         body: formData,
       });
 

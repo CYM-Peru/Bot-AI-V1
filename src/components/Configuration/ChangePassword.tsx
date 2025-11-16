@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { authFetch } from "../../lib/apiBase";
 
 export function ChangePassword() {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -28,10 +28,9 @@ export function ChangePassword() {
     setLoading(true);
 
     try {
-      const response = await fetch(apiUrl("/api/auth/change-password"), {
+      const response = await authFetch("/api/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ currentPassword, newPassword }),
       });
 

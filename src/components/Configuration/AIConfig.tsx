@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { authFetch } from "../../lib/apiBase";
 
 interface AIConfigState {
   openai: { hasApiKey: boolean; baseUrl: string };
@@ -35,9 +35,7 @@ export function AIConfig() {
 
   async function loadConfig() {
     try {
-      const response = await fetch(apiUrl("/api/ai-config"), {
-        credentials: "include",
-      });
+      const response = await authFetch("/api/ai-config");
 
       if (response.ok) {
         const data = await response.json();
@@ -53,10 +51,9 @@ export function AIConfig() {
   async function saveConfig(provider: string) {
     setSaving(true);
     try {
-      const response = await fetch(apiUrl("/api/ai-config"), {
+      const response = await authFetch("/api/ai-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({
           provider,
           apiKey: apiKey || undefined,
@@ -87,9 +84,8 @@ export function AIConfig() {
     }
 
     try {
-      const response = await fetch(apiUrl(`/api/ai-config/${provider}`), {
+      const response = await authFetch(`/api/ai-config/${provider}`, {
         method: "DELETE",
-        credentials: "include",
       });
 
       if (response.ok) {
@@ -113,9 +109,7 @@ export function AIConfig() {
   // Analytics config functions
   async function loadAnalyticsConfig() {
     try {
-      const response = await fetch(apiUrl("/api/ai-analytics-config"), {
-        credentials: "include",
-      });
+      const response = await authFetch("/api/ai-analytics-config");
 
       if (response.ok) {
         const data = await response.json();
@@ -133,10 +127,9 @@ export function AIConfig() {
 
     setAnalyticsSaving(true);
     try {
-      const response = await fetch(apiUrl("/api/ai-analytics-config"), {
+      const response = await authFetch("/api/ai-analytics-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify(analyticsConfig),
       });
 
@@ -160,9 +153,8 @@ export function AIConfig() {
     }
 
     try {
-      const response = await fetch(apiUrl("/api/ai-analytics-config/reset"), {
+      const response = await authFetch("/api/ai-analytics-config/reset", {
         method: "POST",
-        credentials: "include",
       });
 
       if (response.ok) {

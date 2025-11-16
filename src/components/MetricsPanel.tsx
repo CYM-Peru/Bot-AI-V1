@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { API_BASE, apiUrl } from '../lib/apiBase';
+import { authFetch } from '../lib/apiBase';
 import type { WhatsAppNumberAssignment, ChannelType } from '../flow/types';
 
 interface MetricsStats {
@@ -53,7 +53,7 @@ export function MetricsPanel({ whatsappNumbers = [] }: MetricsPanelProps) {
   const fetchStats = async () => {
     try {
       // Use ?source=crm to get real CRM stats from database
-      const response = await fetch(apiUrl('/api/stats?source=crm'));
+      const response = await authFetch('/api/stats?source=crm');
       if (!response.ok) throw new Error('Failed to fetch stats');
       const data = await response.json();
       setStats(data);
@@ -66,7 +66,7 @@ export function MetricsPanel({ whatsappNumbers = [] }: MetricsPanelProps) {
   const fetchMetrics = async () => {
     try {
       // Use ?source=crm to get real CRM metrics from database
-      const response = await fetch(apiUrl('/api/metrics?source=crm'));
+      const response = await authFetch('/api/metrics?source=crm');
       if (!response.ok) throw new Error('Failed to fetch metrics');
       const data = await response.json();
       setMetrics(data.metrics || []);
@@ -78,7 +78,7 @@ export function MetricsPanel({ whatsappNumbers = [] }: MetricsPanelProps) {
   const fetchActiveConversations = async () => {
     try {
       // Use ?source=crm to get real CRM active conversations
-      const response = await fetch(apiUrl('/api/conversations/active?source=crm'));
+      const response = await authFetch('/api/conversations/active?source=crm');
       if (!response.ok) throw new Error('Failed to fetch active conversations');
       const data = await response.json();
       setActiveConversations(data.conversations || []);
@@ -89,7 +89,7 @@ export function MetricsPanel({ whatsappNumbers = [] }: MetricsPanelProps) {
 
   const fetchMenuStats = async () => {
     try {
-      const response = await fetch(apiUrl('/api/metrics/menu-stats'));
+      const response = await authFetch('/api/metrics/menu-stats');
       if (!response.ok) throw new Error('Failed to fetch menu stats');
       const data = await response.json();
       setMenuStats(data.stats || []);
@@ -176,10 +176,6 @@ export function MetricsPanel({ whatsappNumbers = [] }: MetricsPanelProps) {
         <div className="bg-rose-50 border border-rose-200 rounded-lg p-4">
           <div className="text-rose-800 font-semibold">Error al cargar métricas</div>
           <div className="text-rose-600 text-sm mt-1">{error}</div>
-          <div className="text-slate-600 text-sm mt-2">
-            Asegúrate de que el servidor esté disponible en{' '}
-            <code className="bg-rose-100 px-1 rounded">{API_BASE}</code>
-          </div>
         </div>
       </div>
     );

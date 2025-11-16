@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { authFetch } from "../lib/apiBase";
 import BitrixContactCard from "./BitrixContactCard";
 import Composer from "./Composer";
 import MessageList from "./MessageList";
@@ -68,9 +68,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
   useEffect(() => {
     const loadTheme = async () => {
       try {
-        const response = await fetch(apiUrl("/api/user-profile/chat-theme"), {
-          credentials: "include",
-        });
+        const response = await authFetch("/api/user-profile/chat-theme");
         if (response.ok) {
           const data = await response.json();
           if (data.ok && data.preferences) {
@@ -133,9 +131,8 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
 
     const markAsRead = async () => {
       try {
-        await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/mark-read`), {
+        await authFetch(`/api/crm/conversations/${conversation.id}/mark-read`, {
           method: "POST",
-          credentials: "include",
         });
       } catch (error) {
         console.error("Failed to mark conversation as read:", error);
@@ -153,7 +150,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
     const loadTransferTargets = async () => {
       try {
         // Load advisors with real-time presence data
-        const advisorsRes = await fetch(apiUrl("/api/admin/advisor-presence"));
+        const advisorsRes = await authFetch("/api/admin/advisor-presence");
         if (advisorsRes.ok) {
           const data = await advisorsRes.json();
           // Map presence data to advisor format
@@ -168,7 +165,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
         }
 
         // Load bots (flows)
-        const botsRes = await fetch(apiUrl("/api/flows"));
+        const botsRes = await authFetch("/api/flows");
         if (botsRes.ok) {
           const data = await botsRes.json();
           const flowList = data.flows || [];
@@ -176,7 +173,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
         }
 
         // Load queues
-        const queuesRes = await fetch(apiUrl("/api/admin/queues"));
+        const queuesRes = await authFetch("/api/admin/queues");
         if (queuesRes.ok) {
           const data = await queuesRes.json();
           setQueues(data.queues || []);
@@ -243,7 +240,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
 
     setTransferring(true);
     try {
-      const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/transfer`), {
+      const response = await authFetch(`/api/crm/conversations/${conversation.id}/transfer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -313,7 +310,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
   const handleArchive = async () => {
     if (!conversation) return;
     try {
-      const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/archive`), {
+      const response = await authFetch(`/api/crm/conversations/${conversation.id}/archive`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -330,7 +327,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
   const handleUnarchive = async () => {
     if (!conversation) return;
     try {
-      const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/unarchive`), {
+      const response = await authFetch(`/api/crm/conversations/${conversation.id}/unarchive`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -348,10 +345,9 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
     if (!conversation || accepting) return;
     setAccepting(true);
     try {
-      const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/accept`), {
+      const response = await authFetch(`/api/crm/conversations/${conversation.id}/accept`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
       });
       if (response.ok) {
         console.log('[CRM] Conversación aceptada exitosamente:', conversation.id);
@@ -377,10 +373,9 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
 
     setRejecting(true);
     try {
-      const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/reject`), {
+      const response = await authFetch(`/api/crm/conversations/${conversation.id}/reject`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
       });
       if (response.ok) {
         console.log('[CRM] Conversación rechazada exitosamente:', conversation.id);
@@ -408,10 +403,9 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
 
     setTakingOver(true);
     try {
-      const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/takeover`), {
+      const response = await authFetch(`/api/crm/conversations/${conversation.id}/takeover`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
       });
       if (response.ok) {
         console.log('[CRM] Chat tomado exitosamente:', conversation.id);
@@ -435,10 +429,9 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
     try {
       console.log('[CRM] Sending template:', { templateName, language, components });
 
-      const response = await fetch(apiUrl("/api/crm/templates/send"), {
+      const response = await authFetch("/api/crm/templates/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({
           phone: conversation.phone,
           templateName,
@@ -471,10 +464,9 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
 
     // Call the join-advisor endpoint (joins the current logged-in advisor)
     try {
-      const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/join-advisor`), {
+      const response = await authFetch(`/api/crm/conversations/${conversation.id}/join-advisor`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
       });
 
       if (response.ok) {

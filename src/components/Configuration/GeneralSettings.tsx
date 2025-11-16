@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { authFetch } from "../../lib/apiBase";
 import { ChangePassword } from "./ChangePassword";
 
 interface BounceConfig {
@@ -63,9 +63,7 @@ export function GeneralSettings({ user }: GeneralSettingsProps = {}) {
   const loadSettings = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/settings"), {
-        credentials: "include",
-      });
+      const response = await authFetch("/api/admin/settings");
       if (response.ok) {
         const data = await response.json();
         // Merge with defaults to ensure all properties exist
@@ -94,10 +92,9 @@ export function GeneralSettings({ user }: GeneralSettingsProps = {}) {
 
   const handleSave = async () => {
     try {
-      const response = await fetch(apiUrl("/api/admin/settings"), {
+      const response = await authFetch("/api/admin/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify(settings),
       });
 

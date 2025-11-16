@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Eye, Send, AlertCircle, CheckCircle, Clock, X, Upload, Image as ImageIcon, RefreshCw } from 'lucide-react';
-import { apiUrl } from '../lib/apiBase';
+import { authFetch } from '../lib/apiBase';
 
 interface SavedImage {
   filename: string;
@@ -71,9 +71,7 @@ export default function TemplateCreatorPage() {
 
   const loadWabaIds = async () => {
     try {
-      const response = await fetch(apiUrl('/api/template-creator/waba-ids'), {
-        credentials: 'include'
-      });
+      const response = await authFetch('/api/template-creator/waba-ids');
       if (response.ok) {
         const data = await response.json();
         console.log('[TemplateCreator] WABA IDs loaded:', data);
@@ -93,9 +91,7 @@ export default function TemplateCreatorPage() {
   const loadSubmittedTemplates = async () => {
     try {
       // Cargar plantillas desde Meta (estado real y actualizado)
-      const response = await fetch(apiUrl('/api/crm/templates'), {
-        credentials: 'include'
-      });
+      const response = await authFetch('/api/crm/templates');
       if (response.ok) {
         const data = await response.json();
         // Convertir formato de Meta al formato del frontend y ordenar por ID (más reciente primero)
@@ -128,9 +124,7 @@ export default function TemplateCreatorPage() {
 
   const loadSavedImages = async () => {
     try {
-      const response = await fetch(apiUrl('/api/template-images'), {
-        credentials: 'include'
-      });
+      const response = await authFetch('/api/template-images');
       if (response.ok) {
         const data = await response.json();
         setSavedImages(data.images || []);
@@ -148,9 +142,8 @@ export default function TemplateCreatorPage() {
       const formData = new FormData();
       formData.append('image', file);
 
-      const response = await fetch(apiUrl('/api/template-images/upload'), {
+      const response = await authFetch('/api/template-images/upload', {
         method: 'POST',
-        credentials: 'include',
         body: formData
       });
 
@@ -351,9 +344,8 @@ export default function TemplateCreatorPage() {
     }
 
     try {
-      const response = await fetch(apiUrl(`/api/crm/templates/${templateName}`), {
-        method: 'DELETE',
-        credentials: 'include'
+      const response = await authFetch(`/api/crm/templates/${templateName}`, {
+        method: 'DELETE'
       });
 
       if (response.ok) {
@@ -401,12 +393,11 @@ export default function TemplateCreatorPage() {
         throw new Error('No se encontró un WABA ID. Configura un número de WhatsApp primero.');
       }
 
-      const response = await fetch(apiUrl('/api/template-creator/create'), {
+      const response = await authFetch('/api/template-creator/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        credentials: 'include',
         body: JSON.stringify({
           ...template,
           wabaId: selectedWabaId

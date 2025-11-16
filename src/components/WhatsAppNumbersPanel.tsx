@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { apiUrl } from '../lib/apiBase';
+import { authFetch } from '../lib/apiBase';
 
 interface Queue {
   id: string;
@@ -37,16 +37,12 @@ export function WhatsAppNumbersPanel() {
       setLoading(true);
 
       // Load queues
-      const queuesRes = await fetch(apiUrl('/api/admin/queues'), {
-        credentials: 'include',
-      });
+      const queuesRes = await authFetch('/api/admin/queues');
       const queuesData = await queuesRes.json();
       setQueues(queuesData.queues || []);
 
       // Load WhatsApp numbers
-      const numbersRes = await fetch(apiUrl('/api/admin/whatsapp-numbers'), {
-        credentials: 'include',
-      });
+      const numbersRes = await authFetch('/api/admin/whatsapp-numbers');
       const numbersData = await numbersRes.json();
       setNumbers(numbersData.numbers || []);
     } catch (err) {
@@ -68,10 +64,9 @@ export function WhatsAppNumbersPanel() {
     }
 
     try {
-      const response = await fetch(apiUrl('/api/admin/whatsapp-numbers'), {
+      const response = await authFetch('/api/admin/whatsapp-numbers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           displayName: newNumber.displayName,
           phoneNumber: newNumber.phoneNumber,
@@ -105,9 +100,8 @@ export function WhatsAppNumbersPanel() {
     }
 
     try {
-      const response = await fetch(apiUrl(`/api/admin/whatsapp-numbers/${numberId}`), {
+      const response = await authFetch(`/api/admin/whatsapp-numbers/${numberId}`, {
         method: 'DELETE',
-        credentials: 'include',
       });
 
       if (!response.ok) {
@@ -132,10 +126,9 @@ export function WhatsAppNumbersPanel() {
     if (!editingData) return;
 
     try {
-      const response = await fetch(apiUrl(`/api/admin/whatsapp-numbers/${editingData.numberId}`), {
+      const response = await authFetch(`/api/admin/whatsapp-numbers/${editingData.numberId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           displayName: editingData.displayName,
           phoneNumber: editingData.phoneNumber,
