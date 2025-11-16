@@ -22,6 +22,7 @@ import { BotChannelAssignment } from "./components/BotChannelAssignment";
 import { WhatsAppNumbersPanel } from "./components/WhatsAppNumbersPanel";
 import { useAuth } from "./hooks/useAuth";
 import { usePermissions } from "./hooks/usePermissions";
+import { authFetch } from "./lib/apiBase";
 import LoginPage from "./components/LoginPage";
 import WelcomeSplash from "./components/WelcomeSplash";
 import { LogOut, User, Bug, ListChecks } from "lucide-react";
@@ -388,7 +389,7 @@ export default function App(): JSX.Element {
   useEffect(() => {
     const loadWhatsAppNumbers = async () => {
       try {
-        const response = await fetch('/api/admin/whatsapp-numbers');
+        const response = await authFetch('/api/admin/whatsapp-numbers');
         if (response.ok) {
           const data = await response.json();
           if (data.numbers && Array.isArray(data.numbers)) {
@@ -408,7 +409,7 @@ export default function App(): JSX.Element {
 
     const loadAllFlows = async () => {
       try {
-        const response = await fetch('/api/flows');
+        const response = await authFetch('/api/flows');
         if (response.ok) {
           const data = await response.json();
           if (data.flows && Array.isArray(data.flows)) {
@@ -436,14 +437,14 @@ export default function App(): JSX.Element {
     const loadQueuesAndAdvisors = async () => {
       try {
         // Load queues
-        const queuesRes = await fetch('/api/admin/queues');
+        const queuesRes = await authFetch('/api/admin/queues');
         if (queuesRes.ok) {
           const queuesData = await queuesRes.json();
           setQueues((queuesData.queues || []).map((q: any) => ({ id: q.id, name: q.name })));
         }
 
         // Load advisors with presence
-        const advisorsRes = await fetch('/api/admin/advisor-presence');
+        const advisorsRes = await authFetch('/api/admin/advisor-presence');
         if (advisorsRes.ok) {
           const advisorsData = await advisorsRes.json();
           setAdvisors((advisorsData.advisors || []).map((a: any) => ({
@@ -690,7 +691,7 @@ export default function App(): JSX.Element {
     }
 
     try {
-      const response = await fetch(`/api/flows/${flowId}`);
+      const response = await authFetch(`/api/flows/${flowId}`);
       if (!response.ok) {
         throw new Error(`Failed to load flow: ${response.status}`);
       }
@@ -770,7 +771,7 @@ export default function App(): JSX.Element {
       try {
         setBitrixFieldsLoading(true);
         setBitrixFieldsError(null);
-        const response = await fetch('/api/bitrix/fields');
+        const response = await authFetch('/api/bitrix/fields');
         if (!response.ok) {
           throw new Error('No se pudo cargar el catálogo de campos');
         }
@@ -940,10 +941,9 @@ export default function App(): JSX.Element {
 
         try {
           // Upload file to server storage
-          const response = await fetch('/api/crm/attachments/upload', {
+          const response = await authFetch('/api/crm/attachments/upload', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
             body: JSON.stringify({
               filename: file.name,
               mime: file.type,
@@ -3245,7 +3245,7 @@ export default function App(): JSX.Element {
             onClick={async () => {
               try {
                 setIsLoggingOut(true);
-                await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+                await authFetch('/api/auth/logout', { method: 'POST' });
                 setTimeout(() => {
                   window.location.href = '/';
                 }, 2000);

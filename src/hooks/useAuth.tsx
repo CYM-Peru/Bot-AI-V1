@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { authFetch } from "../lib/apiBase";
 
 interface User {
   id: string;
@@ -25,9 +25,7 @@ export function useAuth() {
 
   const checkAuth = async () => {
     try {
-      const response = await fetch(apiUrl("/api/auth/me"), {
-        credentials: "include", // Importante para enviar cookies
-      });
+      const response = await authFetch("/api/auth/me");
 
       if (response.ok) {
         const data = await response.json();
@@ -55,9 +53,8 @@ export function useAuth() {
 
   const logout = async () => {
     try {
-      await fetch(apiUrl("/api/auth/logout"), {
+      await authFetch("/api/auth/logout", {
         method: "POST",
-        credentials: "include",
       });
     } catch (error) {
       console.error("Logout failed:", error);
