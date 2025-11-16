@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { apiUrl, apiFetch } from "../../lib/apiBase";
 import { IAAgentFiles } from "./IAAgentFiles";
 import { RAGAdmin } from "./RAGAdmin";
 import { KeywordTracking } from "./KeywordTracking";
@@ -114,7 +114,7 @@ export function IAAgentConfig() {
 
   async function loadQueues() {
     try {
-      const response = await fetch(apiUrl("/api/admin/queues"), {
+      const response = await apiFetch("/api/admin/queues", {
         credentials: "include",
       });
 
@@ -129,7 +129,7 @@ export function IAAgentConfig() {
 
   async function loadConfig() {
     try {
-      const response = await fetch(apiUrl("/api/ia-agent-config"), {
+      const response = await apiFetch("/api/ia-agent-config", {
         credentials: "include",
       });
 
@@ -149,7 +149,7 @@ export function IAAgentConfig() {
 
     setSaving(true);
     try {
-      const response = await fetch(apiUrl("/api/ia-agent-config"), {
+      const response = await apiFetch("/api/ia-agent-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 import type { WhatsAppTemplate } from "../api/whatsapp-sender";
 
 interface TemplateSelectorProps {
@@ -22,7 +22,7 @@ export default function TemplateSelector({ phone, onSend, onClose }: TemplateSel
   const loadTemplates = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/crm/templates"));
+      const response = await apiFetch("/api/crm/templates");
       if (response.ok) {
         const data = await response.json();
         setTemplates(data.templates || []);

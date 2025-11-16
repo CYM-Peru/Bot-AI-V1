@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 
 interface Role {
   id: string;
@@ -21,7 +21,7 @@ export function usePermissions(userRole: string | undefined) {
 
     const fetchPermissions = async () => {
       try {
-        const response = await fetch(apiUrl("/api/admin/roles"), {
+        const response = await apiFetch("/api/admin/roles", {
           credentials: "include",
         });
         if (response.ok) {

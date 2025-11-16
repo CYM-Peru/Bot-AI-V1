@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { apiUrl, apiFetch } from "../../lib/apiBase";
 
 interface Queue {
   id: string;
@@ -52,8 +52,8 @@ export function QueueManagement() {
     setLoading(true);
     try {
       const [queuesRes, advisorsRes] = await Promise.all([
-        fetch(apiUrl("/api/admin/queues"), { credentials: "include" }),
-        fetch(apiUrl("/api/admin/advisors"), { credentials: "include" }),
+        apiFetch("/api/admin/queues"),
+        apiFetch("/api/admin/advisors"),
       ]);
 
       if (queuesRes.ok) {
@@ -150,7 +150,7 @@ export function QueueManagement() {
     if (!confirm("¿Estás seguro de eliminar esta cola?")) return;
 
     try {
-      const response = await fetch(apiUrl(`/api/admin/queues/${queueId}`), {
+      const response = await apiFetch(`/api/admin/queues/${queueId}`, {
         method: "DELETE",
       });
 

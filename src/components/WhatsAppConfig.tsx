@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { apiUrl } from '../lib/apiBase';
+import { apiUrl, apiFetch } from '../lib/apiBase';
 
 interface WhatsAppCheckResponse {
   ok: boolean;
@@ -53,7 +53,7 @@ export function WhatsAppConfigContent({ headingId, className, whatsappNumbers = 
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(apiUrl('/api/connections/whatsapp/check'));
+      const response = await apiFetch('/api/connections/whatsapp/check');
       const data = (await response.json()) as WhatsAppCheckResponse;
       setStatus(data);
     } catch (err) {
@@ -100,7 +100,7 @@ export function WhatsAppConfigContent({ headingId, className, whatsappNumbers = 
     setSaveSuccess(false);
 
     try {
-      const response = await fetch(apiUrl('/api/connections/whatsapp/save'), {
+      const response = await apiFetch('/api/connections/whatsapp/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -130,7 +130,7 @@ export function WhatsAppConfigContent({ headingId, className, whatsappNumbers = 
 
           // También persistir en el backend para que aparezca en "Números & Colas"
           try {
-            await fetch(apiUrl('/api/admin/whatsapp-numbers'), {
+            await apiFetch('/api/admin/whatsapp-numbers', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({

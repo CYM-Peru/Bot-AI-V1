@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 import { Avatar } from "./Avatar";
 
 interface User {
@@ -103,7 +103,7 @@ export default function UserProfile({ user, onClose, onUserUpdate }: UserProfile
   const loadChatTheme = async () => {
     setLoadingTheme(true);
     try {
-      const response = await fetch(apiUrl("/api/user-profile/chat-theme"), {
+      const response = await apiFetch("/api/user-profile/chat-theme", {
         credentials: "include",
       });
       if (response.ok) {
@@ -153,7 +153,7 @@ export default function UserProfile({ user, onClose, onUserUpdate }: UserProfile
         const formData = new FormData();
         formData.append("avatar", avatarFile);
 
-        const uploadRes = await fetch(apiUrl("/api/user/avatar"), {
+        const uploadRes = await apiFetch("/api/user/avatar", {
           method: "POST",
           body: formData,
           credentials: "include",
@@ -168,7 +168,7 @@ export default function UserProfile({ user, onClose, onUserUpdate }: UserProfile
       }
 
       // Update profile
-      const response = await fetch(apiUrl("/api/user/profile"), {
+      const response = await apiFetch("/api/user/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -213,7 +213,7 @@ export default function UserProfile({ user, onClose, onUserUpdate }: UserProfile
     setMessage(null);
 
     try {
-      const response = await fetch(apiUrl("/api/user/password"), {
+      const response = await apiFetch("/api/user/password", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -269,7 +269,7 @@ export default function UserProfile({ user, onClose, onUserUpdate }: UserProfile
     setMessage(null);
 
     try {
-      const response = await fetch(apiUrl("/api/user-profile/chat-theme"), {
+      const response = await apiFetch("/api/user-profile/chat-theme", {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -965,7 +965,7 @@ export default function UserProfile({ user, onClose, onUserUpdate }: UserProfile
                                 const formData = new FormData();
                                 formData.append("background", file);
 
-                                const response = await fetch(apiUrl("/api/user-profile/chat-background"), {
+                                const response = await apiFetch("/api/user-profile/chat-background", {
                                   method: "POST",
                                   credentials: "include",
                                   body: formData,

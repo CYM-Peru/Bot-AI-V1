@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Conversation } from "./types";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 
 interface WelcomeScreenProps {
   conversations: Conversation[];
@@ -41,7 +41,7 @@ export default function WelcomeScreen({ conversations, userName, userRole }: Wel
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await fetch(apiUrl("/api/crm/conversations/stats"), {
+        const response = await apiFetch("/api/crm/conversations/stats", {
           credentials: "include",
         });
         if (response.ok) {
@@ -72,7 +72,7 @@ export default function WelcomeScreen({ conversations, userName, userRole }: Wel
     if (stats !== null && conversations.length > 0) {
       const fetchStats = async () => {
         try {
-          const response = await fetch(apiUrl("/api/crm/conversations/stats"), {
+          const response = await apiFetch("/api/crm/conversations/stats", {
             credentials: "include",
           });
           if (response.ok) {

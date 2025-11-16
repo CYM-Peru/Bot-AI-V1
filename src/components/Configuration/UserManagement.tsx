@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { apiUrl, apiFetch } from "../../lib/apiBase";
 
 interface User {
   id: string;
@@ -46,7 +46,7 @@ export function UserManagement() {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/users"), {
+      const response = await apiFetch("/api/admin/users", {
         credentials: "include",
       });
       if (response.ok) {
@@ -62,7 +62,7 @@ export function UserManagement() {
 
   const loadRoles = async () => {
     try {
-      const response = await fetch(apiUrl("/api/admin/roles"), {
+      const response = await apiFetch("/api/admin/roles", {
         credentials: "include",
       });
       if (response.ok) {
@@ -118,7 +118,7 @@ export function UserManagement() {
     if (!confirm("¿Estás seguro de eliminar este usuario?")) return;
 
     try {
-      const response = await fetch(apiUrl(`/api/admin/users/${userId}`), {
+      const response = await apiFetch(`/api/admin/users/${userId}`, {
         method: "DELETE",
         credentials: "include",
       });

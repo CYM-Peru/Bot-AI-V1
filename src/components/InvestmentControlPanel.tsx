@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiUrl } from '../lib/apiBase';
+import { apiUrl, apiFetch } from '../lib/apiBase';
 
 interface TemplateUsageRecord {
   id: number;

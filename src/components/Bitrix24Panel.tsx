@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { apiUrl } from '../lib/apiBase';
+import { apiUrl, apiFetch } from '../lib/apiBase';
 
 interface BitrixStatus {
   ok: boolean;
@@ -21,7 +21,7 @@ export function Bitrix24Panel() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(apiUrl('/api/bitrix/validate'));
+      const response = await apiFetch('/api/bitrix/validate');
       const payload = (await response.json()) as BitrixStatus;
       setStatus(payload);
     } catch (err) {
@@ -55,7 +55,7 @@ export function Bitrix24Panel() {
     setAuthLoading(true);
     setError(null);
     try {
-      const response = await fetch(apiUrl('/api/bitrix/oauth/url'));
+      const response = await apiFetch('/api/bitrix/oauth/url');
       const payload = (await response.json().catch(() => ({}))) as { url?: string; error?: string; message?: string };
       if (!response.ok) {
         throw new Error(payload.error ?? payload.message ?? 'No se pudo generar URL de autorización');

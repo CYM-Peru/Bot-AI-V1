@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 import type { Conversation } from "./types";
 
 interface BitrixContactCardProps {
@@ -30,7 +30,7 @@ export default function BitrixContactCard({ conversation }: BitrixContactCardPro
     if (!conversation) return;
     setLoading(true);
     try {
-      const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/bitrix/create`), {
+      const response = await apiFetch(`/api/crm/conversations/${conversation.id}/bitrix/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -67,7 +67,7 @@ export default function BitrixContactCard({ conversation }: BitrixContactCardPro
       }
       setStatus(null);
       try {
-        const response = await fetch(apiUrl(`/api/crm/conversations/${conversation.id}/bitrix`));
+        const response = await apiFetch(`/api/crm/conversations/${conversation.id}/bitrix`);
         if (!response.ok) {
           // Si es error 401/403 (token expirado), reintentar una vez después de esperar
           if ((response.status === 401 || response.status === 403) && retryCount === 0) {

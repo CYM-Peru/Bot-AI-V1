@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 import { X, UserPlus, Search, Check } from "lucide-react";
 
 interface CreateLeadModalProps {
@@ -59,7 +59,7 @@ export default function CreateLeadModal({ isOpen, onClose, phone, onSuccess }: C
   async function loadUsers() {
     setLoadingUsers(true);
     try {
-      const response = await fetch(apiUrl("/api/bitrix/users"), {
+      const response = await apiFetch("/api/bitrix/users", {
         credentials: "include",
       });
 
@@ -79,7 +79,7 @@ export default function CreateLeadModal({ isOpen, onClose, phone, onSuccess }: C
   async function loadStatuses() {
     setLoadingStatuses(true);
     try {
-      const response = await fetch(apiUrl("/api/bitrix/lead-statuses"), {
+      const response = await apiFetch("/api/bitrix/lead-statuses", {
         credentials: "include",
       });
 
@@ -99,7 +99,7 @@ export default function CreateLeadModal({ isOpen, onClose, phone, onSuccess }: C
   async function loadSources() {
     setLoadingSources(true);
     try {
-      const response = await fetch(apiUrl("/api/bitrix/lead-sources"), {
+      const response = await apiFetch("/api/bitrix/lead-sources", {
         credentials: "include",
       });
 
@@ -139,7 +139,7 @@ export default function CreateLeadModal({ isOpen, onClose, phone, onSuccess }: C
 
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/bitrix/create-lead"), {
+      const response = await apiFetch("/api/bitrix/create-lead", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

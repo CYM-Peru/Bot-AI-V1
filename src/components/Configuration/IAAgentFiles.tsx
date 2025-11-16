@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { apiUrl, apiFetch } from "../../lib/apiBase";
 import { Upload, FileText, Trash2, Edit, Eye, EyeOff, Plus, Download } from "lucide-react";
 
 type FileCategory = 'catalog' | 'flyer' | 'info' | 'other';
@@ -92,7 +92,7 @@ export function IAAgentFiles() {
 
     try {
       // Get attachment details
-      const attachmentResponse = await fetch(apiUrl(`/api/crm/attachments/${formData.attachmentId}`), {
+      const attachmentResponse = await apiFetch(`/api/crm/attachments/${formData.attachmentId}`, {
         credentials: "include",
       });
 
@@ -153,7 +153,7 @@ export function IAAgentFiles() {
     }
 
     try {
-      const response = await fetch(apiUrl(`/api/ia-agent-files/${file.id}`), {
+      const response = await apiFetch(`/api/ia-agent-files/${file.id}`, {
         method: "DELETE",
         credentials: "include",
       });
@@ -172,7 +172,7 @@ export function IAAgentFiles() {
 
   async function handleToggle(file: AgentFile) {
     try {
-      const response = await fetch(apiUrl(`/api/ia-agent-files/${file.id}/toggle`), {
+      const response = await apiFetch(`/api/ia-agent-files/${file.id}/toggle`, {
         method: "POST",
         credentials: "include",
       });

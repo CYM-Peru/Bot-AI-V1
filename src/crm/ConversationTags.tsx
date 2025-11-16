@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 
 interface ConversationTagsProps {
   conversationId: string;
@@ -33,7 +33,7 @@ export default function ConversationTags({ conversationId, initialTags = [], onT
 
     const loadTags = async () => {
       try {
-        const response = await fetch(apiUrl(`/api/crm/metrics/${conversationId}/tags`), {
+        const response = await apiFetch(`/api/crm/metrics/${conversationId}/tags`, {
           method: "GET",
           credentials: "include",
         });
@@ -73,7 +73,7 @@ export default function ConversationTags({ conversationId, initialTags = [], onT
     // Save to backend
     setSaving(true);
     try {
-      const response = await fetch(apiUrl(`/api/crm/metrics/${conversationId}/tags`), {
+      const response = await apiFetch(`/api/crm/metrics/${conversationId}/tags`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -101,7 +101,7 @@ export default function ConversationTags({ conversationId, initialTags = [], onT
     // Save to backend
     setSaving(true);
     try {
-      const response = await fetch(apiUrl(`/api/crm/metrics/${conversationId}/tags`), {
+      const response = await apiFetch(`/api/crm/metrics/${conversationId}/tags`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

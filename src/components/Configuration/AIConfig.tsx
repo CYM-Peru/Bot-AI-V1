@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { apiUrl, apiFetch } from "../../lib/apiBase";
 
 interface AIConfigState {
   openai: { hasApiKey: boolean; baseUrl: string };
@@ -35,7 +35,7 @@ export function AIConfig() {
 
   async function loadConfig() {
     try {
-      const response = await fetch(apiUrl("/api/ai-config"), {
+      const response = await apiFetch("/api/ai-config", {
         credentials: "include",
       });
 
@@ -53,7 +53,7 @@ export function AIConfig() {
   async function saveConfig(provider: string) {
     setSaving(true);
     try {
-      const response = await fetch(apiUrl("/api/ai-config"), {
+      const response = await apiFetch("/api/ai-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -87,7 +87,7 @@ export function AIConfig() {
     }
 
     try {
-      const response = await fetch(apiUrl(`/api/ai-config/${provider}`), {
+      const response = await apiFetch(`/api/ai-config/${provider}`, {
         method: "DELETE",
         credentials: "include",
       });
@@ -113,7 +113,7 @@ export function AIConfig() {
   // Analytics config functions
   async function loadAnalyticsConfig() {
     try {
-      const response = await fetch(apiUrl("/api/ai-analytics-config"), {
+      const response = await apiFetch("/api/ai-analytics-config", {
         credentials: "include",
       });
 
@@ -133,7 +133,7 @@ export function AIConfig() {
 
     setAnalyticsSaving(true);
     try {
-      const response = await fetch(apiUrl("/api/ai-analytics-config"), {
+      const response = await apiFetch("/api/ai-analytics-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -160,7 +160,7 @@ export function AIConfig() {
     }
 
     try {
-      const response = await fetch(apiUrl("/api/ai-analytics-config/reset"), {
+      const response = await apiFetch("/api/ai-analytics-config/reset", {
         method: "POST",
         credentials: "include",
       });

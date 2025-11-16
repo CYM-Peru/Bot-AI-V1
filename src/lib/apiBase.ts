@@ -11,4 +11,30 @@ export const apiUrl = (path: string): string => {
   return `${API_BASE}${normalizedPath}`;
 };
 
+/**
+ * Helper function to make authenticated API requests
+ * Automatically adds the Authorization header with the token from localStorage
+ */
+export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const url = apiUrl(path);
+
+  // Get token from localStorage
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+
+  // Merge headers
+  const headers = new Headers(options.headers || {});
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  // Always include credentials for cookies
+  const fetchOptions: RequestInit = {
+    ...options,
+    headers,
+    credentials: 'include',
+  };
+
+  return fetch(url, fetchOptions);
+}
+
 export default apiUrl;

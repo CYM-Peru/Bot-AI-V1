@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { X, Send, CheckCircle, XCircle, Loader } from "lucide-react";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 
 interface BitrixContact {
   ID: string;
@@ -69,7 +69,7 @@ export function SendTemplateModal({ contact, onClose }: SendTemplateModalProps) 
   const fetchSavedImages = async () => {
     try {
       setLoadingImages(true);
-      const response = await fetch(apiUrl("/api/template-images"), {
+      const response = await apiFetch("/api/template-images", {
         credentials: "include",
       });
       if (response.ok) {
@@ -180,7 +180,7 @@ export function SendTemplateModal({ contact, onClose }: SendTemplateModalProps) 
       const formData = new FormData();
       formData.append('image', file);
 
-      const uploadResponse = await fetch(apiUrl("/api/template-images/upload"), {
+      const uploadResponse = await apiFetch("/api/template-images/upload", {
         method: "POST",
         credentials: "include",
         body: formData,
@@ -245,7 +245,7 @@ export function SendTemplateModal({ contact, onClose }: SendTemplateModalProps) 
       setLoading(true);
 
       // Fetch WhatsApp connections
-      const connectionsResponse = await fetch(apiUrl("/api/connections/whatsapp/list"), {
+      const connectionsResponse = await apiFetch("/api/connections/whatsapp/list", {
         credentials: "include",
       });
 
@@ -262,7 +262,7 @@ export function SendTemplateModal({ contact, onClose }: SendTemplateModalProps) 
       }
 
       // Fetch templates
-      const templatesResponse = await fetch(apiUrl("/api/crm/templates"), {
+      const templatesResponse = await apiFetch("/api/crm/templates", {
         credentials: "include",
       });
 
@@ -335,7 +335,7 @@ export function SendTemplateModal({ contact, onClose }: SendTemplateModalProps) 
         components: components.length > 0 ? components : undefined,
       });
 
-      const response = await fetch(apiUrl("/api/crm/templates/send"), {
+      const response = await apiFetch("/api/crm/templates/send", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

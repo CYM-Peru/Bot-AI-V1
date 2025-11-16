@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 
 interface SatisfactionSurveyProps {
   conversationId: string;
@@ -21,7 +21,7 @@ export default function SatisfactionSurvey({ conversationId, onClose, onSubmit }
 
     setSubmitting(true);
     try {
-      const response = await fetch(apiUrl(`/api/crm/metrics/${conversationId}/satisfaction`), {
+      const response = await apiFetch(`/api/crm/metrics/${conversationId}/satisfaction`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

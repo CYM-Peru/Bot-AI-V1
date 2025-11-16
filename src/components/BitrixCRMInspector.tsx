@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiUrl } from '../lib/apiBase';
+import { apiUrl, apiFetch } from '../lib/apiBase';
 
 interface BitrixField {
   code: string;
@@ -26,9 +26,7 @@ export function BitrixCRMInspector({ data, onChange }: BitrixCRMInspectorProps) 
   const loadFields = async (type: string) => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl(`/api/bitrix/fields/${type}`), {
-        credentials: 'include'
-      });
+      const response = await apiFetch(`/api/bitrix/fields/${type}`);
 
       if (response.ok) {
         const result = await response.json();

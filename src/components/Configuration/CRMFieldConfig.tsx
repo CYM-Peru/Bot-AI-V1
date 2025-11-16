@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { apiUrl, apiFetch } from "../../lib/apiBase";
 
 interface CRMField {
   id: string;
@@ -151,7 +151,7 @@ export function CRMFieldConfig() {
   const loadConfig = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/crm-fields"), { credentials: "include" });
+      const response = await apiFetch("/api/admin/crm-fields");
       if (response.ok) {
         const data = await response.json();
         const enabledFieldIds = data.config?.enabledFields || [];
@@ -171,7 +171,7 @@ export function CRMFieldConfig() {
   const saveConfig = async () => {
     try {
       const enabledFields = fields.filter(f => f.enabled).map(f => f.id);
-      const response = await fetch(apiUrl("/api/admin/crm-fields"), {
+      const response = await apiFetch("/api/admin/crm-fields", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabledFields }),

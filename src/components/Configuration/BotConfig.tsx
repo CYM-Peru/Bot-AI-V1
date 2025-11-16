@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { apiUrl, apiFetch } from "../../lib/apiBase";
 
 interface BotConfig {
   perFlowConfig: Record<string, { botTimeout: number; fallbackQueue: string }>;
@@ -33,7 +33,7 @@ export function BotConfig() {
     setLoading(true);
     try {
       // Load bot config
-      const configRes = await fetch(apiUrl("/api/admin/bot-config"), {
+      const configRes = await apiFetch("/api/admin/bot-config", {
         credentials: "include",
       });
       if (configRes.ok) {
@@ -42,7 +42,7 @@ export function BotConfig() {
       }
 
       // Load queues
-      const queuesRes = await fetch(apiUrl("/api/admin/queues"), {
+      const queuesRes = await apiFetch("/api/admin/queues", {
         credentials: "include",
       });
       if (queuesRes.ok) {
@@ -53,7 +53,7 @@ export function BotConfig() {
       }
 
       // Load flows
-      const flowsRes = await fetch(apiUrl("/api/flows"), {
+      const flowsRes = await apiFetch("/api/flows", {
         credentials: "include",
       });
       if (flowsRes.ok) {
@@ -73,7 +73,7 @@ export function BotConfig() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/bot-config"), {
+      const response = await apiFetch("/api/admin/bot-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

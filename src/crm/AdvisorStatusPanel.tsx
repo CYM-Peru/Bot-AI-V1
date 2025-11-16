@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { CrmSocket, AdvisorPresence } from "./socket";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 
 interface Props {
   socket: CrmSocket | null;
@@ -63,7 +63,7 @@ export function AdvisorStatusPanel({ socket }: Props) {
 
   const loadAdvisorPresence = async () => {
     try {
-      const response = await fetch(apiUrl("/api/admin/advisor-presence"), {
+      const response = await apiFetch("/api/admin/advisor-presence", {
         credentials: "include",
       });
 
@@ -83,7 +83,7 @@ export function AdvisorStatusPanel({ socket }: Props) {
   const loadActivityLogs = async () => {
     try {
       setLogsLoading(true);
-      const response = await fetch(apiUrl("/api/admin/advisor-activity-logs?limit=50"), {
+      const response = await apiFetch("/api/admin/advisor-activity-logs?limit=50", {
         credentials: "include",
       });
 

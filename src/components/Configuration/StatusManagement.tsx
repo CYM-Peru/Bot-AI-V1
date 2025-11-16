@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { apiUrl, apiFetch } from "../../lib/apiBase";
 
 interface AdvisorStatus {
   id: string;
@@ -49,7 +49,7 @@ export function StatusManagement() {
   const loadStatuses = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/advisor-statuses"), { credentials: "include" });
+      const response = await apiFetch("/api/admin/advisor-statuses");
       if (response.ok) {
         const data = await response.json();
         setStatuses(data.statuses || []);
@@ -63,7 +63,7 @@ export function StatusManagement() {
 
   const loadQueues = async () => {
     try {
-      const response = await fetch(apiUrl("/api/admin/queues"), { credentials: "include" });
+      const response = await apiFetch("/api/admin/queues");
       if (response.ok) {
         const data = await response.json();
         setQueues(data.queues || []);
@@ -101,7 +101,7 @@ export function StatusManagement() {
     if (!confirm("¿Estás seguro de eliminar este estado?")) return;
 
     try {
-      const response = await fetch(apiUrl(`/api/admin/advisor-statuses/${statusId}`), {
+      const response = await apiFetch(`/api/admin/advisor-statuses/${statusId}`, {
         method: "DELETE",
         credentials: "include",
       });

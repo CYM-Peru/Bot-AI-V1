@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 import { SendTemplateModal } from "./SendTemplateModal";
 import { Search, RefreshCw, Send, Phone, MessageCircle, Eye, ChevronLeft, ChevronRight, Filter, X } from "lucide-react";
 
@@ -102,7 +102,7 @@ export default function AgendaPage() {
         ...(comp ? { company: comp } : {}),
       });
 
-      const response = await fetch(apiUrl(`/api/bitrix/contacts?${params}`), {
+      const response = await apiFetch(`/api/bitrix/contacts?${params}`, {
         credentials: "include",
       });
 
@@ -474,7 +474,7 @@ export default function AgendaPage() {
                             setLoadingConversations(true);
                             try {
                               const phone = getPhone(contact).replace(/[^0-9]/g, "");
-                              const response = await fetch(apiUrl(`/api/crm/conversations/search-by-phone?phone=${phone}`), {
+                              const response = await apiFetch(`/api/crm/conversations/search-by-phone?phone=${phone}`, {
                                 credentials: "include",
                               });
                               if (response.ok) {

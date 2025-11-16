@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 
 interface QueueActionsProps {
   conversationId: string;
@@ -30,7 +30,7 @@ export default function QueueActions({ conversationId, onSuccess, isTransferred,
   const handleAccept = async () => {
     setAccepting(true);
     try {
-      const response = await fetch(apiUrl(`/api/crm/conversations/${conversationId}/accept`), {
+      const response = await apiFetch(`/api/crm/conversations/${conversationId}/accept`, {
         method: "POST",
         credentials: "include",
       });
@@ -54,7 +54,7 @@ export default function QueueActions({ conversationId, onSuccess, isTransferred,
 
     setRejecting(true);
     try {
-      const response = await fetch(apiUrl(`/api/crm/conversations/${conversationId}/reject`), {
+      const response = await apiFetch(`/api/crm/conversations/${conversationId}/reject`, {
         method: "POST",
         credentials: "include",
       });
@@ -76,7 +76,7 @@ export default function QueueActions({ conversationId, onSuccess, isTransferred,
   const openTransferModal = async () => {
     // Load advisors with presence status
     try {
-      const response = await fetch(apiUrl("/api/admin/advisors-with-presence"), { credentials: "include" });
+      const response = await apiFetch("/api/admin/advisors-with-presence");
       if (response.ok) {
         const data = await response.json();
         setAdvisors(data.advisors || []);
@@ -86,7 +86,7 @@ export default function QueueActions({ conversationId, onSuccess, isTransferred,
       console.error('[QueueActions] Error loading advisors:', error);
       // Fallback to basic advisors endpoint
       try {
-        const fallbackResponse = await fetch(apiUrl("/api/admin/advisors"), { credentials: "include" });
+        const fallbackResponse = await apiFetch("/api/admin/advisors");
         if (fallbackResponse.ok) {
           const fallbackData = await fallbackResponse.json();
           setAdvisors(fallbackData.advisors || []);
@@ -106,7 +106,7 @@ export default function QueueActions({ conversationId, onSuccess, isTransferred,
 
     setTransferring(true);
     try {
-      const response = await fetch(apiUrl(`/api/crm/conversations/${conversationId}/transfer`), {
+      const response = await apiFetch(`/api/crm/conversations/${conversationId}/transfer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { apiUrl } from '../lib/apiBase';
+import { apiUrl, apiFetch } from '../lib/apiBase';
 
 interface Queue {
   id: string;
@@ -37,14 +37,14 @@ export function WhatsAppNumbersPanel() {
       setLoading(true);
 
       // Load queues
-      const queuesRes = await fetch(apiUrl('/api/admin/queues'), {
+      const queuesRes = await apiFetch('/api/admin/queues', {
         credentials: 'include',
       });
       const queuesData = await queuesRes.json();
       setQueues(queuesData.queues || []);
 
       // Load WhatsApp numbers
-      const numbersRes = await fetch(apiUrl('/api/admin/whatsapp-numbers'), {
+      const numbersRes = await apiFetch('/api/admin/whatsapp-numbers', {
         credentials: 'include',
       });
       const numbersData = await numbersRes.json();
@@ -68,7 +68,7 @@ export function WhatsAppNumbersPanel() {
     }
 
     try {
-      const response = await fetch(apiUrl('/api/admin/whatsapp-numbers'), {
+      const response = await apiFetch('/api/admin/whatsapp-numbers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -105,7 +105,7 @@ export function WhatsAppNumbersPanel() {
     }
 
     try {
-      const response = await fetch(apiUrl(`/api/admin/whatsapp-numbers/${numberId}`), {
+      const response = await apiFetch(`/api/admin/whatsapp-numbers/${numberId}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -132,7 +132,7 @@ export function WhatsAppNumbersPanel() {
     if (!editingData) return;
 
     try {
-      const response = await fetch(apiUrl(`/api/admin/whatsapp-numbers/${editingData.numberId}`), {
+      const response = await apiFetch(`/api/admin/whatsapp-numbers/${editingData.numberId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 
 interface User {
   id: string;
@@ -27,7 +27,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(apiUrl("/api/auth/me"), {
+      const response = await apiFetch("/api/auth/me", {
         credentials: "include",
       });
 

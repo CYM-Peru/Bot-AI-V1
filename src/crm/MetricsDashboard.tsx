@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -169,7 +169,7 @@ export default function MetricsDashboard() {
 
         // Load trend data
         const days = dateFilter === "today" ? 1 : dateFilter === "week" ? 7 : dateFilter === "month" ? 30 : 7;
-        const trendResponse = await fetch(apiUrl(`/api/crm/metrics/trend?days=${days}`), {
+        const trendResponse = await apiFetch(`/api/crm/metrics/trend?days=${days}`, {
           credentials: "include",
         });
 
@@ -189,7 +189,7 @@ export default function MetricsDashboard() {
         }
       } else if (metricsTab === "campaigns") {
         // Load campaigns
-        const campaignsResponse = await fetch(apiUrl('/api/campaigns'), {
+        const campaignsResponse = await apiFetch('/api/campaigns', {
           credentials: "include",
         });
 
@@ -199,7 +199,7 @@ export default function MetricsDashboard() {
         }
 
         // Load campaign metrics
-        const metricsResponse = await fetch(apiUrl('/api/campaigns/metrics/all'), {
+        const metricsResponse = await apiFetch('/api/campaigns/metrics/all', {
           credentials: "include",
         });
 
@@ -248,7 +248,7 @@ export default function MetricsDashboard() {
 
     try {
       setResetting(true);
-      const response = await fetch(apiUrl('/api/crm/metrics/reset'), {
+      const response = await apiFetch('/api/crm/metrics/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -279,7 +279,7 @@ export default function MetricsDashboard() {
     }
 
     try {
-      const response = await fetch(apiUrl(`/api/campaigns/${campaignId}`), {
+      const response = await apiFetch(`/api/campaigns/${campaignId}`, {
         method: 'DELETE',
         credentials: 'include',
       });

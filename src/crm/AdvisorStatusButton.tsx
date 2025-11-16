@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 
 interface AdvisorStatus {
   id: string;
@@ -44,7 +44,7 @@ export function AdvisorStatusButton({ userId, compact = false }: AdvisorStatusBu
 
   const loadStatuses = async () => {
     try {
-      const response = await fetch(apiUrl("/api/admin/advisor-statuses"), {
+      const response = await apiFetch("/api/admin/advisor-statuses", {
         credentials: "include",
       });
       if (response.ok) {
@@ -59,7 +59,7 @@ export function AdvisorStatusButton({ userId, compact = false }: AdvisorStatusBu
   const loadCurrentStatus = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl(`/api/admin/advisor-status/${userId}`), {
+      const response = await apiFetch(`/api/admin/advisor-status/${userId}`, {
         credentials: "include",
       });
       if (response.ok) {
@@ -79,7 +79,7 @@ export function AdvisorStatusButton({ userId, compact = false }: AdvisorStatusBu
 
   const handleChangeStatus = async (status: AdvisorStatus) => {
     try {
-      const response = await fetch(apiUrl(`/api/admin/advisor-status/${userId}`), {
+      const response = await apiFetch(`/api/admin/advisor-status/${userId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

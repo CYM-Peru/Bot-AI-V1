@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { apiUrl } from "../lib/apiBase";
+import { apiUrl, apiFetch } from "../lib/apiBase";
 
 interface LoginPageProps {
   onLoginSuccess: () => void;
@@ -17,7 +17,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
     setLoading(true);
 
     try {
-      const response = await fetch(apiUrl("/api/auth/login"), {
+      const response = await apiFetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { apiUrl, apiFetch } from "../../lib/apiBase";
 import { Sparkles, Heart, Zap, MessageCircle, Save } from "lucide-react";
 
 interface PersonalityConfig {
@@ -28,7 +28,7 @@ export function PersonalityConfig() {
 
   async function loadPersonality() {
     try {
-      const response = await fetch(apiUrl("/api/ia-agent-config"), {
+      const response = await apiFetch("/api/ia-agent-config", {
         credentials: "include",
       });
 
@@ -72,7 +72,7 @@ export function PersonalityConfig() {
     setSaving(true);
     try {
       // Load full config
-      const configResponse = await fetch(apiUrl("/api/ia-agent-config"), {
+      const configResponse = await apiFetch("/api/ia-agent-config", {
         credentials: "include",
       });
 
@@ -86,7 +86,7 @@ export function PersonalityConfig() {
       config.personality = personality;
 
       // Save back
-      const saveResponse = await fetch(apiUrl("/api/ia-agent-config"), {
+      const saveResponse = await apiFetch("/api/ia-agent-config", {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

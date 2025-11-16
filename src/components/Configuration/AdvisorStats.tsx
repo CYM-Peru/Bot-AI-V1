@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiUrl } from "../../lib/apiBase";
+import { apiUrl, apiFetch } from "../../lib/apiBase";
 
 interface AdvisorStatus {
   id: string;
@@ -38,7 +38,7 @@ export function AdvisorStats() {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch(apiUrl("/api/admin/advisor-stats"), {
+      const response = await apiFetch("/api/admin/advisor-stats", {
         credentials: "include",
       });
 
