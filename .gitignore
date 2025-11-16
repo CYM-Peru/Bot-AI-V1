@@ -55,3 +55,23 @@ venv/
 venv-*/
 __pycache__/
 *.pyc
+
+# Temporary analysis and reports
+*ANALISIS*.txt
+*REPORTE*.md
+*RESUMEN*.txt
+*FIXES-*.md
+*AUDIT*.txt
+config-validation-report.txt
+mensajes-perdidos-reporte.txt
+clientes-afectados.json
+
+# Screenshots and captures
+Capturas/
+screenshots/
+*.png
+*.jpg
+*.jpeg
+!public/**/*.png
+!public/**/*.jpg
+!public/**/*.jpeg

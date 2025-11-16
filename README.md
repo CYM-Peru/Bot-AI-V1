@@ -23,7 +23,7 @@ systemctl restart flowbuilder
 journalctl -u flowbuilder -f
 
 # Acceder a PostgreSQL
-PGPASSWORD=azaleia_pg_2025_secure psql -U whatsapp_user -d flowbuilder_crm -h localhost
+PGPASSWORD=$POSTGRES_PASSWORD psql -U whatsapp_user -d flowbuilder_crm -h localhost
 ```
 
 ---
@@ -336,7 +336,7 @@ Este proyecto es privado y confidencial.
 
 ---
 
-**Última actualización**: 2025-10-28
+**Última actualización**: 2025-11-16
 **Versión**: 1.0.0
 **Estado**: ✅ Listo para Producción
 

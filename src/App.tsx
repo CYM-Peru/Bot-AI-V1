@@ -27,6 +27,7 @@ import WelcomeSplash from "./components/WelcomeSplash";
 import { LogOut, User, Bug, ListChecks } from "lucide-react";
 import { AdvisorStatusButton } from "./crm/AdvisorStatusButton";
 import { AdvisorStatusPanel } from "./crm/AdvisorStatusPanel";
+import { createCrmSocket, type CrmSocket } from "./crm/socket";
 import { BitrixCRMInspector } from "./components/BitrixCRMInspector";
 import UserProfile from "./crm/UserProfile";
 import CRMWorkspace from "./crm";
@@ -349,6 +350,9 @@ export default function App(): JSX.Element {
   const [queues, setQueues] = useState<Array<{ id: string; name: string }>>([]);
   const [advisors, setAdvisors] = useState<Array<{ id: string; name: string; email: string; isOnline: boolean }>>([]);
 
+  // WebSocket for advisor status panel real-time updates
+  const [advisorSocket, setAdvisorSocket] = useState<CrmSocket | null>(null);
+
   // Check for URL parameters to navigate to specific tabs (e.g., ?tab=crm)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -366,6 +370,28 @@ export default function App(): JSX.Element {
   // Save mainTab to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('flowbuilder_mainTab', mainTab);
+  }, [mainTab]);
+
+  // Create WebSocket connection for advisor status panel when advisors tab is active
+  useEffect(() => {
+    if (mainTab === 'advisors' && hasPermission('advisors.view')) {
+      console.log('[App] Creating CRM socket for advisor status panel...');
+      const socket = createCrmSocket();
+      setAdvisorSocket(socket);
+
+      return () => {
+        console.log('[App] Disconnecting CRM socket for advisor status panel...');
+        socket.disconnect();
+        setAdvisorSocket(null);
+      };
+    } else {
+      // Clean up socket if tab changes away from advisors
+      if (advisorSocket) {
+        console.log('[App] Cleaning up advisor socket (tab changed)');
+        advisorSocket.disconnect();
+        setAdvisorSocket(null);
+      }
+    }
   }, [mainTab]);
 
   // Set default tab based on user role when user is loaded (only if not already set from localStorage)
@@ -5031,7 +5057,7 @@ export default function App(): JSX.Element {
       {mainTab === 'advisors' && hasPermission('advisors.view') && (
         <div className="mt-2 h-[calc(100vh-70px)]">
           <div className="h-full max-w-4xl mx-auto">
-            <AdvisorStatusPanel socket={null} />
+            <AdvisorStatusPanel socket={advisorSocket} />
           </div>
         </div>
       )}
