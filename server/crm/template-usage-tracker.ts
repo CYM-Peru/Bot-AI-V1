@@ -125,26 +125,40 @@ export async function getTemplateUsageStats(filters: {
   const offset = filters.offset || 0;
 
   try {
-    // Get records
+    // Get records with campaign information
     const recordsQuery = `
       SELECT
-        id,
-        template_name,
-        template_category,
-        cost_usd,
-        advisor_id,
-        advisor_name,
-        conversation_id,
-        customer_phone,
-        customer_name,
-        sending_phone_number_id,
-        sending_display_number,
-        sent_at,
-        status,
-        error_message
-      FROM template_usage
+        tu.id,
+        tu.template_name,
+        tu.template_category,
+        tu.cost_usd,
+        tu.advisor_id,
+        tu.advisor_name,
+        tu.conversation_id,
+        tu.customer_phone,
+        tu.customer_name,
+        tu.sending_phone_number_id,
+        COALESCE(tu.sending_display_number, wn.phone_number) as sending_display_number,
+        tu.sent_at,
+        tu.status,
+        tu.error_message,
+        c.id as campaign_id,
+        c.name as campaign_name,
+        (SELECT COUNT(*) FROM campaign_message_details WHERE campaign_id = c.id AND status = 'sent') as campaign_total_sent,
+        (SELECT SUM(cost_usd) FROM template_usage tu2
+         INNER JOIN crm_conversations cc2 ON tu2.conversation_id = cc2.id
+         INNER JOIN campaign_message_details cmd2 ON cmd2.phone = cc2.phone
+         WHERE cmd2.campaign_id = c.id AND tu2.status = 'sent') as campaign_total_cost
+      FROM template_usage tu
+      LEFT JOIN crm_whatsapp_numbers wn ON tu.sending_phone_number_id = wn.number_id
+      LEFT JOIN crm_conversations cc ON tu.conversation_id = cc.id
+      LEFT JOIN campaign_message_details cmd ON cmd.phone = cc.phone
+        AND cmd.status = 'sent'
+        AND tu.sent_at >= to_timestamp(cmd.sent_at / 1000.0)
+        AND tu.sent_at <= to_timestamp(cmd.sent_at / 1000.0) + interval '5 seconds'
+      LEFT JOIN campaigns c ON cmd.campaign_id = c.id
       ${whereClause}
-      ORDER BY sent_at DESC
+      ORDER BY tu.sent_at DESC
       LIMIT $${paramCount} OFFSET $${paramCount + 1}
     `;
 

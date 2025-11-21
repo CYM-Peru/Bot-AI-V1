@@ -57,7 +57,7 @@ export interface WhatsAppNumber {
 
 class AdminDatabasePostgres {
   async getUsers(): Promise<User[]> {
-    const result = await pool.query('SELECT id, username, email, password_hash as password, name, role, created_at, updated_at FROM crm_users');
+    const result = await pool.query('SELECT id, username, email, password, name, role, created_at, updated_at FROM users WHERE is_bot = false');
     return result.rows.map(row => ({
       id: row.id,
       username: row.username,
@@ -65,13 +65,13 @@ class AdminDatabasePostgres {
       password: row.password,
       name: row.name,
       role: row.role,
-      createdAt: new Date(parseInt(row.created_at)).toISOString(),
-      updatedAt: new Date(parseInt(row.updated_at)).toISOString(),
+      createdAt: new Date(row.created_at).toISOString(),
+      updatedAt: new Date(row.updated_at).toISOString(),
     }));
   }
 
   async getUserById(id: string): Promise<User | null> {
-    const result = await pool.query('SELECT id, username, email, password_hash as password, name, role, created_at, updated_at FROM crm_users WHERE id = $1', [id]);
+    const result = await pool.query('SELECT id, username, email, password, name, role, created_at, updated_at FROM users WHERE id = $1', [id]);
     if (result.rows.length === 0) return null;
     const row = result.rows[0];
     return {
@@ -81,13 +81,13 @@ class AdminDatabasePostgres {
       password: row.password,
       name: row.name,
       role: row.role,
-      createdAt: new Date(parseInt(row.created_at)).toISOString(),
-      updatedAt: new Date(parseInt(row.updated_at)).toISOString(),
+      createdAt: new Date(row.created_at).toISOString(),
+      updatedAt: new Date(row.updated_at).toISOString(),
     };
   }
 
   async getUserByUsername(username: string): Promise<User | null> {
-    const result = await pool.query('SELECT id, username, email, password_hash as password, name, role, created_at, updated_at FROM crm_users WHERE username = $1', [username]);
+    const result = await pool.query('SELECT id, username, email, password, name, role, created_at, updated_at FROM users WHERE username = $1', [username]);
     if (result.rows.length === 0) return null;
     const row = result.rows[0];
     return {
@@ -97,8 +97,8 @@ class AdminDatabasePostgres {
       password: row.password,
       name: row.name,
       role: row.role,
-      createdAt: new Date(parseInt(row.created_at)).toISOString(),
-      updatedAt: new Date(parseInt(row.updated_at)).toISOString(),
+      createdAt: new Date(row.created_at).toISOString(),
+      updatedAt: new Date(row.updated_at).toISOString(),
     };
   }
 
@@ -211,8 +211,8 @@ class AdminDatabasePostgres {
     const passwordHash = await bcrypt.hash(data.password, 10);
 
     await pool.query(
-      'INSERT INTO crm_users (id, username, email, password_hash, name, role, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-      [id, data.username, data.email, passwordHash, data.name || '', data.role, createdAt, updatedAt]
+      'INSERT INTO users (id, username, email, password, name, role, status, is_bot, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())',
+      [id, data.username, data.email, passwordHash, data.name || '', data.role, data.status || 'active', false]
     );
 
     return {
@@ -222,8 +222,8 @@ class AdminDatabasePostgres {
       password: passwordHash,
       name: data.name || '',
       role: data.role,
-      createdAt: new Date(createdAt).toISOString(),
-      updatedAt: new Date(updatedAt).toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
   }
 
@@ -251,7 +251,7 @@ class AdminDatabasePostgres {
     if (data.password !== undefined) {
       const bcrypt = await import('bcrypt');
       const passwordHash = await bcrypt.hash(data.password, 10);
-      updates.push(`password_hash = $${paramIndex++}`);
+      updates.push(`password = $${paramIndex++}`);
       values.push(passwordHash);
     }
     if (data.name !== undefined) {
@@ -262,6 +262,10 @@ class AdminDatabasePostgres {
       updates.push(`role = $${paramIndex++}`);
       values.push(data.role);
     }
+    if (data.status !== undefined) {
+      updates.push(`status = $${paramIndex++}`);
+      values.push(data.status);
+    }
 
     if (updates.length === 0) {
       // No updates provided, return current user
@@ -269,11 +273,10 @@ class AdminDatabasePostgres {
     }
 
     // Add updated_at timestamp
-    updates.push(`updated_at = $${paramIndex++}`);
-    values.push(Date.now());
+    updates.push(`updated_at = NOW()`);
 
     values.push(id);
-    const query = `UPDATE crm_users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, username, email, password_hash as password, name, role, created_at, updated_at`;
+    const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, username, email, password, name, role, created_at, updated_at`;
 
     const result = await pool.query(query, values);
     if (result.rows.length === 0) return null;
@@ -286,8 +289,8 @@ class AdminDatabasePostgres {
       password: row.password,
       name: row.name,
       role: row.role,
-      createdAt: new Date(parseInt(row.created_at)).toISOString(),
-      updatedAt: new Date(parseInt(row.updated_at)).toISOString(),
+      createdAt: new Date(row.created_at).toISOString(),
+      updatedAt: new Date(row.updated_at).toISOString(),
     };
   }
 
@@ -303,7 +306,7 @@ class AdminDatabasePostgres {
       }
     }
 
-    const result = await pool.query('DELETE FROM crm_users WHERE id = $1', [id]);
+    const result = await pool.query('DELETE FROM users WHERE id = $1', [id]);
     return result.rowCount !== null && result.rowCount > 0;
   }
 
@@ -758,7 +761,7 @@ class AdminDatabasePostgres {
   async getChatThemePreferences(userId: string): Promise<any | null> {
     try {
       const result = await pool.query(
-        'SELECT chat_theme_preferences FROM crm_users WHERE id = $1',
+        'SELECT chat_theme_preferences FROM users WHERE id = $1',
         [userId]
       );
       if (result.rows.length === 0) return null;
@@ -771,7 +774,7 @@ class AdminDatabasePostgres {
 
   async setChatThemePreferences(userId: string, preferences: any): Promise<void> {
     await pool.query(
-      'UPDATE crm_users SET chat_theme_preferences = $1 WHERE id = $2',
+      'UPDATE users SET chat_theme_preferences = $1 WHERE id = $2',
       [JSON.stringify(preferences), userId]
     );
   }

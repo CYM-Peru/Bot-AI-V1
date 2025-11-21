@@ -2,6 +2,8 @@ import { crmDb } from "./crm/db-postgres";
 import type { CrmRealtimeManager } from "./crm/ws";
 import { ConversationStatus } from "./crm/conversation-status";
 import { Pool } from "pg";
+import { promises as fs } from "fs";
+import path from "path";
 
 // PostgreSQL connection pool
 const pool = new Pool({
@@ -136,6 +138,29 @@ export class BotTimeoutScheduler {
   }
 
   /**
+   * Check if bot session is waiting for button response
+   */
+  private async isWaitingForButtonResponse(phone: string, channelConnectionId: string): Promise<boolean> {
+    try {
+      const sessionPath = path.join('/opt/flow-builder/data/sessions', `whatsapp_${phone}_${channelConnectionId}.json`);
+      const sessionData = await fs.readFile(sessionPath, 'utf-8');
+      const session = JSON.parse(sessionData);
+
+      // Check last outbound message in history
+      const history = session.history || [];
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i].type === 'outbound') {
+          return history[i].payload?.type === 'buttons';
+        }
+      }
+      return false;
+    } catch (error) {
+      // Session file not found or invalid - default to transfer behavior
+      return false;
+    }
+  }
+
+  /**
    * Check for bot timeouts and transfer to fallback queue
    */
   private async checkAndTransfer(): Promise<void> {
@@ -152,7 +177,7 @@ export class BotTimeoutScheduler {
 
       // Get all active conversations with bot
       const result = await pool.query(
-        `SELECT id, bot_flow_id, bot_started_at, phone
+        `SELECT id, bot_flow_id, bot_started_at, phone, phone_number_id
          FROM crm_conversations
          WHERE status = $1
            AND bot_flow_id IS NOT NULL
@@ -171,26 +196,63 @@ export class BotTimeoutScheduler {
         const timeoutMinutes = flowConfig.botTimeout;
 
         if (botDuration >= timeoutMinutes) {
-          console.log(
-            `[BotTimeoutScheduler] 🤖⏱️ Bot timeout exceeded for conversation ${row.id} (${botDuration.toFixed(1)}/${timeoutMinutes} min) - transferring to queue ${flowConfig.fallbackQueue}`
-          );
+          // Check if bot is waiting for button response
+          const waitingForButtons = await this.isWaitingForButtonResponse(row.phone, row.phone_number_id);
 
-          // Transfer to fallback queue
-          await pool.query(
-            `UPDATE crm_conversations
-             SET queue_id = $1,
-                 queued_at = $2,
-                 bot_flow_id = NULL,
-                 bot_started_at = NULL
-             WHERE id = $3`,
-            [flowConfig.fallbackQueue, now, row.id]
-          );
+          if (waitingForButtons) {
+            // Bot was waiting for button response - close conversation
+            console.log(
+              `[BotTimeoutScheduler] 🤖⏱️ Bot timeout exceeded for conversation ${row.id} (${botDuration.toFixed(1)}/${timeoutMinutes} min) - bot waiting for buttons - CLOSING conversation`
+            );
 
-          // Insert system message about the transfer
-          await this.insertSystemMessage(
-            row.id,
-            `⏱️ El bot alcanzó el tiempo máximo de atención (${timeoutMinutes} minutos). Esta conversación ha sido transferida a la cola para que un asesor pueda atenderla.`
-          );
+            await pool.query(
+              `UPDATE crm_conversations
+               SET status = $1,
+                   bot_flow_id = NULL,
+                   bot_started_at = NULL
+               WHERE id = $2`,
+              [ConversationStatus.CLOSED, row.id]
+            );
+
+            // Insert system message about closing
+            await this.insertSystemMessage(
+              row.id,
+              `⏱️ Chat cerrado automáticamente. El bot esperó ${timeoutMinutes} minutos por una respuesta a las opciones enviadas.`
+            );
+          } else {
+            // Bot not waiting for buttons - transfer to queue
+            console.log(
+              `[BotTimeoutScheduler] 🤖⏱️ Bot timeout exceeded for conversation ${row.id} (${botDuration.toFixed(1)}/${timeoutMinutes} min) - transferring to queue ${flowConfig.fallbackQueue}`
+            );
+
+            // Transfer to fallback queue
+            await pool.query(
+              `UPDATE crm_conversations
+               SET status = $1,
+                   queue_id = $2,
+                   queued_at = $3,
+                   bot_flow_id = NULL,
+                   bot_started_at = NULL,
+                   assigned_to = NULL
+               WHERE id = $4`,
+              [ConversationStatus.ACTIVE, flowConfig.fallbackQueue, now, row.id]
+            );
+
+            // Insert system message about the transfer
+            await this.insertSystemMessage(
+              row.id,
+              `⏱️ El bot alcanzó el tiempo máximo de atención (${timeoutMinutes} minutos). Esta conversación ha sido transferida a la cola para que un asesor pueda atenderla.`
+            );
+
+            // Trigger event-driven assignment
+            try {
+              const { getQueueAssignmentService } = await import('./crm/queue-assignment-service');
+              const assignmentService = getQueueAssignmentService();
+              await assignmentService.onChatQueued(row.id, flowConfig.fallbackQueue);
+            } catch (error) {
+              console.error('[BotTimeoutScheduler] Error triggering onChatQueued:', error);
+            }
+          }
 
           // Emit WebSocket update
           if (this.socketManager) {

@@ -78,12 +78,21 @@ export function CampaignMetrics() {
 
   async function loadData() {
     try {
-      const response = await fetch(apiUrl("/api/crm/metrics/campaign-tracking?limit=50"), {
+      const response = await fetch(apiUrl("/api/crm/metrics/ads-tracking?limit=50"), {
         credentials: "include",
       });
 
       if (response.ok) {
         const result = await response.json();
+        console.log("[CampaignMetrics] Raw API response:", result);
+        console.log("[CampaignMetrics] keywordStats:", result.keywordStats);
+        if (result.keywordStats && result.keywordStats.length > 0) {
+          const total = result.keywordStats.reduce((sum: number, k: any) => {
+            console.log(`[CampaignMetrics] Adding count: ${k.count} (type: ${typeof k.count})`);
+            return sum + Number(k.count);
+          }, 0);
+          console.log("[CampaignMetrics] Total keyphrases count:", total);
+        }
         setData(result);
       }
     } catch (error) {
@@ -157,7 +166,7 @@ export function CampaignMetrics() {
             <div>
               <p className="text-sm font-medium text-slate-600">Frases Clave Detectadas</p>
               <p className="text-3xl font-bold text-slate-900 mt-1">
-                {data.keywordStats.reduce((sum, k) => sum + k.count, 0)}
+                {data.keywordStats.reduce((sum, k) => sum + Number(k.count), 0)}
               </p>
               <p className="text-xs text-slate-500 mt-1">Frases completas (3+ palabras)</p>
             </div>
@@ -262,7 +271,7 @@ export function CampaignMetrics() {
           <div className="p-6">
             <div className="space-y-3">
               {data.campaignStats.slice(0, 8).map((stat, idx) => {
-                const percentage = (stat.count / data.totalCount) * 100;
+                const percentage = (Number(stat.count) / data.totalCount) * 100;
                 return (
                   <div key={idx} className="space-y-2">
                     <div className="flex items-center justify-between">
@@ -308,7 +317,7 @@ export function CampaignMetrics() {
           <div className="p-6">
             <div className="grid grid-cols-1 gap-5">
               {data.referralStats.slice(0, 10).map((stat, idx) => {
-                const percentage = (stat.count / data.totalCount) * 100;
+                const percentage = (Number(stat.count) / data.totalCount) * 100;
                 const hasMedia = stat.referral_image_url || stat.referral_video_url || stat.referral_thumbnail_url;
 
                 return (
@@ -469,7 +478,7 @@ export function CampaignMetrics() {
                   Total de conversiones desde anuncios de Meta
                 </p>
                 <p className="text-lg font-bold text-indigo-600">
-                  {data.referralStats.reduce((sum, s) => sum + s.count, 0)} leads
+                  {data.referralStats.reduce((sum, s) => sum + Number(s.count), 0)} leads
                 </p>
               </div>
             </div>
@@ -555,11 +564,13 @@ export function CampaignMetrics() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">
-                      {new Date(record.created_at).toLocaleDateString('es-PE', {
+                      {new Date(record.created_at).toLocaleString('es-PE', {
                         day: '2-digit',
                         month: 'short',
                         hour: '2-digit',
                         minute: '2-digit',
+                        timeZone: 'America/Lima',
+                        hour12: true,
                       })}
                     </td>
                   </tr>

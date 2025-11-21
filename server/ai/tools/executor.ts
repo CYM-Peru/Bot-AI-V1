@@ -49,6 +49,9 @@ export async function executeTool(
     case 'save_lead_info':
       return await executeSaveLeadInfo(args, context);
 
+    case 'extract_text_ocr':
+      return await executeExtractTextOCR(args, context);
+
     case 'end_conversation':
       return executeEndConversation(args, context);
 
@@ -137,8 +140,11 @@ async function executeSearchKnowledgeBase(
 
     // Perform semantic search
     const { searchRelevantChunks } = await import('../rag-embeddings');
-    const openaiClient = ragService.getClient('openai');
-    const openaiKey = openaiClient ? await openaiClient.getApiKey() : null;
+
+    // Read API key from AI config
+    const { readAIConfig } = await import('../../routes/ai-config');
+    const aiConfig = await readAIConfig();
+    const openaiKey = aiConfig?.openai?.apiKey;
 
     if (!openaiKey) {
       return {
@@ -491,8 +497,13 @@ async function executeTransferToQueue(
 
   console.log(`[transfer_to_queue] Transferring to ${queue_type} queue: ${reason}`);
 
-  // Get queue configuration
-  const transferRule = context.config.transferRules?.[queue_type];
+  // Get queue configuration - transferRules is now an array
+  const transferRules = Array.isArray(context.config.transferRules)
+    ? context.config.transferRules
+    : [];
+
+  const transferRule = transferRules.find(rule => rule.id === queue_type);
+
   if (!transferRule || !transferRule.enabled) {
     return {
       success: false,
@@ -514,19 +525,16 @@ async function executeTransferToQueue(
     );
   }
 
-  // Return transfer instruction
+  // Return transfer instruction WITHOUT static message - AI will generate unique response
   return {
     success: true,
     result: {
       queueId,
-      queueName: transferRule.queueName,
+      queueName: transferRule.name,
       reason,
       customerInfo: customer_info,
+      note: 'Transferencia completada. El agente debe generar un mensaje de despedida ÚNICO y DIFERENTE cada vez.'
     },
-    messages: transferRule.message ? [{
-      type: 'text',
-      text: transferRule.message,
-    }] : [],
     shouldTransfer: true,
     transferQueue: queueId,
   };
@@ -537,13 +545,17 @@ async function executeTransferToQueue(
  * Checks if we're in business hours
  */
 function executeCheckBusinessHours(
-  args: { queue_type: 'sales' | 'support' },
+  args: { queue_type: 'sales' | 'support' | 'prospects' },
   context: ToolExecutionContext
 ): ToolExecutionResult {
   const { queue_type } = args;
 
-  // Get schedule for this queue type
-  const transferRule = context.config.transferRules?.[queue_type];
+  // Get schedule for this queue type - transferRules is now an array
+  const transferRules = Array.isArray(context.config.transferRules)
+    ? context.config.transferRules
+    : [];
+
+  const transferRule = transferRules.find(rule => rule.id === queue_type);
   if (!transferRule) {
     return {
       success: false,
@@ -568,6 +580,7 @@ function executeCheckBusinessHours(
 
   console.log(`[check_business_hours] Queue: ${queue_type}, Day: ${currentDay}, Time: ${currentTime}, Open: ${isOpen}`);
 
+  // CAMBIO: Ya NO devolvemos mensaje estático, solo información para que la IA decida qué decir
   return {
     success: true,
     result: {
@@ -578,9 +591,10 @@ function executeCheckBusinessHours(
         days: schedule.days,
         hours: `${schedule.startTime}-${schedule.endTime}`,
       },
-      message: isOpen
-        ? 'Estamos en horario de atención'
-        : context.config.businessHours?.outOfHoursMessage || 'Fuera de horario de atención'
+      // La IA usará esta info para generar su propia respuesta personalizada
+      note: isOpen
+        ? 'El equipo está disponible ahora'
+        : 'El equipo no está disponible en este momento, pero la IA puede seguir ayudando'
     }
   };
 }
@@ -624,6 +638,86 @@ async function executeSaveLeadInfo(
     return {
       success: false,
       result: { error: String(error) }
+    };
+  }
+}
+
+/**
+ * Tool: extract_text_ocr
+ * Extracts text from images/documents using Google Vision OCR
+ */
+async function executeExtractTextOCR(
+  args: { image_url: string; document_type: string; purpose?: string },
+  context: ToolExecutionContext
+): Promise<ToolExecutionResult> {
+  const { image_url, document_type, purpose } = args;
+
+  console.log(`[extract_text_ocr] Processing ${document_type}: ${image_url}`);
+  if (purpose) {
+    console.log(`[extract_text_ocr] Purpose: ${purpose}`);
+  }
+
+  try {
+    // Import OCR service dynamically
+    const { extractTextFromDocument } = await import('../ocr-service');
+
+    // Extract text using Google Vision
+    const ocrResult = await extractTextFromDocument(image_url);
+
+    if (!ocrResult.success) {
+      console.error('[extract_text_ocr] OCR failed:', ocrResult.error);
+      return {
+        success: false,
+        result: {
+          error: ocrResult.error || 'Failed to extract text from image',
+          text: '',
+        }
+      };
+    }
+
+    const extractedText = ocrResult.text || '';
+    console.log(`[extract_text_ocr] ✅ Extracted ${extractedText.length} characters`);
+
+    // Provide context based on document type
+    let contextualInfo = '';
+    switch (document_type) {
+      case 'dni':
+        contextualInfo = 'Texto extraído del DNI. Busca el número de DNI (8 dígitos).';
+        break;
+      case 'ruc':
+        contextualInfo = 'Texto extraído del RUC. Busca el número RUC (11 dígitos).';
+        break;
+      case 'voucher':
+        contextualInfo = 'Texto extraído del voucher de pago. Busca número de operación, fecha, monto.';
+        break;
+      case 'factura':
+        contextualInfo = 'Texto extraído de la factura. Busca número de factura, RUC, monto total.';
+        break;
+      case 'comprobante':
+        contextualInfo = 'Texto extraído del comprobante. Busca datos relevantes como número, fecha, monto.';
+        break;
+      default:
+        contextualInfo = 'Texto extraído del documento.';
+    }
+
+    return {
+      success: true,
+      result: {
+        text: extractedText,
+        document_type,
+        context: contextualInfo,
+        extracted_successfully: true,
+      }
+    };
+
+  } catch (error: any) {
+    console.error('[extract_text_ocr] Error:', error.message);
+    return {
+      success: false,
+      result: {
+        error: error.message || 'Unknown error during OCR processing',
+        text: '',
+      }
     };
   }
 }

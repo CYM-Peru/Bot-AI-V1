@@ -38,7 +38,7 @@ const CONVERSATION_COLUMNS = `
   attended_by, ticket_number, bot_started_at, bot_flow_id,
   read_at, transferred_from, transferred_at, active_advisors,
   category, is_favorite, pinned, pinned_at, assigned_to_advisor, assigned_to_advisor_at,
-  campaign_id,
+  campaign_id, campaign_ids, closed_reason,
   bounce_count, last_bounce_at, metadata, ai_analysis, created_at, updated_at
 `.trim();
 
@@ -98,17 +98,15 @@ export class PostgresCRMDatabase {
         params.push(phoneNumberId);
       }
 
-      // CRITICAL FIX: Prioritize active conversations and order by most recent
-      // This prevents duplicate conversation creation by ensuring we always find
-      // the most relevant existing conversation first
+      // CRITICAL FIX: Prioritize active conversations and order by OLDEST first
+      // When merging conversations, ALWAYS keep the OLDEST one to preserve history
       query += ` ORDER BY
                  CASE status
                    WHEN 'attending' THEN 1
                    WHEN 'active' THEN 2
                    WHEN 'closed' THEN 3
-                   WHEN 'archived' THEN 4
                  END,
-                 created_at DESC
+                 created_at ASC
                  LIMIT 1`;
 
       const result = await pool.query(query, params);
@@ -210,6 +208,7 @@ export class PostgresCRMDatabase {
       transferredAt: null,
       activeAdvisors: [],
       category: null,
+      campaignIds: [],
       isFavorite: false,
       metadata: null,
       assignedToAdvisor: null,
@@ -252,7 +251,33 @@ export class PostgresCRMDatabase {
       ]);
 
       return conv;
-    } catch (error) {
+    } catch (error: any) {
+      // Handle unique constraint violation (duplicate conversation)
+      if (error.code === '23505' && error.constraint === 'idx_unique_active_conversation') {
+        console.log(`[PostgresCRM] 🔄 Duplicate conversation detected for ${phone}, fetching existing one...`);
+
+        // Fetch the existing active conversation
+        const existing = await this.getConversationByPhoneAndChannel(phone, channel, phoneNumberId);
+
+        if (existing) {
+          console.log(`[PostgresCRM] ✅ Reusing existing conversation ${existing.id} (ticket #${existing.ticketNumber})`);
+          return existing;
+        }
+
+        // If somehow we still don't find it, retry the query with relaxed filters
+        console.warn('[PostgresCRM] ⚠️  Could not find existing conversation, retrying...');
+        const retry = await pool.query(
+          `SELECT ${CONVERSATION_COLUMNS} FROM crm_conversations
+           WHERE phone = $1 AND channel = $2 AND status IN ('active', 'attending')
+           ORDER BY created_at DESC LIMIT 1`,
+          [phone, channel]
+        );
+
+        if (retry.rows.length > 0) {
+          return this.rowToConversation(retry.rows[0]);
+        }
+      }
+
       console.error('[PostgresCRM] Error creating conversation:', error);
       throw error;
     }
@@ -718,6 +743,7 @@ export class PostgresCRMDatabase {
       bitrixId: row.bitrix_id,
       bitrixDocument: row.bitrix_document,
       avatarUrl: row.avatar_url,
+      createdAt: row.created_at ? parseInt(row.created_at) : 0,
       lastMessageAt: row.last_message_at ? parseInt(row.last_message_at) : 0,
       unread: row.unread || 0,
       status: row.status || 'active',
@@ -741,11 +767,13 @@ export class PostgresCRMDatabase {
 
       // NEW FIELDS - OPTIMIZED
       category: row.category || null,
+      campaignIds: row.campaign_ids || [],
       isFavorite: row.is_favorite || false,
       pinned: row.pinned || false,
       pinnedAt: row.pinned_at ? parseInt(row.pinned_at) : null,
       metadata: row.metadata || null,
       campaignId: row.campaign_id || null,
+      closedReason: row.closed_reason || null,
 
       // BOUNCE SYSTEM FIELDS
       assignedToAdvisor: row.assigned_to_advisor || null,
@@ -803,7 +831,8 @@ export class PostgresCRMDatabase {
     try {
       await pool.query(
         `UPDATE crm_conversations
-         SET status = 'archived',
+         SET status = 'closed',
+             closed_reason = 'manual',
              assigned_to = NULL,
              assigned_at = NULL,
              active_advisors = '[]'::jsonb,
@@ -887,6 +916,23 @@ export class PostgresCRMDatabase {
          WHERE id = $4 AND status = 'active'`,
         [advisorId, now, JSON.stringify([advisorId]), convId]
       );
+
+      // CRITICAL: Record when advisor accepted in conversation_metrics for accurate first response time
+      if (result.rowCount > 0) {
+        try {
+          await pool.query(
+            `UPDATE conversation_metrics
+             SET session_start_time = $1
+             WHERE conversation_id = $2 AND advisor_id = $3 AND session_start_time IS NULL`,
+            [now, convId, advisorId]
+          );
+          console.log(`[PostgresCRM] ✅ Recorded advisor acceptance time for metrics: ${convId}`);
+        } catch (metricsError) {
+          // Don't fail the accept operation if metrics update fails
+          console.error('[PostgresCRM] Warning: Failed to update metrics on accept:', metricsError);
+        }
+      }
+
       return result.rowCount > 0;
     } catch (error) {
       console.error('[PostgresCRM] Error accepting conversation:', error);
@@ -896,16 +942,18 @@ export class PostgresCRMDatabase {
 
   /**
    * Release conversation (ASYNC - CRITICAL: Must use await)
+   * Libera tanto chats "TRABAJANDO" (attending) como "POR TRABAJAR" (active asignados)
    */
   async releaseConversation(convId: string): Promise<boolean> {
     try {
+      // Liberar si está en 'attending' O 'active' con assignedTo
       await pool.query(
         `UPDATE crm_conversations
          SET status = 'active',
              assigned_to = NULL,
              assigned_at = NULL,
              updated_at = $1
-         WHERE id = $2 AND status = 'attending'`,
+         WHERE id = $2 AND (status = 'attending' OR (status = 'active' AND assigned_to IS NOT NULL))`,
         [Date.now(), convId]
       );
       return true;
@@ -931,7 +979,7 @@ export class PostgresCRMDatabase {
              ELSE COALESCE(attended_by, '[]'::jsonb) || $2::jsonb
            END,
            updated_at = $3
-         WHERE id = $4 AND status != 'archived'`,
+         WHERE id = $4 AND status != 'closed'`,
         [advisorId, JSON.stringify([advisorId]), Date.now(), convId]
       );
       return true;
@@ -994,6 +1042,27 @@ export class PostgresCRMDatabase {
       );
     } catch (error) {
       console.error('[PostgresCRM] Error removing advisor from activeAdvisors:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add campaign ID to campaignIds array (ASYNC - CRITICAL: Must use await)
+   */
+  async addCampaignToConversation(convId: string, campaignId: string): Promise<void> {
+    try {
+      await pool.query(
+        `UPDATE crm_conversations
+         SET campaign_ids = CASE
+             WHEN campaign_ids ? $1 THEN campaign_ids
+             ELSE COALESCE(campaign_ids, '[]'::jsonb) || $2::jsonb
+           END,
+           updated_at = $3
+         WHERE id = $4`,
+        [campaignId, JSON.stringify([campaignId]), Date.now(), convId]
+      );
+    } catch (error) {
+      console.error('[PostgresCRM] Error adding campaign to campaignIds:', error);
       throw error;
     }
   }

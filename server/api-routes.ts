@@ -326,11 +326,11 @@ export function createApiRoutes(options: ApiRoutesOptions): Router {
    * Obtener estadísticas de opciones de menú seleccionadas
    * GET /api/metrics/menu-stats
    */
-  router.get("/metrics/menu-stats", (req, res) => {
+  router.get("/metrics/menu-stats", async (req, res) => {
     try {
-      const menuStats = metricsTracker.getMenuStats();
-      // Convertir el objeto en array para mejor manejo en frontend
-      const statsArray = Object.values(menuStats).sort((a, b) => b.count - a.count);
+      // Import dynamically to avoid circular dependencies
+      const { getMenuOptionStats } = await import("./menu-analytics-db");
+      const statsArray = await getMenuOptionStats();
       res.json({ stats: statsArray, total: statsArray.length });
     } catch (error) {
       console.error("[API] Menu stats error:", error);

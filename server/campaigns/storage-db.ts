@@ -31,9 +31,11 @@ export class CampaignStorageDB {
   async createCampaign(campaign: Campaign): Promise<Campaign> {
     const client = await this.pool.connect();
     try {
+      console.log('[CampaignStorage] 🔵 Creating campaign:', campaign.id);
       await client.query('BEGIN');
 
       // Insert campaign
+      console.log('[CampaignStorage] 🔵 Step 1: Inserting into campaigns table');
       await client.query(
         `INSERT INTO campaigns (
           id, name, whatsapp_number_id, template_name, language, recipients,
@@ -57,7 +59,9 @@ export class CampaignStorageDB {
       );
 
       // Initialize campaign message details for all recipients
+      console.log(`[CampaignStorage] 🔵 Step 2: Inserting ${campaign.recipients.length} recipients into campaign_message_details`);
       for (const phone of campaign.recipients) {
+        console.log(`[CampaignStorage] 🔵 Inserting recipient: ${phone}`);
         await client.query(
           `INSERT INTO campaign_message_details (
             campaign_id, phone, status
@@ -66,12 +70,13 @@ export class CampaignStorageDB {
         );
       }
 
+      console.log('[CampaignStorage] 🔵 Step 3: Committing transaction');
       await client.query('COMMIT');
-      console.log(`[CampaignStorage] Created campaign: ${campaign.id} - ${campaign.name}`);
+      console.log(`[CampaignStorage] ✅ Created campaign: ${campaign.id} - ${campaign.name}`);
       return campaign;
     } catch (error) {
+      console.error('[CampaignStorage] ❌ Error creating campaign:', error);
       await client.query('ROLLBACK');
-      console.error('[CampaignStorage] Error creating campaign:', error);
       throw error;
     } finally {
       client.release();
@@ -156,7 +161,7 @@ export class CampaignStorageDB {
     );
 
     const stats = statsResult.rows[0] || {
-      sent: 0,
+      total_sent: 0,
       delivered: 0,
       read: 0,
       failed: 0,
@@ -179,7 +184,7 @@ export class CampaignStorageDB {
       campaignId: id,
       campaignName: campaign.name,
       totalRecipients: campaign.recipients.length,
-      sent: parseInt(stats.sent) || 0,
+      sent: parseInt(stats.total_sent) || 0,
       delivered: parseInt(stats.delivered) || 0,
       read: parseInt(stats.read) || 0,
       failed: parseInt(stats.failed) || 0,
@@ -209,11 +214,11 @@ export class CampaignStorageDB {
       readAt = now;
     }
 
-    // Build update query
+    // Build update query (updated_at is handled automatically by trigger)
+    console.log('[CampaignStorage] 🔥 FIXED VERSION - updated_at handled by trigger');
     let query = `
       UPDATE campaign_message_details
-      SET status = $1,
-          updated_at = NOW()
+      SET status = $1
     `;
     const params: any[] = [status];
     let paramCount = 1;
@@ -277,6 +282,34 @@ export class CampaignStorageDB {
     }
 
     return metrics;
+  }
+
+  /**
+   * Find campaign by message ID (for webhook processing)
+   */
+  async findCampaignByMessageId(messageId: string, recipientPhone: string): Promise<{ id: string } | null> {
+    try {
+      // Clean phone for comparison
+      const cleanPhone = recipientPhone.replace(/^\+/, '');
+
+      const result = await this.pool.query(
+        `SELECT campaign_id
+         FROM campaign_message_details
+         WHERE message_id = $1
+           AND (phone = $2 OR phone = $3 OR phone LIKE $4)
+         LIMIT 1`,
+        [messageId, cleanPhone, `+${cleanPhone}`, `%${cleanPhone}`]
+      );
+
+      if (result.rows.length > 0) {
+        return { id: result.rows[0].campaign_id };
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[CampaignStorageDB] Error finding campaign by message ID:', error);
+      return null;
+    }
   }
 
   // ============================================

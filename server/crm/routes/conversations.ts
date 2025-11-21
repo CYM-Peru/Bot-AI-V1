@@ -59,6 +59,10 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
         displayNumber: conversation.displayNumber ?? null,
         attendedBy: conversation.attendedBy ?? null,
         ticketNumber: conversation.ticketNumber ?? null,
+        // CRITICAL FIX: Enviar campos necesarios para categorización dinámica
+        botFlowId: conversation.botFlowId ?? null,
+        campaignId: conversation.campaignId ?? null,
+        closedReason: conversation.closedReason ?? null,
       })),
     );
   });
@@ -132,8 +136,8 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
         // 2. Chats en estado "attending" donde el asesor está en attendedBy
         if (conv.status === "attending" && conv.attendedBy && conv.attendedBy.includes(userId)) return true;
 
-        // 3. Chats archivados donde el asesor atendió
-        if (conv.status === "archived" && conv.attendedBy && conv.attendedBy.includes(userId)) return true;
+        // 3. Chats cerrados donde el asesor atendió
+        if (conv.status === "closed" && conv.attendedBy && conv.attendedBy.includes(userId)) return true;
 
         return false;
       });
@@ -290,7 +294,8 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
     // CRITICAL: Terminate bot flow when archiving/closing conversation
     if (conversation.phone) {
       try {
-        const botSessionId = `whatsapp_${conversation.phone}`;
+        // CRITICAL FIX: Include channelConnectionId to prevent session conflicts
+        const botSessionId = `whatsapp_${conversation.phone}_${conversation.channelConnectionId || 'default'}`;
         await botSessionStore.deleteSession(botSessionId);
         console.log(`[CRM] ✅ Bot flow TERMINATED for ${conversation.phone} (conversation archived/closed)`);
       } catch (error) {
@@ -310,7 +315,7 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
 
     const archiveMessage = await crmDb.createSystemEvent(
       conversation.id,
-      'conversation_archived',
+      'conversation_closed',
       archiveText
     );
 
@@ -339,7 +344,8 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
     // CRITICAL: Terminate bot flow when reopening/unarchiving conversation
     if (conversation.phone) {
       try {
-        const botSessionId = `whatsapp_${conversation.phone}`;
+        // CRITICAL FIX: Include channelConnectionId to prevent session conflicts
+        const botSessionId = `whatsapp_${conversation.phone}_${conversation.channelConnectionId || 'default'}`;
         await botSessionStore.deleteSession(botSessionId);
         console.log(`[CRM] ✅ Bot flow TERMINATED for ${conversation.phone} (conversation reopened)`);
       } catch (error) {
@@ -360,7 +366,8 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
       status: "attending",
       assignedTo: advisorId,
       assignedAt: now,
-      readAt: now
+      readAt: now,
+      closedReason: null  // CRITICAL: Clear closed_reason when reopening
     });
 
     // Add advisor to attendedBy list if not already present
@@ -536,7 +543,8 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
     // CRITICAL: Terminate bot flow when advisor accepts conversation
     if (conversation.phone) {
       try {
-        const botSessionId = `whatsapp_${conversation.phone}`;
+        // CRITICAL FIX: Include channelConnectionId to prevent session conflicts
+        const botSessionId = `whatsapp_${conversation.phone}_${conversation.channelConnectionId || 'default'}`;
         await botSessionStore.deleteSession(botSessionId);
         console.log(`[CRM] ✅ Bot flow TERMINATED for ${conversation.phone} (advisor accepted conversation)`);
       } catch (error) {
@@ -806,12 +814,15 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
   // GET /api/crm/conversations/analytics - Get conversations grouped by day for AI analytics
   router.get("/analytics", async (req, res) => {
     try {
+      console.log("[CRM Analytics] 🔍 Request from user:", req.user?.userId, "role:", req.user?.role);
       const { from, to } = req.query;
 
       if (!from || !to) {
         res.status(400).json({ error: "missing_params", message: "from and to dates are required (YYYY-MM-DD)" });
         return;
       }
+
+      console.log("[CRM Analytics] 📅 Date range:", from, "to", to);
 
       // Parse dates in local timezone (not UTC)
       // When user sends "2025-11-12", we want 2025-11-12 00:00 LOCAL time, not UTC
@@ -820,6 +831,7 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
 
       // Get all conversations in date range
       const allConversations = await crmDb.listConversations();
+      console.log("[CRM Analytics] 📊 Total conversations:", allConversations.length);
 
       // Helper function to get local date string (YYYY-MM-DD) in server timezone
       const getLocalDateKey = (timestamp: number): string => {
@@ -832,18 +844,36 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
       };
 
       // Filter by date range using local date comparison
+      // IMPORTANT: Use createdAt instead of lastMessageAt to ensure conversations
+      // stay in their original day and don't move when new messages arrive
       const conversationsInRange = allConversations.filter(conv => {
-        const localDateKey = getLocalDateKey(conv.lastMessageAt);
+        const localDateKey = getLocalDateKey(conv.createdAt);
         const fromKey = from as string;
         const toKey = to as string;
-        return localDateKey >= fromKey && localDateKey <= toKey;
+        const isInRange = localDateKey >= fromKey && localDateKey <= toKey;
+
+        // Debug: log first few conversations to understand the issue
+        if (allConversations.indexOf(conv) < 3) {
+          console.log(`[CRM Analytics] 🔍 Sample conv ${conv.id}:`, {
+            createdAt: conv.createdAt,
+            localDateKey,
+            fromKey,
+            toKey,
+            isInRange
+          });
+        }
+
+        return isInRange;
       });
 
+      console.log("[CRM Analytics] 🎯 Conversations in range:", conversationsInRange.length);
+
       // Group by day (using server's local timezone, not UTC)
+      // Use createdAt to group conversations by the day they were created
       const dayMap = new Map<string, any[]>();
 
       for (const conv of conversationsInRange) {
-        const dayKey = getLocalDateKey(conv.lastMessageAt);
+        const dayKey = getLocalDateKey(conv.createdAt);
 
         if (!dayMap.has(dayKey)) {
           dayMap.set(dayKey, []);
@@ -907,6 +937,8 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
 
       // Sort by date descending (newest first)
       dayGroups.sort((a, b) => b.date.localeCompare(a.date));
+
+      console.log("[CRM Analytics] ✅ Returning", dayGroups.length, "day groups");
 
       res.json({ dayGroups });
     } catch (error) {

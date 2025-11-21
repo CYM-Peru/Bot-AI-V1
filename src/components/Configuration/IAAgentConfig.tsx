@@ -29,22 +29,18 @@ interface IAAgentConfig {
     groupedSending: boolean;
     delayBetweenFiles: number;
   };
-  transferRules: {
-    sales: {
-      queueId: string;
-      queueName: string;
-      keywords: string[];
-      message: string;
-      enabled: boolean;
+  transferRules: Array<{
+    id: string;
+    name: string;
+    queueId: string;
+    keywords: string[];
+    enabled: boolean;
+    schedule?: {
+      days: number[];
+      startTime: string;
+      endTime: string;
     };
-    support: {
-      queueId: string;
-      queueName: string;
-      keywords: string[];
-      message: string;
-      enabled: boolean;
-    };
-  };
+  }>;
   leadQualification: {
     enabled: boolean;
     questions: {
@@ -62,8 +58,6 @@ interface IAAgentConfig {
       startTime: string;
       endTime: string;
     };
-    outOfHoursMessage: string;
-    outOfHoursBehavior: string;
   };
   advancedSettings: {
     messageGrouping: {
@@ -96,6 +90,13 @@ interface IAAgentConfig {
       documents: any[];
     };
   };
+  visionAndOCR?: {
+    visionEnabled: boolean;
+    ocrEnabled: boolean;
+    googleCloudCredentials?: string;
+    visionInstructions?: string;
+    ocrInstructions?: string;
+  };
   version: string;
   lastUpdated: string;
 }
@@ -105,7 +106,7 @@ export function IAAgentConfig() {
   const [queues, setQueues] = useState<Queue[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'general' | 'personality' | 'files' | 'rag' | 'keywords' | 'campaigns' | 'transfer' | 'advanced'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'personality' | 'files' | 'rag' | 'keywords' | 'campaigns' | 'transfer' | 'vision' | 'advanced'>('general');
 
   useEffect(() => {
     loadConfig();
@@ -135,6 +136,25 @@ export function IAAgentConfig() {
 
       if (response.ok) {
         const data = await response.json();
+
+        // Convert old object format to new array format if needed
+        if (data.transferRules && !Array.isArray(data.transferRules)) {
+          console.log('[IAAgentConfig] Converting old transferRules format to array');
+          const oldRules = data.transferRules;
+          data.transferRules = Object.keys(oldRules).map(key => ({
+            id: key,
+            name: oldRules[key].queueName || key,
+            queueId: oldRules[key].queueId,
+            keywords: oldRules[key].keywords || [],
+            enabled: oldRules[key].enabled !== false,
+            schedule: {
+              days: [1, 2, 3, 4, 5, 6],
+              startTime: '09:00',
+              endTime: '18:00',
+            }
+          }));
+        }
+
         setConfig(data);
       }
     } catch (error) {
@@ -264,6 +284,16 @@ export function IAAgentConfig() {
           }`}
         >
           Transferencias
+        </button>
+        <button
+          onClick={() => setActiveTab('vision')}
+          className={`px-4 py-2 font-medium ${
+            activeTab === 'vision'
+              ? 'text-blue-600 border-b-2 border-blue-600'
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          📸 Vision & OCR
         </button>
         <button
           onClick={() => setActiveTab('advanced')}
@@ -403,21 +433,10 @@ export function IAAgentConfig() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">Mensaje Fuera de Horario</label>
-                <textarea
-                  value={config.businessHours.outOfHoursMessage}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    businessHours: {
-                      ...config.businessHours,
-                      outOfHoursMessage: e.target.value
-                    }
-                  })}
-                  rows={3}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  placeholder="Mensaje cuando no hay agentes disponibles..."
-                />
+              <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-xs text-blue-800">
+                  <strong>💡 Nota:</strong> Los mensajes fuera de horario son generados dinámicamente por la IA. No uses mensajes estáticos.
+                </p>
               </div>
             </div>
           </div>
@@ -452,203 +471,216 @@ export function IAAgentConfig() {
       {/* Transfer Tab */}
       {activeTab === 'transfer' && (
         <div className="space-y-6">
-          {/* Sales Transfer */}
-          <div className="bg-white p-6 rounded-lg border">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Transferencia a Ventas</h2>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={config.transferRules.sales.enabled}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    transferRules: {
-                      ...config.transferRules,
-                      sales: {
-                        ...config.transferRules.sales,
-                        enabled: e.target.checked
-                      }
-                    }
-                  })}
-                  className="w-5 h-5"
-                />
-                <span>Habilitado</span>
-              </label>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Cola de Ventas</label>
-                <select
-                  value={config.transferRules.sales.queueId}
-                  onChange={(e) => {
-                    const selectedQueue = queues.find(q => q.id === e.target.value);
-                    setConfig({
-                      ...config,
-                      transferRules: {
-                        ...config.transferRules,
-                        sales: {
-                          ...config.transferRules.sales,
-                          queueId: e.target.value,
-                          queueName: selectedQueue?.name || ''
-                        }
-                      }
-                    });
-                  }}
-                  className="w-full px-3 py-2 border rounded-lg"
-                >
-                  <option value="">Seleccionar cola...</option>
-                  {queues.map(queue => (
-                    <option key={queue.id} value={queue.id}>
-                      {queue.name}
-                    </option>
-                  ))}
-                </select>
-                {config.transferRules.sales.queueId && (
-                  <p className="text-xs text-gray-500 mt-1">ID: {config.transferRules.sales.queueId}</p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Palabras Clave (separadas por coma)</label>
-                <textarea
-                  value={config.transferRules.sales.keywords.join(', ')}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    transferRules: {
-                      ...config.transferRules,
-                      sales: {
-                        ...config.transferRules.sales,
-                        keywords: e.target.value.split(',').map(k => k.trim())
-                      }
-                    }
-                  })}
-                  rows={2}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  placeholder="pedido, comprar, precio mayorista..."
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Mensaje de Transferencia</label>
-                <textarea
-                  value={config.transferRules.sales.message}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    transferRules: {
-                      ...config.transferRules,
-                      sales: {
-                        ...config.transferRules.sales,
-                        message: e.target.value
-                      }
-                    }
-                  })}
-                  rows={2}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  placeholder="Te conecto con un asesor de ventas..."
-                />
-              </div>
-            </div>
+          {/* Header with info */}
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <p className="text-sm text-yellow-900">
+              <strong>⚠️ IMPORTANTE:</strong> Aquí solo configuras <strong>REGLAS DE TRANSFERENCIA</strong> (palabras clave, horarios, colas).
+              La IA genera los mensajes dinámicamente - <strong>NUNCA repite las mismas frases</strong>.
+            </p>
           </div>
 
-          {/* Support Transfer */}
-          <div className="bg-white p-6 rounded-lg border">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Transferencia a Soporte</h2>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={config.transferRules.support.enabled}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    transferRules: {
-                      ...config.transferRules,
-                      support: {
-                        ...config.transferRules.support,
-                        enabled: e.target.checked
-                      }
-                    }
-                  })}
-                  className="w-5 h-5"
-                />
-                <span>Habilitado</span>
-              </label>
-            </div>
+          {/* Add New Rule Button */}
+          <div className="flex justify-end">
+            <button
+              onClick={() => {
+                const newRule = {
+                  id: `rule-${Date.now()}`,
+                  name: 'Nueva Regla',
+                  queueId: '',
+                  keywords: [],
+                  enabled: true,
+                  schedule: {
+                    days: [1, 2, 3, 4, 5, 6],
+                    startTime: '09:00',
+                    endTime: '18:00',
+                  },
+                };
+                const currentRules = Array.isArray(config.transferRules) ? config.transferRules : [];
+                setConfig({
+                  ...config,
+                  transferRules: [...currentRules, newRule],
+                });
+              }}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2"
+            >
+              ➕ Agregar Regla de Transferencia
+            </button>
+          </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Cola de Soporte</label>
-                <select
-                  value={config.transferRules.support.queueId}
-                  onChange={(e) => {
-                    const selectedQueue = queues.find(q => q.id === e.target.value);
-                    setConfig({
-                      ...config,
-                      transferRules: {
-                        ...config.transferRules,
-                        support: {
-                          ...config.transferRules.support,
-                          queueId: e.target.value,
-                          queueName: selectedQueue?.name || ''
-                        }
+          {/* Transfer Rules */}
+          {config.transferRules && Array.isArray(config.transferRules) && config.transferRules.map((rule, index) => (
+            <div key={rule.id} className="bg-white p-6 rounded-lg border">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">{rule.name}</h2>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={rule.enabled}
+                      onChange={(e) => {
+                        const updatedRules = Array.isArray(config.transferRules) ? [...config.transferRules] : [];
+                        updatedRules[index] = { ...rule, enabled: e.target.checked };
+                        setConfig({ ...config, transferRules: updatedRules });
+                      }}
+                      className="w-5 h-5"
+                    />
+                    <span>Habilitado</span>
+                  </label>
+                  <button
+                    onClick={() => {
+                      if (confirm(`¿Eliminar la regla "${rule.name}"?`)) {
+                        const currentRules = Array.isArray(config.transferRules) ? config.transferRules : [];
+                        setConfig({
+                          ...config,
+                          transferRules: currentRules.filter((_, i) => i !== index),
+                        });
                       }
-                    });
-                  }}
-                  className="w-full px-3 py-2 border rounded-lg"
-                >
-                  <option value="">Seleccionar cola...</option>
-                  {queues.map(queue => (
-                    <option key={queue.id} value={queue.id}>
-                      {queue.name}
-                    </option>
-                  ))}
-                </select>
-                {config.transferRules.support.queueId && (
-                  <p className="text-xs text-gray-500 mt-1">ID: {config.transferRules.support.queueId}</p>
+                    }}
+                    className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm"
+                  >
+                    🗑️ Eliminar
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Nombre de la Regla</label>
+                  <input
+                    type="text"
+                    value={rule.name}
+                    onChange={(e) => {
+                      const updatedRules = Array.isArray(config.transferRules) ? [...config.transferRules] : [];
+                      updatedRules[index] = { ...rule, name: e.target.value };
+                      setConfig({ ...config, transferRules: updatedRules });
+                    }}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="Ej: Ventas, Soporte, Prospectos..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">Cola de Destino</label>
+                  <select
+                    value={rule.queueId}
+                    onChange={(e) => {
+                      const updatedRules = Array.isArray(config.transferRules) ? [...config.transferRules] : [];
+                      updatedRules[index] = { ...rule, queueId: e.target.value };
+                      setConfig({ ...config, transferRules: updatedRules });
+                    }}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  >
+                    <option value="">Seleccionar cola...</option>
+                    {queues.map(queue => (
+                      <option key={queue.id} value={queue.id}>
+                        {queue.name}
+                      </option>
+                    ))}
+                  </select>
+                  {rule.queueId && (
+                    <p className="text-xs text-gray-500 mt-1">ID: {rule.queueId}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Palabras Clave (separadas por coma)
+                  </label>
+                  <textarea
+                    value={rule.keywords.join(', ')}
+                    onChange={(e) => {
+                      const updatedRules = Array.isArray(config.transferRules) ? [...config.transferRules] : [];
+                      updatedRules[index] = {
+                        ...rule,
+                        keywords: e.target.value.split(',').map(k => k.trim()).filter(k => k),
+                      };
+                      setConfig({ ...config, transferRules: updatedRules });
+                    }}
+                    rows={2}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="pedido, comprar, precio, cotización..."
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Cuando el cliente mencione estas palabras, el agente considerará transferir a esta cola
+                  </p>
+                </div>
+
+                {/* Schedule */}
+                {rule.schedule && (
+                  <div className="border-t pt-4">
+                    <h3 className="font-medium mb-3">Horario de esta regla</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Hora Inicio</label>
+                        <input
+                          type="time"
+                          value={rule.schedule.startTime}
+                          onChange={(e) => {
+                            const updatedRules = Array.isArray(config.transferRules) ? [...config.transferRules] : [];
+                            updatedRules[index] = {
+                              ...rule,
+                              schedule: { ...rule.schedule!, startTime: e.target.value },
+                            };
+                            setConfig({ ...config, transferRules: updatedRules });
+                          }}
+                          className="w-full px-3 py-2 border rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Hora Fin</label>
+                        <input
+                          type="time"
+                          value={rule.schedule.endTime}
+                          onChange={(e) => {
+                            const updatedRules = Array.isArray(config.transferRules) ? [...config.transferRules] : [];
+                            updatedRules[index] = {
+                              ...rule,
+                              schedule: { ...rule.schedule!, endTime: e.target.value },
+                            };
+                            setConfig({ ...config, transferRules: updatedRules });
+                          }}
+                          className="w-full px-3 py-2 border rounded-lg"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <label className="block text-sm font-medium mb-2">Días activos</label>
+                      <div className="flex gap-2">
+                        {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((day, dayIndex) => {
+                          const dayNum = dayIndex + 1;
+                          const isActive = rule.schedule!.days.includes(dayNum);
+                          return (
+                            <button
+                              key={dayNum}
+                              onClick={() => {
+                                const updatedRules = Array.isArray(config.transferRules) ? [...config.transferRules] : [];
+                                const currentDays = rule.schedule!.days;
+                                const newDays = isActive
+                                  ? currentDays.filter(d => d !== dayNum)
+                                  : [...currentDays, dayNum].sort();
+                                updatedRules[index] = {
+                                  ...rule,
+                                  schedule: { ...rule.schedule!, days: newDays },
+                                };
+                                setConfig({ ...config, transferRules: updatedRules });
+                              }}
+                              className={`w-10 h-10 rounded-full font-medium ${
+                                isActive
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                              }`}
+                            >
+                              {day}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Palabras Clave (separadas por coma)</label>
-                <textarea
-                  value={config.transferRules.support.keywords.join(', ')}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    transferRules: {
-                      ...config.transferRules,
-                      support: {
-                        ...config.transferRules.support,
-                        keywords: e.target.value.split(',').map(k => k.trim())
-                      }
-                    }
-                  })}
-                  rows={2}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  placeholder="cambio, devolución, garantía, reclamo..."
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Mensaje de Transferencia</label>
-                <textarea
-                  value={config.transferRules.support.message}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    transferRules: {
-                      ...config.transferRules,
-                      support: {
-                        ...config.transferRules.support,
-                        message: e.target.value
-                      }
-                    }
-                  })}
-                  rows={2}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  placeholder="Te conecto con atención al cliente..."
-                />
-              </div>
             </div>
-          </div>
+          ))}
 
           {/* Lead Qualification */}
           <div className="bg-white p-6 rounded-lg border">
@@ -770,6 +802,188 @@ export function IAAgentConfig() {
                 />
                 <span>Preguntar presupuesto</span>
               </label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vision & OCR Tab */}
+      {activeTab === 'vision' && (
+        <div className="space-y-6">
+          {/* Vision Settings */}
+          <div className="bg-white p-6 rounded-lg border">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              📸 GPT-4 Vision - Análisis de Imágenes
+            </h2>
+
+            <div className="mb-4 p-4 bg-blue-50 rounded-lg">
+              <p className="text-sm text-blue-800">
+                <strong>✓ ACTIVO:</strong> El agente puede ver y analizar imágenes de productos que le envíen los clientes.
+              </p>
+              <p className="text-sm text-blue-600 mt-2">
+                • Modelo: <strong>gpt-4o</strong> con Vision<br/>
+                • Describe productos (color, estilo, tipo)<br/>
+                • Busca productos similares en el catálogo RAG<br/>
+                • Sugiere alternativas con precios
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Estado de Vision
+                </label>
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                    ✓ Habilitado automáticamente con gpt-4o
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Vision está activo cuando el modelo es "gpt-4o". El agente puede ver imágenes en los mensajes.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Instrucciones personalizadas para Vision (opcional)
+                </label>
+                <textarea
+                  value={config.visionAndOCR?.visionInstructions || ''}
+                  onChange={(e) => setConfig({
+                    ...config,
+                    visionAndOCR: {
+                      ...config.visionAndOCR,
+                      visionEnabled: true,
+                      ocrEnabled: config.visionAndOCR?.ocrEnabled ?? true,
+                      visionInstructions: e.target.value
+                    }
+                  })}
+                  placeholder="Ej: Al analizar zapatos, siempre menciona el tipo de tacón, material y estilo..."
+                  rows={3}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Instrucciones adicionales que se agregarán al system prompt para análisis de imágenes.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* OCR Settings */}
+          <div className="bg-white p-6 rounded-lg border">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              📄 Google Cloud Vision OCR - Extracción de Texto
+            </h2>
+
+            <div className="mb-4 p-4 bg-amber-50 rounded-lg border border-amber-200">
+              <p className="text-sm text-amber-900">
+                <strong>⚙️ OCR:</strong> Extrae texto de documentos (DNI, RUC, vouchers, facturas, comprobantes).
+              </p>
+              <p className="text-sm text-amber-700 mt-2">
+                • Requiere credenciales de Google Cloud Vision API<br/>
+                • Configura las credenciales abajo para habilitar OCR<br/>
+                • Sin credenciales, el agente mostrará un mensaje amigable
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Credenciales de Google Cloud (Service Account JSON)
+                </label>
+                <textarea
+                  value={config.visionAndOCR?.googleCloudCredentials || ''}
+                  onChange={(e) => setConfig({
+                    ...config,
+                    visionAndOCR: {
+                      ...config.visionAndOCR,
+                      visionEnabled: config.visionAndOCR?.visionEnabled ?? true,
+                      ocrEnabled: true,
+                      googleCloudCredentials: e.target.value
+                    }
+                  })}
+                  placeholder='{"type": "service_account", "project_id": "...", "private_key_id": "...", ...}'
+                  rows={8}
+                  className="w-full px-3 py-2 border rounded-lg text-xs font-mono"
+                />
+                <p className="text-xs text-gray-500 mt-2">
+                  Pega aquí el contenido completo del archivo JSON de Service Account de Google Cloud.
+                </p>
+                <div className="mt-3 p-3 bg-blue-50 rounded-lg">
+                  <p className="text-xs text-blue-800">
+                    <strong>¿Cómo obtener las credenciales?</strong><br/>
+                    1. Ve a <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" className="underline">Google Cloud Console</a><br/>
+                    2. Selecciona tu proyecto o crea uno nuevo<br/>
+                    3. Habilita "Cloud Vision API"<br/>
+                    4. Ve a "IAM & Admin" → "Service Accounts"<br/>
+                    5. Crea una cuenta de servicio con rol "Cloud Vision API User"<br/>
+                    6. Genera una clave JSON y pega el contenido aquí
+                  </p>
+                </div>
+              </div>
+
+              {config.visionAndOCR?.googleCloudCredentials && (
+                <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                  <p className="text-sm text-green-800">
+                    ✓ Credenciales configuradas. El OCR se activará al guardar la configuración.
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Instrucciones personalizadas para OCR (opcional)
+                </label>
+                <textarea
+                  value={config.visionAndOCR?.ocrInstructions || ''}
+                  onChange={(e) => setConfig({
+                    ...config,
+                    visionAndOCR: {
+                      ...config.visionAndOCR,
+                      visionEnabled: config.visionAndOCR?.visionEnabled ?? true,
+                      ocrEnabled: true,
+                      ocrInstructions: e.target.value
+                    }
+                  })}
+                  placeholder="Ej: Al extraer DNI, siempre verifica que tenga 8 dígitos..."
+                  rows={3}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Instrucciones adicionales para procesamiento de documentos OCR.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Examples */}
+          <div className="bg-white p-6 rounded-lg border">
+            <h2 className="text-lg font-semibold mb-4">💡 Ejemplos de Uso</h2>
+
+            <div className="space-y-4">
+              <div className="p-4 bg-purple-50 rounded-lg">
+                <p className="font-medium text-purple-900 mb-2">📸 Vision - Análisis de Productos</p>
+                <p className="text-sm text-purple-800">
+                  <strong>Cliente:</strong> [Envía foto de sandalia blanca]<br/>
+                  <strong>Agente:</strong> "¡Qué linda sandalia! Veo que es tipo tacón alto en tono nude. Déjame buscar modelos similares en nuestro catálogo..." → Busca en RAG → Sugiere productos
+                </p>
+              </div>
+
+              <div className="p-4 bg-indigo-50 rounded-lg">
+                <p className="font-medium text-indigo-900 mb-2">📄 OCR - Voucher de Pago</p>
+                <p className="text-sm text-indigo-800">
+                  <strong>Cliente:</strong> [Envía captura de Yape]<br/>
+                  <strong>Agente:</strong> Usa extract_text_ocr → Extrae número de operación, monto, fecha → "Perfecto! Veo que pagaste S/150.50 el 17/11/2025, operación #123456"
+                </p>
+              </div>
+
+              <div className="p-4 bg-pink-50 rounded-lg">
+                <p className="font-medium text-pink-900 mb-2">📄 OCR - DNI</p>
+                <p className="text-sm text-pink-800">
+                  <strong>Cliente:</strong> [Envía foto de DNI]<br/>
+                  <strong>Agente:</strong> Usa extract_text_ocr → Extrae número DNI → "Perfecto, tengo tu DNI 12345678. Voy a completar tu pedido..."
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -1030,63 +1244,588 @@ export function IAAgentConfig() {
               </label>
             </div>
 
-            <div className="space-y-2">
-              <label className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  checked={config.integrations.bitrix24.autoCreateContact}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    integrations: {
-                      ...config.integrations,
-                      bitrix24: {
-                        ...config.integrations.bitrix24,
-                        autoCreateContact: e.target.checked
+            <div className="space-y-4">
+              {/* Opciones generales */}
+              <div className="space-y-2">
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={config.integrations.bitrix24.autoCreateContact}
+                    onChange={(e) => setConfig({
+                      ...config,
+                      integrations: {
+                        ...config.integrations,
+                        bitrix24: {
+                          ...config.integrations.bitrix24,
+                          autoCreateContact: e.target.checked
+                        }
                       }
-                    }
-                  })}
-                  className="w-4 h-4"
-                />
-                <span>Crear contacto automáticamente</span>
-              </label>
+                    })}
+                    className="w-4 h-4"
+                  />
+                  <span>Crear contacto automáticamente</span>
+                </label>
 
-              <label className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  checked={config.integrations.bitrix24.updateContactInfo}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    integrations: {
-                      ...config.integrations,
-                      bitrix24: {
-                        ...config.integrations.bitrix24,
-                        updateContactInfo: e.target.checked
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={config.integrations.bitrix24.updateContactInfo}
+                    onChange={(e) => setConfig({
+                      ...config,
+                      integrations: {
+                        ...config.integrations,
+                        bitrix24: {
+                          ...config.integrations.bitrix24,
+                          updateContactInfo: e.target.checked
+                        }
                       }
-                    }
-                  })}
-                  className="w-4 h-4"
-                />
-                <span>Actualizar información del contacto</span>
-              </label>
+                    })}
+                    className="w-4 h-4"
+                  />
+                  <span>Actualizar información del contacto</span>
+                </label>
 
-              <label className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  checked={config.integrations.bitrix24.logInteractions}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    integrations: {
-                      ...config.integrations,
-                      bitrix24: {
-                        ...config.integrations.bitrix24,
-                        logInteractions: e.target.checked
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={config.integrations.bitrix24.logInteractions}
+                    onChange={(e) => setConfig({
+                      ...config,
+                      integrations: {
+                        ...config.integrations,
+                        bitrix24: {
+                          ...config.integrations.bitrix24,
+                          logInteractions: e.target.checked
+                        }
                       }
-                    }
-                  })}
-                  className="w-4 h-4"
-                />
-                <span>Registrar interacciones en timeline</span>
-              </label>
+                    })}
+                    className="w-4 h-4"
+                  />
+                  <span>Registrar interacciones en timeline</span>
+                </label>
+              </div>
+
+              {/* Campos CRM */}
+              <div className="border-t pt-4">
+                <h3 className="font-medium mb-3">Campos CRM a Guardar</h3>
+                <p className="text-sm text-gray-600 mb-3">
+                  Selecciona qué información del cliente debe guardarse en Bitrix24
+                </p>
+
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-2">
+                  {/* Información Básica */}
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.name !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              name: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Nombre</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.phone !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              phone: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Teléfono</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.email !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              email: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Email</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.location !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              location: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Ubicación/Ciudad</span>
+                  </label>
+
+                  {/* Información de Negocio */}
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.businessType !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              businessType: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Tipo de Negocio</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.interest !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              interest: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Interés</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.company !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              company: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Empresa</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.position !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              position: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Cargo</span>
+                  </label>
+
+                  {/* Detalles Comerciales */}
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.estimatedQuantity !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              estimatedQuantity: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Cantidad Estimada</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.budget !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              budget: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Presupuesto</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.catalogsDownloaded !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              catalogsDownloaded: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Catálogos Descargados</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.source !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              source: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Fuente/Origen</span>
+                  </label>
+
+                  {/* Información Adicional para Prospectos */}
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.dni !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              dni: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">DNI</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.ruc !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              ruc: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">RUC</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.address !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              address: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Dirección</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.district !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              district: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Distrito</span>
+                  </label>
+
+                  {/* Estado y Seguimiento */}
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.status !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              status: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Estado</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.stage !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              stage: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Etapa</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.leadScore !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              leadScore: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Puntuación Lead</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.notes !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              notes: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Notas</span>
+                  </label>
+
+                  {/* Campos Personalizados */}
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.customField1 !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              customField1: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Campo Personalizado 1</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.customField2 !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              customField2: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Campo Personalizado 2</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.integrations.bitrix24.fieldsToSave?.customField3 !== false}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        integrations: {
+                          ...config.integrations,
+                          bitrix24: {
+                            ...config.integrations.bitrix24,
+                            fieldsToSave: {
+                              ...config.integrations.bitrix24.fieldsToSave,
+                              customField3: e.target.checked
+                            }
+                          }
+                        }
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">Campo Personalizado 3</span>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
         </div>

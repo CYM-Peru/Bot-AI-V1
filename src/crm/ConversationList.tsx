@@ -3,6 +3,7 @@ import type { Conversation, ChannelType } from "./types";
 import { getChannelColor, getNumberLabel } from "./channelColors";
 import { Avatar } from "./Avatar";
 import { getConversationCategory, type ConversationCategory } from "../../shared/conversation-rules";
+// Phone search fix v2
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -36,6 +37,13 @@ function getAdvisorColor(advisorId: string): string {
   return colors[index];
 }
 
+// Get advisor name from ID
+function getAdvisorName(advisorId: string | null, advisors?: Array<{ id: string; name: string }>): string | null {
+  if (!advisorId || !advisors) return null;
+  const advisor = advisors.find((a) => a.id === advisorId);
+  return advisor?.name || null;
+}
+
 // Get initials from advisor ID (use advisor name if available)
 function getAdvisorInitials(advisorId: string, advisors?: Array<{ id: string; name: string }>): string {
   if (advisors) {
@@ -57,12 +65,12 @@ function getAdvisorInitials(advisorId: string, advisors?: Array<{ id: string; na
 // Get status color based on conversation state (for the small dot)
 function getStatusColor(conversation: Conversation, currentUserEmail?: string): string {
   // Purple for my chats (assigned to me)
-  if (currentUserEmail && conversation.attendedBy?.includes(currentUserEmail) && conversation.status !== "archived") {
+  if (currentUserEmail && conversation.attendedBy?.includes(currentUserEmail) && conversation.status !== "closed") {
     return '#8B5CF6'; // purple
   }
 
   // Status-based colors
-  if (conversation.status === "archived") {
+  if (conversation.status === "closed") {
     return '#10B981'; // green check
   }
   if (conversation.status === "attending") {
@@ -75,7 +83,7 @@ function getStatusColor(conversation: Conversation, currentUserEmail?: string): 
   return '#94A3B8'; // gray (read/no pending)
 }
 
-type FilterType = "all" | "unread" | "attending" | "archived" | "assigned_to_me";
+type FilterType = "all" | "unread" | "attending" | "closed" | "assigned_to_me";
 type SortType = "recent" | "unread" | "name";
 type DateFilter = "all" | "today" | "week" | "month" | "custom";
 
@@ -96,7 +104,8 @@ const CHANNEL_COLORS: Record<ChannelType, string> = {
 };
 
 export default function ConversationList({ conversations, selectedId, onSelect, currentUserEmail, currentUserRole }: ConversationListProps) {
-  // Force cache bust v2025-11-01-00-45
+  // Force cache bust v2025-11-18-13-50 - FIXED closedReason in ALL 7 calls
+  console.log('🔥 ConversationList cargado - VERSION 2025-11-18-13:50 con closedReason');
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<ConversationCategory | "all">("all");
   const [filter, setFilter] = useState<FilterType>("all");
@@ -116,6 +125,9 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
   // Advisors list for showing real names/initials
   const [advisors, setAdvisors] = useState<Array<{ id: string; name: string; email: string; isOnline: boolean }>>([]);
   const [advisorFilter, setAdvisorFilter] = useState<string>("all");
+
+  // NEW: Allow advisors to see all conversations (not just their own)
+  const [showAllChats, setShowAllChats] = useState<boolean>(false);
 
   // Queues list for transfer dropdown
   const [queues, setQueues] = useState<Array<{ id: string; name: string }>>([]);
@@ -196,7 +208,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
     let conversationsToCount = [...conversations];
 
     // Aplicar filtro de permisos
-    const canViewAll = currentUserRole === 'admin' || currentUserRole === 'supervisor';
+    const canViewAll = currentUserRole === 'admin' || currentUserRole === 'supervisor' || showAllChats;
     if (!canViewAll && currentUserEmail) {
       conversationsToCount = conversationsToCount.filter((conv) => {
         const category = getConversationCategory({
@@ -205,6 +217,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
           botFlowId: conv.botFlowId ?? null,
           queueId: conv.queueId ?? null,
           campaignId: conv.campaignId ?? null,
+          closedReason: conv.closedReason ?? null,
         });
         // FINALIZADOS: ver de todos
         if (category === 'FINALIZADOS') {
@@ -237,7 +250,14 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
     if (term) {
       conversationsToCount = conversationsToCount.filter((item) => {
         const name = item.contactName?.toLowerCase() ?? "";
-        return name.includes(term) || item.phone.includes(term);
+        // Normalize phone numbers by removing all non-digit characters for comparison
+        const phoneNormalized = item.phone.replace(/\D/g, '');
+        const termNormalized = term.replace(/\D/g, '');
+
+        const nameMatch = name.includes(term);
+        const phoneMatch = item.phone.includes(term) || phoneNormalized.includes(termNormalized);
+
+        return nameMatch || phoneMatch;
       });
     }
 
@@ -265,12 +285,22 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
         botFlowId: conv.botFlowId ?? null,
         queueId: conv.queueId ?? null,
         campaignId: conv.campaignId ?? null,
+        closedReason: conv.closedReason ?? null,
       });
+      // DEBUG: Log específico para el chat problemático
+      if (conv.phone === '51956642188') {
+        console.log('🔍 DEBUG chat 51956642188:', {
+          status: conv.status,
+          campaignId: conv.campaignId,
+          closedReason: conv.closedReason,
+          category: category
+        });
+      }
       counts[category]++;
     });
 
     return counts;
-  }, [conversations, currentUserEmail, currentUserRole, dateFilter, customDateStart, customDateEnd, search, channelFilter, connectionFilter, advisorFilter]);
+  }, [conversations, currentUserEmail, currentUserRole, dateFilter, customDateStart, customDateEnd, search, channelFilter, connectionFilter, advisorFilter, showAllChats]);
 
   const filtered = useMemo(() => {
     let result = [...conversations];
@@ -284,6 +314,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
           botFlowId: item.botFlowId ?? null,
           queueId: item.queueId ?? null,
           campaignId: item.campaignId ?? null,
+          closedReason: item.closedReason ?? null,
         });
         return category === categoryFilter;
       });
@@ -293,16 +324,16 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
     // IMPORTANTE: Si ya se filtró por categoría, NO aplicar filtro de status
     if (categoryFilter === "all") {
       if (filter === "assigned_to_me") {
-        // "Mis Chats" = conversations I have attended (not archived)
+        // "Mis Chats" = conversations I have attended (not closed)
         result = result.filter((item) =>
-          currentUserEmail && item.attendedBy && item.attendedBy.includes(currentUserEmail) && item.status !== "archived"
+          currentUserEmail && item.attendedBy && item.attendedBy.includes(currentUserEmail) && item.status !== "closed"
         );
       } else if (filter === "unread") {
-        result = result.filter((item) => item.unread > 0 && item.status !== "archived");
+        result = result.filter((item) => item.unread > 0 && item.status !== "closed");
       } else if (filter === "attending") {
         result = result.filter((item) => item.status === "attending");
-      } else if (filter === "archived") {
-        result = result.filter((item) => item.status === "archived");
+      } else if (filter === "closed") {
+        result = result.filter((item) => item.status === "closed");
       } else {
         // "all" - active and attending conversations
         result = result.filter((item) => item.status === "active" || item.status === "attending");
@@ -360,6 +391,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
           botFlowId: item.botFlowId ?? null,
           queueId: item.queueId ?? null,
           campaignId: item.campaignId ?? null,
+          closedReason: item.closedReason ?? null,
         });
         if (category === 'FINALIZADOS') {
           return true; // Ver finalizados de todos
@@ -385,11 +417,11 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
     return result;
   }, [conversations, search, filter, sort, dateFilter, customDateStart, customDateEnd, channelFilter, connectionFilter, categoryFilter, advisorFilter, currentUserEmail, currentUserRole]);
 
-  const unreadCount = conversations.filter((c) => c.unread > 0 && c.status !== "archived").length;
+  const unreadCount = conversations.filter((c) => c.unread > 0 && c.status !== "closed").length;
   const attendingCount = conversations.filter((c) => c.status === "attending").length;
-  const archivedCount = conversations.filter((c) => c.status === "archived").length;
+  const closedCount = conversations.filter((c) => c.status === "closed").length;
   const assignedToMeCount = currentUserEmail
-    ? conversations.filter((c) => c.attendedBy && c.attendedBy.includes(currentUserEmail) && c.status !== "archived").length
+    ? conversations.filter((c) => c.attendedBy && c.attendedBy.includes(currentUserEmail) && c.status !== "closed").length
     : 0;
 
   // Count of all active/attending conversations (for detecting new chats)
@@ -412,7 +444,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
     let result = [...conversations];
 
     // Apply permission filter FIRST
-    const canViewAll = currentUserRole === 'admin' || currentUserRole === 'supervisor';
+    const canViewAll = currentUserRole === 'admin' || currentUserRole === 'supervisor' || showAllChats;
     if (!canViewAll && currentUserEmail) {
       result = result.filter((conv) => {
         const convCategory = getConversationCategory({
@@ -421,6 +453,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
           botFlowId: conv.botFlowId ?? null,
           queueId: conv.queueId ?? null,
           campaignId: conv.campaignId ?? null,
+          closedReason: conv.closedReason ?? null,
         });
         // FINALIZADOS: ver de todos
         if (convCategory === 'FINALIZADOS') {
@@ -453,7 +486,14 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
     if (term) {
       result = result.filter((item) => {
         const name = item.contactName?.toLowerCase() ?? "";
-        return name.includes(term) || item.phone.includes(term);
+        // Normalize phone numbers by removing all non-digit characters for comparison
+        const phoneNormalized = item.phone.replace(/\D/g, '');
+        const termNormalized = term.replace(/\D/g, '');
+
+        const nameMatch = name.includes(term);
+        const phoneMatch = item.phone.includes(term) || phoneNormalized.includes(termNormalized);
+
+        return nameMatch || phoneMatch;
       });
     }
 
@@ -481,13 +521,14 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
         botFlowId: item.botFlowId ?? null,
         queueId: item.queueId ?? null,
         campaignId: item.campaignId ?? null,
+        closedReason: item.closedReason ?? null,
       });
       return itemCategory === category;
     });
 
     // Sort by most recent
     return result.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
-  }, [conversations, currentUserRole, currentUserEmail, dateFilter, customDateStart, customDateEnd, search, channelFilter, connectionFilter, advisorFilter]);
+  }, [conversations, currentUserRole, currentUserEmail, dateFilter, customDateStart, customDateEnd, search, channelFilter, connectionFilter, advisorFilter, showAllChats]);
 
   // Helper: Get badge color based on urgency (time since last message)
   const getUrgencyColor = (lastMessageAt: number, unread: number): string | null => {
@@ -603,7 +644,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
               >
                 <option value="all">Todos los números</option>
                 {whatsappConnections.map((conn) => (
-                  <option key={conn.id} value={conn.id}>
+                  <option key={conn.id} value={conn.phoneNumberId}>
                     {conn.alias} - {conn.displayNumber || conn.phoneNumberId}
                   </option>
                 ))}
@@ -630,7 +671,23 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
             </div>
           )}
 
-          {(dateFilter !== "all" || customDateStart || customDateEnd || channelFilter !== "all" || connectionFilter !== "all" || advisorFilter !== "all") && (
+          {/* Ver todos los chats (ONLY for advisors, not admin/supervisor) */}
+          {currentUserRole !== 'admin' && currentUserRole !== 'supervisor' && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+              <input
+                type="checkbox"
+                id="showAllChatsCheckbox"
+                checked={showAllChats}
+                onChange={(e) => setShowAllChats(e.target.checked)}
+                className="w-4 h-4 text-blue-600 bg-white border-slate-300 rounded focus:ring-blue-500 focus:ring-2"
+              />
+              <label htmlFor="showAllChatsCheckbox" className="text-xs font-medium text-slate-700 cursor-pointer select-none">
+                Ver todos los chats (de todos los asesores)
+              </label>
+            </div>
+          )}
+
+          {(dateFilter !== "all" || customDateStart || customDateEnd || channelFilter !== "all" || connectionFilter !== "all" || advisorFilter !== "all" || showAllChats) && (
             <button
               onClick={() => {
                 setDateFilter("all");
@@ -639,6 +696,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
                 setChannelFilter("all");
                 setConnectionFilter("all");
                 setAdvisorFilter("all");
+                setShowAllChats(false);
               }}
               className="w-full px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition"
             >
@@ -649,9 +707,9 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
       )}
 
       {/* Category Sidebar */}
-      <div className="px-3 py-2 border-b border-slate-200 bg-white space-y-1">
+      <div className="px-3 py-2 border-b border-slate-200 bg-white space-y-2">
         {/* MASIVOS */}
-        <div className="border border-red-200 rounded-lg overflow-hidden">
+        <div className="border border-orange-400 rounded-lg overflow-hidden">
           <button
             onClick={() => {
               const newExpanded = new Set(expandedCategories);
@@ -664,8 +722,8 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
             }}
             className={`w-full flex items-center justify-between px-3 py-2 text-sm font-semibold transition ${
               categoryFilter === "MASIVOS"
-                ? "bg-red-100 text-red-800"
-                : "bg-red-50 text-red-700 hover:bg-red-100"
+                ? "bg-orange-400 text-orange-900"
+                : "bg-orange-300 text-orange-900 hover:bg-orange-400"
             }`}
           >
             <div className="flex items-center gap-2">
@@ -682,7 +740,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
             <span className="text-xs font-bold">{categoryCounts.MASIVOS}</span>
           </button>
           {expandedCategories.has("MASIVOS") && (
-            <div className="bg-red-50/50 border-t border-red-200 max-h-96 overflow-y-auto">
+            <div className="bg-orange-100 border-t border-b-2 border-orange-400 max-h-[70vh] overflow-y-auto">
               {getConversationsForCategory("MASIVOS").map((conv) => {
                 const urgencyColor = getUrgencyColor(conv.lastMessageAt, conv.unread);
                 const displayName = conv.contactName || conv.phone;
@@ -693,13 +751,13 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
                                lastMsgTime < 86400000 ? `${Math.floor(lastMsgTime / 3600000)}h` :
                                `${Math.floor(lastMsgTime / 86400000)}d`;
 
+                const bgColor = selectedId === conv.id ? 'bg-orange-100' : 'bg-orange-50';
+
                 return (
                   <div
                     key={conv.id}
                     onClick={() => onSelect(conv)}
-                    className={`px-3 py-3 cursor-pointer border-b border-red-100 hover:bg-red-100/50 transition ${
-                      selectedId === conv.id ? 'bg-red-100' : ''
-                    }`}
+                    className={`px-3 py-3 cursor-pointer border-b border-orange-100 hover:bg-orange-100/70 transition ${bgColor}`}
                   >
                     <div className="flex items-start gap-2">
                       {/* Avatar + Ticket Column */}
@@ -722,10 +780,19 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
 
                         {/* Line 2: WhatsApp number and Badge */}
                         <div className="flex items-start justify-between gap-2 mb-1">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 rounded-xl text-xs">
-                            <span>📱</span>
-                            <span className="font-bold text-green-600">+{conv.displayNumber || 'N/A'}</span>
-                          </span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 rounded-xl text-xs">
+                              <span>📱</span>
+                              <span className="font-bold text-green-600">{conv.displayNumber || 'N/A'}</span>
+                            </span>
+                            {/* Show assigned advisor when showAllChats is enabled OR for admin/supervisor roles */}
+                            {(showAllChats || currentUserRole === 'admin' || currentUserRole === 'supervisor' || currentUserRole === 'gerencia') && conv.assignedTo && (
+                              <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-200 rounded-lg text-xs">
+                                <span>👤</span>
+                                <span className="font-semibold text-blue-700">{getAdvisorName(conv.assignedTo, advisors) || 'Asesor'}</span>
+                              </span>
+                            )}
+                          </div>
                           {urgencyColor && (
                             <span className={`${urgencyColor} text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse flex-shrink-0`}>
                               {conv.unread}
@@ -752,7 +819,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
         </div>
 
         {/* EN COLA / BOT */}
-        <div className="border border-yellow-200 rounded-lg overflow-hidden">
+        <div className="border border-purple-200 rounded-lg overflow-hidden">
           <button
             onClick={() => {
               const newExpanded = new Set(expandedCategories);
@@ -763,27 +830,38 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
               }
               setExpandedCategories(newExpanded);
             }}
+            style={{
+              background: categoryFilter === "EN_COLA_BOT"
+                ? 'linear-gradient(to right, #facc15 0%, #facc15 50%, #c084fc 50%, #c084fc 100%)'
+                : 'linear-gradient(to right, #fde047 0%, #fde047 50%, #d8b4fe 50%, #d8b4fe 100%)'
+            }}
             className={`w-full flex items-center justify-between px-3 py-2 text-sm font-semibold transition ${
               categoryFilter === "EN_COLA_BOT"
-                ? "bg-yellow-100 text-yellow-800"
-                : "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
+                ? "text-yellow-900"
+                : "text-yellow-800 hover:opacity-90"
             }`}
           >
-            <div className="flex items-center gap-2">
-              <svg
-                className={`w-3 h-3 transition-transform ${expandedCategories.has("EN_COLA_BOT") ? 'rotate-90' : ''}`}
-                fill="currentColor"
-                viewBox="0 0 20 20"
-              >
-                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-              </svg>
-              <span>🤖</span>
-              <span>EN COLA / BOT</span>
+            <div className="flex items-center justify-between w-full pr-8">
+              <div className="flex items-center gap-2">
+                <svg
+                  className={`w-3 h-3 transition-transform ${expandedCategories.has("EN_COLA_BOT") ? 'rotate-90' : ''}`}
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                </svg>
+                <span>🕐</span>
+                <span>EN COLA</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span>BOT</span>
+                <span>🤖</span>
+              </div>
             </div>
             <span className="text-xs font-bold">{categoryCounts.EN_COLA_BOT}</span>
           </button>
           {expandedCategories.has("EN_COLA_BOT") && (
-            <div className="bg-yellow-50/50 border-t border-yellow-200 max-h-96 overflow-y-auto">
+            <div className="bg-purple-50/30 border-t border-b-2 border-purple-200 max-h-[70vh] overflow-y-auto">
               {getConversationsForCategory("EN_COLA_BOT").map((conv) => {
                 const urgencyColor = getUrgencyColor(conv.lastMessageAt, conv.unread);
                 const displayName = conv.contactName || conv.phone;
@@ -794,13 +872,19 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
                                lastMsgTime < 86400000 ? `${Math.floor(lastMsgTime / 3600000)}h` :
                                `${Math.floor(lastMsgTime / 86400000)}d`;
 
+                // Determine if it's BOT or EN COLA
+                const isBot = conv.assignedTo === 'bot' || conv.botFlowId;
+                const bgColor = isBot
+                  ? (selectedId === conv.id ? 'bg-purple-100' : 'bg-purple-50')
+                  : (selectedId === conv.id ? 'bg-yellow-100' : 'bg-yellow-50');
+                const borderColor = isBot ? 'border-purple-100' : 'border-yellow-100';
+                const hoverColor = isBot ? 'hover:bg-purple-100/70' : 'hover:bg-yellow-100/70';
+
                 return (
                   <div
                     key={conv.id}
                     onClick={() => onSelect(conv)}
-                    className={`px-3 py-3 cursor-pointer border-b border-yellow-100 hover:bg-yellow-100/50 transition ${
-                      selectedId === conv.id ? 'bg-yellow-100' : ''
-                    }`}
+                    className={`px-3 py-3 cursor-pointer border-b ${borderColor} ${hoverColor} transition ${bgColor}`}
                   >
                     <div className="flex items-start gap-2">
                       {/* Avatar + Ticket Column */}
@@ -823,10 +907,19 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
 
                         {/* Line 2: WhatsApp number and Badge */}
                         <div className="flex items-start justify-between gap-2 mb-1">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 rounded-xl text-xs">
-                            <span>📱</span>
-                            <span className="font-bold text-green-600">+{conv.displayNumber || 'N/A'}</span>
-                          </span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 rounded-xl text-xs">
+                              <span>📱</span>
+                              <span className="font-bold text-green-600">{conv.displayNumber || 'N/A'}</span>
+                            </span>
+                            {/* Show assigned advisor when showAllChats is enabled OR for admin/supervisor roles */}
+                            {(showAllChats || currentUserRole === 'admin' || currentUserRole === 'supervisor' || currentUserRole === 'gerencia') && conv.assignedTo && (
+                              <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-200 rounded-lg text-xs">
+                                <span>👤</span>
+                                <span className="font-semibold text-blue-700">{getAdvisorName(conv.assignedTo, advisors) || 'Asesor'}</span>
+                              </span>
+                            )}
+                          </div>
                           {urgencyColor && (
                             <span className={`${urgencyColor} text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse flex-shrink-0`}>
                               {conv.unread}
@@ -853,7 +946,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
         </div>
 
         {/* POR TRABAJAR */}
-        <div className="border border-blue-200 rounded-lg overflow-hidden">
+        <div className="border border-blue-400 rounded-lg overflow-hidden">
           <button
             onClick={() => {
               const newExpanded = new Set(expandedCategories);
@@ -866,8 +959,8 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
             }}
             className={`w-full flex items-center justify-between px-3 py-2 text-sm font-semibold transition ${
               categoryFilter === "POR_TRABAJAR"
-                ? "bg-blue-100 text-blue-800"
-                : "bg-blue-50 text-blue-700 hover:bg-blue-100"
+                ? "bg-blue-400 text-blue-900"
+                : "bg-blue-300 text-blue-900 hover:bg-blue-400"
             }`}
           >
             <div className="flex items-center gap-2">
@@ -884,7 +977,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
             <span className="text-xs font-bold">{categoryCounts.POR_TRABAJAR}</span>
           </button>
           {expandedCategories.has("POR_TRABAJAR") && (
-            <div className="bg-blue-50/50 border-t border-blue-200 max-h-96 overflow-y-auto">
+            <div className="bg-blue-100 border-t border-b-2 border-blue-400 max-h-[70vh] overflow-y-auto">
               {getConversationsForCategory("POR_TRABAJAR").map((conv) => {
                 const urgencyColor = getUrgencyColor(conv.lastMessageAt, conv.unread);
                 const displayName = conv.contactName || conv.phone;
@@ -895,13 +988,13 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
                                lastMsgTime < 86400000 ? `${Math.floor(lastMsgTime / 3600000)}h` :
                                `${Math.floor(lastMsgTime / 86400000)}d`;
 
+                const bgColor = selectedId === conv.id ? 'bg-blue-100' : 'bg-blue-50';
+
                 return (
                   <div
                     key={conv.id}
                     onClick={() => onSelect(conv)}
-                    className={`px-3 py-3 cursor-pointer border-b border-blue-100 hover:bg-blue-100/50 transition ${
-                      selectedId === conv.id ? 'bg-blue-100' : ''
-                    }`}
+                    className={`px-3 py-3 cursor-pointer border-b border-blue-100 hover:bg-blue-100/70 transition ${bgColor}`}
                   >
                     <div className="flex items-start gap-2">
                       {/* Avatar + Ticket Column */}
@@ -924,10 +1017,19 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
 
                         {/* Line 2: WhatsApp number and Badge */}
                         <div className="flex items-start justify-between gap-2 mb-1">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 rounded-xl text-xs">
-                            <span>📱</span>
-                            <span className="font-bold text-green-600">+{conv.displayNumber || 'N/A'}</span>
-                          </span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 rounded-xl text-xs">
+                              <span>📱</span>
+                              <span className="font-bold text-green-600">{conv.displayNumber || 'N/A'}</span>
+                            </span>
+                            {/* Show assigned advisor when showAllChats is enabled OR for admin/supervisor roles */}
+                            {(showAllChats || currentUserRole === 'admin' || currentUserRole === 'supervisor' || currentUserRole === 'gerencia') && conv.assignedTo && (
+                              <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-200 rounded-lg text-xs">
+                                <span>👤</span>
+                                <span className="font-semibold text-blue-700">{getAdvisorName(conv.assignedTo, advisors) || 'Asesor'}</span>
+                              </span>
+                            )}
+                          </div>
                           {urgencyColor && (
                             <span className={`${urgencyColor} text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse flex-shrink-0`}>
                               {conv.unread}
@@ -954,7 +1056,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
         </div>
 
         {/* TRABAJANDO */}
-        <div className="border border-green-200 rounded-lg overflow-hidden">
+        <div className="border border-green-400 rounded-lg overflow-hidden">
           <button
             onClick={() => {
               const newExpanded = new Set(expandedCategories);
@@ -967,8 +1069,8 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
             }}
             className={`w-full flex items-center justify-between px-3 py-2 text-sm font-semibold transition ${
               categoryFilter === "TRABAJANDO"
-                ? "bg-green-100 text-green-800"
-                : "bg-green-50 text-green-700 hover:bg-green-100"
+                ? "bg-green-400 text-green-900"
+                : "bg-green-300 text-green-900 hover:bg-green-400"
             }`}
           >
             <div className="flex items-center gap-2">
@@ -985,7 +1087,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
             <span className="text-xs font-bold">{categoryCounts.TRABAJANDO}</span>
           </button>
           {expandedCategories.has("TRABAJANDO") && (
-            <div className="bg-green-50/50 border-t border-green-200 max-h-96 overflow-y-auto">
+            <div className="bg-green-100 border-t border-b-2 border-green-400 max-h-[70vh] overflow-y-auto">
               {getConversationsForCategory("TRABAJANDO").map((conv) => {
                 const urgencyColor = getUrgencyColor(conv.lastMessageAt, conv.unread);
                 const displayName = conv.contactName || conv.phone;
@@ -996,13 +1098,13 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
                                lastMsgTime < 86400000 ? `${Math.floor(lastMsgTime / 3600000)}h` :
                                `${Math.floor(lastMsgTime / 86400000)}d`;
 
+                const bgColor = selectedId === conv.id ? 'bg-green-100' : 'bg-green-50';
+
                 return (
                   <div
                     key={conv.id}
                     onClick={() => onSelect(conv)}
-                    className={`px-3 py-3 cursor-pointer border-b border-green-100 hover:bg-green-100/50 transition ${
-                      selectedId === conv.id ? 'bg-green-100' : ''
-                    }`}
+                    className={`px-3 py-3 cursor-pointer border-b border-green-100 hover:bg-green-100/70 transition ${bgColor}`}
                   >
                     <div className="flex items-start gap-2">
                       {/* Avatar + Ticket Column */}
@@ -1025,10 +1127,19 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
 
                         {/* Line 2: WhatsApp number and Badge */}
                         <div className="flex items-start justify-between gap-2 mb-1">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 rounded-xl text-xs">
-                            <span>📱</span>
-                            <span className="font-bold text-green-600">+{conv.displayNumber || 'N/A'}</span>
-                          </span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 rounded-xl text-xs">
+                              <span>📱</span>
+                              <span className="font-bold text-green-600">{conv.displayNumber || 'N/A'}</span>
+                            </span>
+                            {/* Show assigned advisor when showAllChats is enabled OR for admin/supervisor roles */}
+                            {(showAllChats || currentUserRole === 'admin' || currentUserRole === 'supervisor' || currentUserRole === 'gerencia') && conv.assignedTo && (
+                              <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-200 rounded-lg text-xs">
+                                <span>👤</span>
+                                <span className="font-semibold text-blue-700">{getAdvisorName(conv.assignedTo, advisors) || 'Asesor'}</span>
+                              </span>
+                            )}
+                          </div>
                           {urgencyColor && (
                             <span className={`${urgencyColor} text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse flex-shrink-0`}>
                               {conv.unread}
@@ -1055,7 +1166,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
         </div>
 
         {/* FINALIZADOS */}
-        <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <div className="border border-slate-400 rounded-lg overflow-hidden">
           <button
             onClick={() => {
               const newExpanded = new Set(expandedCategories);
@@ -1068,8 +1179,8 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
             }}
             className={`w-full flex items-center justify-between px-3 py-2 text-sm font-semibold transition ${
               categoryFilter === "FINALIZADOS"
-                ? "bg-gray-100 text-gray-800"
-                : "bg-gray-50 text-gray-700 hover:bg-gray-100"
+                ? "bg-slate-400 text-slate-900"
+                : "bg-slate-300 text-slate-900 hover:bg-slate-400"
             }`}
           >
             <div className="flex items-center gap-2">
@@ -1086,7 +1197,7 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
             <span className="text-xs font-bold">{categoryCounts.FINALIZADOS}</span>
           </button>
           {expandedCategories.has("FINALIZADOS") && (
-            <div className="bg-gray-50/50 border-t border-gray-200 max-h-96 overflow-y-auto">
+            <div className="bg-slate-100 border-t border-b-2 border-slate-400 max-h-[70vh] overflow-y-auto">
               {getConversationsForCategory("FINALIZADOS").map((conv) => {
                 const urgencyColor = getUrgencyColor(conv.lastMessageAt, conv.unread);
                 const displayName = conv.contactName || conv.phone;
@@ -1097,13 +1208,13 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
                                lastMsgTime < 86400000 ? `${Math.floor(lastMsgTime / 3600000)}h` :
                                `${Math.floor(lastMsgTime / 86400000)}d`;
 
+                const bgColor = selectedId === conv.id ? 'bg-slate-100' : 'bg-slate-50';
+
                 return (
                   <div
                     key={conv.id}
                     onClick={() => onSelect(conv)}
-                    className={`px-3 py-3 cursor-pointer border-b border-gray-100 hover:bg-gray-100/50 transition ${
-                      selectedId === conv.id ? 'bg-gray-100' : ''
-                    }`}
+                    className={`px-3 py-3 cursor-pointer border-b border-slate-100 hover:bg-slate-100/70 transition ${bgColor}`}
                   >
                     <div className="flex items-start gap-2">
                       {/* Avatar + Ticket Column */}
@@ -1126,10 +1237,19 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
 
                         {/* Line 2: WhatsApp number and Badge */}
                         <div className="flex items-start justify-between gap-2 mb-1">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 rounded-xl text-xs">
-                            <span>📱</span>
-                            <span className="font-bold text-green-600">+{conv.displayNumber || 'N/A'}</span>
-                          </span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 rounded-xl text-xs">
+                              <span>📱</span>
+                              <span className="font-bold text-green-600">{conv.displayNumber || 'N/A'}</span>
+                            </span>
+                            {/* Show assigned advisor when showAllChats is enabled OR for admin/supervisor roles */}
+                            {(showAllChats || currentUserRole === 'admin' || currentUserRole === 'supervisor' || currentUserRole === 'gerencia') && conv.assignedTo && (
+                              <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-200 rounded-lg text-xs">
+                                <span>👤</span>
+                                <span className="font-semibold text-blue-700">{getAdvisorName(conv.assignedTo, advisors) || 'Asesor'}</span>
+                              </span>
+                            )}
+                          </div>
                           {urgencyColor && (
                             <span className={`${urgencyColor} text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse flex-shrink-0`}>
                               {conv.unread}

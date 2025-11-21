@@ -1,3 +1,4 @@
+// @ts-ignore - pg types not installed
 import { Pool } from 'pg';
 
 interface WhatsAppConnection {
@@ -25,11 +26,11 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
-pool.on('error', (err) => {
+pool.on('error', (err: any) => {
   console.error('[WhatsApp Connections] Unexpected pool error:', err);
 });
 
-let cachedConnections: WhatsAppConnection[] | null = null;
+let cachedConnections: WhatsAppConnection[] = [];
 let lastLoadTime = 0;
 const CACHE_TTL = 30000; // 30 seconds
 
@@ -47,7 +48,7 @@ async function loadConnections(): Promise<WhatsAppConnection[]> {
       'SELECT id, alias, phone_number_id, display_number, access_token, verify_token, waba_id, is_active, created_at, updated_at FROM whatsapp_connections WHERE is_active = true ORDER BY created_at'
     );
 
-    cachedConnections = result.rows.map(row => ({
+    cachedConnections = result.rows.map((row: any) => ({
       id: row.id,
       alias: row.alias,
       phoneNumberId: row.phone_number_id,
@@ -124,7 +125,7 @@ export async function getDefaultWhatsAppConnection(): Promise<WhatsAppConnection
  * Invalidate cache (call when connections are updated)
  */
 export function invalidateConnectionsCache(): void {
-  cachedConnections = null;
+  cachedConnections = [];
   lastLoadTime = 0;
 }
 

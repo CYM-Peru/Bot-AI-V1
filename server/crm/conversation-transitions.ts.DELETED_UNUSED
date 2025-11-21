@@ -118,10 +118,12 @@ export class ConversationStatusManager {
       }
     }
 
-    // ATTENDING: Set advisor
+    // ATTENDING: Set advisor and clear queue
     if (to === ConversationStatus.ATTENDING && metadata?.userId) {
       updates.assignedTo = metadata.userId;
       updates.assignedAt = Date.now();
+      updates.queueId = null; // ✅ Clear queue when advisor accepts
+      updates.queuedAt = null;
     }
 
     return updates;

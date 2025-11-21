@@ -46,19 +46,10 @@ export class AdvisorPresenceTracker {
    * Increments active connections counter
    */
    async markOnline(userId: string, sessionId?: string): void {
-    const logMsg = `[AdvisorPresence] 🔵 markOnline() CALLED - userId: ${userId}, sessionId: ${sessionId?.substring(0, 10)}..., timestamp: ${new Date().toISOString()}`;
-    console.log(logMsg);
-    // Also write to file for debugging
-    try {
-      require('fs').appendFileSync('/tmp/advisor-presence-debug.log', logMsg + '\n');
-    } catch (e) {}
+    console.log(`[AdvisorPresence] 🔵 ${userId} coming online - sessionId: ${sessionId?.substring(0, 10)}...`);
 
     const now = Date.now();
     const existing = this.presence.get(userId);
-    console.log(`[AdvisorPresence] 📊 Existing presence before update:`, existing);
-    try {
-      require('fs').appendFileSync('/tmp/advisor-presence-debug.log', `[AdvisorPresence] 📊 Existing: ${JSON.stringify(existing)}\n`);
-    } catch (e) {}
     const wasOffline = !existing || !existing.isOnline;
 
     // Cancel any pending offline timeout (in case of reconnection)
@@ -78,13 +69,7 @@ export class AdvisorPresenceTracker {
       activeConnections: (existing?.activeConnections || 0) + 1,
     };
 
-    console.log(`[AdvisorPresence] 📝 Setting new presence:`, newPresence);
     this.presence.set(userId, newPresence);
-
-    // Verify it was set
-    const verified = this.presence.get(userId);
-    console.log(`[AdvisorPresence] 🔍 VERIFIED presence after set:`, verified);
-    console.log(`[AdvisorPresence] 📈 Total presence entries: ${this.presence.size}`);
 
     if(sessionId) {
       this.sessionToUser.set(sessionId, userId);
@@ -92,12 +77,18 @@ export class AdvisorPresenceTracker {
 
     console.log(`[AdvisorPresence] ✅ ${userId} is now ONLINE (${(existing?.activeConnections || 0) + 1} connections)`);
 
-    // CRITICAL: Redistribute queue chats when advisor goes from offline to online
+    // CRITICAL: Assign queue chats when advisor goes from offline to online
     if(wasOffline) {
-      console.log(`[AdvisorPresence] 🔄 ${userId} came online - triggering queue redistribution`);
+      console.log(`[AdvisorPresence] 🔄 ${userId} came online - triggering event-driven assignment`);
       // Use setTimeout to avoid blocking the connection
-      setTimeout(() => {
-        this.redistributeQueueChats(userId);
+      setTimeout(async () => {
+        try {
+          const { getQueueAssignmentService } = await import('./queue-assignment-service');
+          const assignmentService = getQueueAssignmentService();
+          await assignmentService.onAdvisorOnline(userId);
+        } catch (error) {
+          console.error(`[AdvisorPresence] Error triggering onAdvisorOnline for ${userId}:`, error);
+        }
       }, 1000);
     }
   }
@@ -149,6 +140,13 @@ export class AdvisorPresenceTracker {
 
           // Emit presence update immediately
           this.emitPresenceUpdate(userId);
+
+          // CRITICAL FIX: Return chats in 'active' status (POR TRABAJAR) back to queue
+          // Chats in 'attending' status (TRABAJANDO) stay with the advisor
+          this.returnActiveChatsToQueue(userId).catch(error => {
+            console.error(`[AdvisorPresence] ❌ Error returning active chats to queue for ${userId}:`, error);
+          });
+
           return;
         }
 
@@ -183,6 +181,12 @@ export class AdvisorPresenceTracker {
 
             // CRITICAL FIX: Emit presence update after marking offline
             this.emitPresenceUpdate(userId);
+
+            // CRITICAL FIX: Return chats in 'active' status (POR TRABAJAR) back to queue
+            // Chats in 'attending' status (TRABAJANDO) stay with the advisor
+            this.returnActiveChatsToQueue(userId).catch(error => {
+              console.error(`[AdvisorPresence] ❌ Error returning active chats to queue for ${userId}:`, error);
+            });
           } else {
             console.log(`[AdvisorPresence] ✅ ${userId} reconnected before timeout - staying ONLINE`);
             this.offlineTimeouts.delete(userId);
@@ -324,7 +328,7 @@ export class AdvisorPresenceTracker {
    */
   private async redistributeQueueChatsForQueue(queueId: string, queueName: string): Promise<void> {
     try {
-      const queue = adminDb.getQueueById(queueId);
+      const queue = await adminDb.getQueueById(queueId);
       if(!queue || queue.status !== "active") {
         return;
       }
@@ -365,15 +369,10 @@ export class AdvisorPresenceTracker {
 
       console.log(`[QueueRedistribution] 📊 Queue "${queueName}": ${queueConversations.length} chats, ${onlineAdvisorsInQueue.length} online advisors`);
 
-      // 3. Get chats that need redistribution (unassigned OR assigned to offline advisors)
-      const chatsToRedistribute = queueConversations.filter(conv => {
-        if(!conv.assignedTo) {
-          return true; // Unassigned
-        }
-        // Check if assigned advisor is offline
-        const isAssignedAdvisorOnline = this.isOnline(conv.assignedTo);
-        return !isAssignedAdvisorOnline;
-      });
+      // 3. Get chats that need redistribution (ONLY unassigned chats)
+      // CRITICAL: Never redistribute chats already assigned to advisors (even if offline)
+      // Those chats stay with their advisor until they close them or come back online
+      const chatsToRedistribute = queueConversations.filter(conv => !conv.assignedTo);
 
       if(chatsToRedistribute.length === 0) {
         console.log(`[QueueRedistribution] ✅ Queue "${queueName}" - all chats already assigned to online advisors`);
@@ -490,6 +489,55 @@ export class AdvisorPresenceTracker {
     }
 
     console.log(`[QueueRedistribution] ✅ Least-busy: Redistributed ${redistributed}/${chats.length} chats in queue "${queueName}"`);
+  }
+
+  /**
+   * Return chats in 'active' status back to queue when advisor goes offline
+   * Only affects chats that haven't been accepted yet (status='active')
+   * Chats that are being worked on (status='attending') stay with the advisor
+   */
+  private async returnActiveChatsToQueue(userId: string): Promise<void> {
+    try {
+      console.log(`[AdvisorPresence] 🔄 Returning active chats to queue for offline advisor ${userId}`);
+
+      // Get all conversations assigned to this advisor
+      const allConversations = await crmDb.listConversations();
+      const advisorChats = allConversations.filter(conv => conv.assignedTo === userId);
+
+      if (advisorChats.length === 0) {
+        console.log(`[AdvisorPresence] ✅ No chats assigned to ${userId}`);
+        return;
+      }
+
+      // Separate chats by status
+      const activeChats = advisorChats.filter(conv => conv.status === 'active');
+      const attendingChats = advisorChats.filter(conv => conv.status === 'attending');
+
+      console.log(`[AdvisorPresence] 📊 ${userId} has ${activeChats.length} active chats (will return to queue) and ${attendingChats.length} attending chats (will stay with advisor)`);
+
+      // Return only 'active' chats to queue
+      for (const chat of activeChats) {
+        try {
+          await crmDb.updateConversationMeta(chat.id, {
+            assignedTo: null,  // Clear assignment
+            assignedAt: null   // Clear assignment timestamp
+          });
+          console.log(`[AdvisorPresence] ✅ Returned chat ${chat.id} (${chat.phone}) to queue ${chat.queueId}`);
+        } catch (error) {
+          console.error(`[AdvisorPresence] ❌ Failed to return chat ${chat.id} to queue:`, error);
+        }
+      }
+
+      if (activeChats.length > 0) {
+        console.log(`[AdvisorPresence] ✅ Returned ${activeChats.length} active chats to queue for ${userId}`);
+      }
+      if (attendingChats.length > 0) {
+        console.log(`[AdvisorPresence] 📌 Kept ${attendingChats.length} attending chats with ${userId} (will see them when they return)`);
+      }
+
+    } catch (error) {
+      console.error(`[AdvisorPresence] ❌ Error in returnActiveChatsToQueue for ${userId}:`, error);
+    }
   }
 
   /**

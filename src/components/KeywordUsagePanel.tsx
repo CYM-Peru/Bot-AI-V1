@@ -96,7 +96,7 @@ export default function KeywordUsagePanel() {
 
   if (error) {
     return (
-      <div className="p-6">
+      <div className="p-4">
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
           Error: {error}
         </div>
@@ -213,9 +213,9 @@ export default function KeywordUsagePanel() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-4">
         {view === 'stats' ? (
-          <div className="space-y-6">
+          <div className="space-y-4">
             {/* Frases Clave - PRIORITARIAS */}
             <div className="bg-white rounded-lg shadow-lg border-2 border-purple-300 overflow-hidden">
               <div className="px-6 py-4 border-b border-purple-200 bg-gradient-to-r from-purple-50 to-pink-50">

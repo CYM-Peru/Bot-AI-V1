@@ -1,10 +1,20 @@
 import { Router } from "express";
-import { metricsTrackerDB as metricsTracker } from "../metrics-tracker-db";
+import { metricsTrackerDB as metricsTracker, MetricsTrackerDB } from "../metrics-tracker-db";
 import { adminDb } from "../../admin-db";
 import { getTemplateUsageStats } from "../template-usage-tracker";
 import { getKeywordUsageStats } from "../keyword-usage-tracker";
 import { getRagUsageStats } from "../rag-usage-tracker";
 import { getCampaignStats } from "../campaign-tracker";
+// @ts-ignore
+import { Pool } from 'pg';
+
+const pool = new Pool({
+  user: process.env.POSTGRES_USER || 'whatsapp_user',
+  host: process.env.POSTGRES_HOST || 'localhost',
+  database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+  password: process.env.POSTGRES_PASSWORD || 'azaleia_pg_2025_secure',
+  port: parseInt(process.env.POSTGRES_PORT || '5432'),
+});
 
 export function createMetricsRouter() {
   const router = Router();
@@ -46,12 +56,29 @@ export function createMetricsRouter() {
       const end = endDate ? parseInt(endDate as string, 10) : undefined;
       const advisor = advisorId as string | undefined;
 
-      // If no advisorId specified, use current user's userId
-      const targetAdvisor = advisor || req.user?.userId || "unknown";
+      // For superior roles (admin, supervisor, gerencia), show ALL metrics by default
+      // For asesores, show only their own metrics
+      // Also check for custom gerencia role (role-1761832887172 = Amanda's Gerencia role)
+      const isSuperiorRole = req.user?.role === 'admin' ||
+                             req.user?.role === 'supervisor' ||
+                             req.user?.role === 'gerencia' ||
+                             req.user?.role === 'role-1761832887172'; // Custom Gerencia role
+
+      let targetAdvisor: string | undefined;
+      if (advisor) {
+        // If advisorId is explicitly provided, use it
+        targetAdvisor = advisor;
+      } else if (isSuperiorRole) {
+        // Superior roles see ALL metrics (undefined = all)
+        targetAdvisor = undefined;
+      } else {
+        // Asesores see only their own metrics
+        targetAdvisor = req.user?.userId || "unknown";
+      }
 
       const kpis = await metricsTracker.calculateKPIs(targetAdvisor, start, end);
 
-      res.json({ kpis, advisorId: targetAdvisor });
+      res.json({ kpis, advisorId: targetAdvisor, showingAll: targetAdvisor === undefined });
     } catch (error) {
       console.error("[Metrics] Error calculating KPIs:", error);
       res.status(500).json({
@@ -65,16 +92,31 @@ export function createMetricsRouter() {
    * GET /metrics/trend
    * Get conversation trend data for charts
    */
-  router.get("/trend", (req, res) => {
+  router.get("/trend", async (req, res) => {
     try {
       const { days = "7", advisorId } = req.query;
 
       const daysNum = parseInt(days as string, 10);
       const advisor = advisorId as string | undefined;
 
-      const trend = metricsTracker.getConversationTrend(advisor, daysNum);
+      // For superior roles (admin, supervisor, gerencia), show ALL metrics by default
+      const isSuperiorRole = req.user?.role === 'admin' ||
+                             req.user?.role === 'supervisor' ||
+                             req.user?.role === 'gerencia' ||
+                             req.user?.role === 'role-1761832887172'; // Custom Gerencia role
 
-      res.json({ trend, days: daysNum });
+      let targetAdvisor: string | undefined;
+      if (advisor) {
+        targetAdvisor = advisor;
+      } else if (isSuperiorRole) {
+        targetAdvisor = undefined; // Show all
+      } else {
+        targetAdvisor = req.user?.userId;
+      }
+
+      const trend = await metricsTracker.getConversationTrend(targetAdvisor, daysNum);
+
+      res.json({ trend, days: daysNum, showingAll: targetAdvisor === undefined });
     } catch (error) {
       console.error("[Metrics] Error fetching trend data:", error);
       res.status(500).json({
@@ -643,6 +685,120 @@ export function createMetricsRouter() {
   });
 
   /**
+   * GET /metrics/ads-tracking
+   * Get Meta Ads (Facebook/Instagram) tracking statistics
+   * Only shows conversations from Click-to-WhatsApp ads
+   */
+  router.get("/ads-tracking", async (req, res) => {
+    console.log("[Metrics] ===== ADS-TRACKING ENDPOINT CALLED =====");
+    try {
+      const { limit, offset } = req.query;
+      const limitNum = limit ? parseInt(limit as string, 10) : 100;
+      const offsetNum = offset ? parseInt(offset as string, 10) : 0;
+      console.log("[Metrics] Params:", { limitNum, offsetNum });
+
+      // Get total count of ad conversions
+      const countQuery = `
+        SELECT COUNT(*) as total_count
+        FROM crm_conversations
+        WHERE ad_ctwa_clid IS NOT NULL
+          AND phone NOT IN (SELECT phone_number FROM excluded_phone_numbers)
+      `;
+      const countResult = await pool.query(countQuery);
+
+      // Get keyword stats from ads
+      const keywordStatsQuery = `
+        SELECT
+          ku.matched_keyword as detected_keyword,
+          ku.keyword_group_label as keyword_group_name,
+          COUNT(*) as count
+        FROM keyword_usage ku
+        INNER JOIN crm_conversations c ON ku.conversation_id = c.id
+        WHERE c.ad_ctwa_clid IS NOT NULL
+          AND c.phone NOT IN (SELECT phone_number FROM excluded_phone_numbers)
+          AND ku.matched_keyword IS NOT NULL
+          AND array_length(string_to_array(ku.matched_keyword, ' '), 1) >= 3
+        GROUP BY ku.matched_keyword, ku.keyword_group_label
+        ORDER BY count DESC
+        LIMIT 20
+      `;
+      const keywordStatsResult = await pool.query(keywordStatsQuery);
+
+      // Get ad aggregations
+      const adsQuery = `
+        SELECT
+          MAX(c.ad_source_type) as referral_source_type,
+          c.ad_source_id as referral_source_id,
+          MAX(c.ad_source_url) as referral_source_url,
+          MAX(c.ad_headline) as referral_headline,
+          MAX(c.ad_body) as referral_body,
+          MAX(c.ad_media_type) as referral_media_type,
+          MAX(c.ad_image_url) as referral_image_url,
+          MAX(c.ad_video_url) as referral_video_url,
+          MAX(c.ad_thumbnail_url) as referral_thumbnail_url,
+          MAX(c.ad_ctwa_clid) as ctwa_clid,
+          COUNT(DISTINCT c.id) as count,
+          json_agg(DISTINCT jsonb_build_object(
+            'keyword', ku.matched_keyword,
+            'group', ku.keyword_group_label
+          ) ORDER BY jsonb_build_object('keyword', ku.matched_keyword, 'group', ku.keyword_group_label))
+          FILTER (WHERE ku.matched_keyword IS NOT NULL) as detected_keywords
+        FROM crm_conversations c
+        LEFT JOIN keyword_usage ku ON ku.conversation_id = c.id
+        WHERE c.ad_ctwa_clid IS NOT NULL
+          AND c.phone NOT IN (SELECT phone_number FROM excluded_phone_numbers)
+        GROUP BY c.ad_source_id
+        ORDER BY count DESC
+        LIMIT 20
+      `;
+      const adsResult = await pool.query(adsQuery);
+
+      // Get recent conversations
+      const recordsQuery = `
+        SELECT
+          c.id,
+          c.id::text as conversation_id,
+          c.phone as customer_phone,
+          c.contact_name as customer_name,
+          c.last_message_preview as initial_message,
+          NULL as detected_keyword,
+          NULL as keyword_group_name,
+          c.ad_source_url as referral_source_url,
+          c.ad_source_id as referral_source_id,
+          c.ad_source_type as referral_source_type,
+          c.ad_headline as referral_headline,
+          c.ad_body as referral_body,
+          c.ad_media_type as referral_media_type,
+          c.ad_image_url as referral_image_url,
+          c.ad_video_url as referral_video_url,
+          c.ad_thumbnail_url as referral_thumbnail_url,
+          c.ad_ctwa_clid as ctwa_clid,
+          to_timestamp(c.created_at / 1000.0) AT TIME ZONE 'America/Lima' as created_at
+        FROM crm_conversations c
+        WHERE c.ad_ctwa_clid IS NOT NULL
+          AND c.phone NOT IN (SELECT phone_number FROM excluded_phone_numbers)
+        ORDER BY c.created_at DESC
+        LIMIT $1 OFFSET $2
+      `;
+      const recordsResult = await pool.query(recordsQuery, [limitNum, offsetNum]);
+
+      res.json({
+        records: recordsResult.rows,
+        totalCount: parseInt(countResult.rows[0].total_count),
+        keywordStats: keywordStatsResult.rows,
+        campaignStats: [],
+        referralStats: adsResult.rows,
+      });
+    } catch (error) {
+      console.error("[Metrics] Error fetching ads tracking:", error);
+      res.status(500).json({
+        error: "server_error",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
    * GET /metrics/response-time-by-hour
    * Get average response time by hour of day
    */
@@ -746,6 +902,32 @@ export function createMetricsRouter() {
       res.json({ data });
     } catch (error) {
       console.error("[Metrics] Error fetching peak hours:", error);
+      res.status(500).json({
+        error: "server_error",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
+   * GET /metrics/reliable-since
+   * Get the date since which first response time metrics are reliable
+   */
+  router.get("/reliable-since", (req, res) => {
+    try {
+      const reliableSince = MetricsTrackerDB.getReliableMetricsSince();
+      res.json({
+        reliableSince,
+        reliableSinceDate: new Date(reliableSince).toISOString(),
+        reliableSinceDateLocal: new Date(reliableSince).toLocaleDateString('es-PE', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          timeZone: 'America/Lima'
+        })
+      });
+    } catch (error) {
+      console.error("[Metrics] Error fetching reliable since date:", error);
       res.status(500).json({
         error: "server_error",
         message: error instanceof Error ? error.message : "Unknown error",

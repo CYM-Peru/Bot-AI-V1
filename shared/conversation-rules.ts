@@ -11,7 +11,7 @@
  * ✅ SIEMPRE importar desde aquí
  */
 
-export type ConversationStatus = 'active' | 'attending' | 'archived' | 'closed';
+export type ConversationStatus = 'active' | 'attending' | 'closed';
 
 export interface ConversationData {
   status: ConversationStatus;
@@ -20,6 +20,7 @@ export interface ConversationData {
   queueId: string | null;
   campaignId: string | null;
   transferredFrom?: string | null;
+  closedReason?: string | null;
 }
 
 export type ConversationCategory =
@@ -34,7 +35,7 @@ export type ConversationCategory =
  *
  * REGLAS DE PRIORIDAD (según CATEGORIAS-CRM-PLAN.md líneas 68-73):
  *
- * 1. MASIVOS: campaignId presente Y status = 'closed'
+ * 1. MASIVOS: campaignId presente Y status = 'closed' Y NO cerrado manualmente
  * 2. EN COLA/BOT:
  *    - status = 'active' Y assignedTo = null (sin asignar)
  *    - status = 'active' Y assignedTo = 'bot' (bot activo)
@@ -43,11 +44,12 @@ export type ConversationCategory =
  * 4. TRABAJANDO:
  *    - status = 'attending' (asesor aceptó y está trabajando)
  * 5. FINALIZADOS:
- *    - (status = 'archived' O status = 'closed') Y NO tiene campaignId
+ *    - (status = 'archived' O status = 'closed') Y (NO tiene campaignId O cerrado manualmente)
  */
 export function getConversationCategory(conv: ConversationData): ConversationCategory {
   // PRIORIDAD 1: MASIVOS
-  if (conv.campaignId && conv.status === 'closed') {
+  // Solo si tiene campaignId, está cerrado Y NO fue cerrado manualmente por asesor
+  if (conv.campaignId && conv.status === 'closed' && conv.closedReason !== 'manual') {
     return 'MASIVOS';
   }
 
@@ -70,8 +72,8 @@ export function getConversationCategory(conv: ConversationData): ConversationCat
   }
 
   // PRIORIDAD 5: FINALIZADOS
-  // Closed/archived SIN campaignId
-  if ((conv.status === 'archived' || conv.status === 'closed') && !conv.campaignId) {
+  // Closed SIN campaignId O cerrado manualmente por asesor
+  if (conv.status === 'closed' && (!conv.campaignId || conv.closedReason === 'manual')) {
     return 'FINALIZADOS';
   }
 
@@ -122,17 +124,19 @@ export function canBeAutoAssigned(conv: ConversationData): boolean {
 /**
  * Verifica si el bot puede tomar control de una conversación
  *
- * REGLA: Bot puede tomar control si:
- * - NO está asignada a un asesor humano
- * - O status = 'archived' (chat archivado reabierto por cliente)
+ * REGLA GENERAL: Bot NO interfiere cuando hay asesor o está en cola
+ * - NO tomar control si está asignado a asesor humano
+ * - NO tomar control si está en cola esperando asesor
+ * - SÍ tomar control si status = 'closed' (reapertura por cliente)
  */
 export function canBotTakeControl(conv: ConversationData): boolean {
-  // Si está archivado, bot SIEMPRE puede tomar control (reapertura por cliente)
-  if (conv.status === 'archived') {
+  // Si está cerrado, bot SIEMPRE puede tomar control (reapertura por cliente)
+  if (conv.status === 'closed') {
     return true;
   }
 
-  // Si está activo, solo si NO tiene asesor humano
+  // Si está activo, solo si NO tiene asesor humano Y NO está en cola
   return conv.status === 'active' &&
-         (!conv.assignedTo || conv.assignedTo === 'bot');
+         (!conv.assignedTo || conv.assignedTo === 'bot') &&
+         !conv.queueId; // ✅ NO interferir si está esperando asesor en cola
 }

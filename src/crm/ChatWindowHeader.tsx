@@ -64,7 +64,7 @@ function getAdvisorInitials(advisorId: string, advisors?: Array<{ id: string; na
 // Get header background color based on conversation state (MATCHES category colors)
 function getHeaderColor(conversation: Conversation): string {
   // 1. FINALIZADOS
-  if (conversation.status === "archived") {
+  if (conversation.status === "closed") {
     return "bg-slate-100";
   }
 
@@ -203,7 +203,7 @@ export default function ChatWindowHeader({
   // Get active advisors (currently in the conversation)
   // For ACTIVE/ATTENDING: show activeAdvisors (if not empty) or assignedTo
   // For ARCHIVED: show attendedBy (historical record of who attended)
-  const activeAdvisorsList = conversation.status === "archived"
+  const activeAdvisorsList = conversation.status === "closed"
     ? (conversation.attendedBy || [])
     : ((conversation.activeAdvisors && conversation.activeAdvisors.length > 0)
         ? conversation.activeAdvisors
@@ -338,7 +338,7 @@ export default function ChatWindowHeader({
               {showActionsMenu && (
               <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-xl z-[9999] py-1">
                 {/* Transfer options */}
-                {conversation.status !== "archived" && (
+                {conversation.status !== "closed" && (
                   <>
                     <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                       Transferir
@@ -378,7 +378,7 @@ export default function ChatWindowHeader({
                 )}
 
                 {/* Join advisor */}
-                {conversation.status !== "archived" && (
+                {conversation.status !== "closed" && (
                   <button
                     onClick={() => {
                       onJoinAdvisor();
@@ -392,7 +392,7 @@ export default function ChatWindowHeader({
                 )}
 
                 {/* Take over chat */}
-                {conversation.status !== "archived" && (
+                {conversation.status !== "closed" && (
                   <button
                     onClick={() => {
                       onTakeOver();
@@ -407,7 +407,7 @@ export default function ChatWindowHeader({
                 )}
 
                 {/* Templates */}
-                {conversation.status !== "archived" && (
+                {conversation.status !== "closed" && (
                   <button
                     onClick={() => {
                       onShowTemplates();
@@ -421,7 +421,7 @@ export default function ChatWindowHeader({
                 )}
 
                 {/* Create Lead in Bitrix24 */}
-                {conversation.status !== "archived" && onCreateLead && (
+                {conversation.status !== "closed" && onCreateLead && (
                   <button
                     onClick={() => {
                       onCreateLead();
@@ -476,8 +476,8 @@ export default function ChatWindowHeader({
                   <span>Información del Cliente</span>
                 </button>
 
-                {/* Archive */}
-                {conversation.status !== "archived" ? (
+                {/* Archive / Reopen */}
+                {conversation.status !== "closed" ? (
                   <>
                     <div className="border-t border-slate-100 my-1"></div>
                     <button
@@ -488,7 +488,7 @@ export default function ChatWindowHeader({
                       className="w-full px-4 py-2 text-left text-sm text-rose-600 hover:bg-rose-50 transition flex items-center gap-3"
                     >
                       <span className="text-base">🗂️</span>
-                      <span>Archivar Conversación</span>
+                      <span>Finalizar Conversación</span>
                     </button>
                   </>
                 ) : (

@@ -59,71 +59,12 @@ export default function WelcomeSplash({ userName = "Usuario", onComplete }: Welc
               </svg>
             </div>
 
-            {/* Logo Retro Azaleia */}
-            <div style={{ position: 'relative', display: 'inline-block' }}>
-              <h1 style={{
-                fontFamily: "'Alfa Slab One', cursive",
-                fontSize: '2.5rem',
-                fontWeight: 'bold',
-                textTransform: 'lowercase',
-                letterSpacing: '3px',
-                margin: 0,
-                padding: '8px 16px',
-                position: 'relative',
-                WebkitTextStroke: '8px rgba(255, 255, 255, 0.1)',
-                paintOrder: 'stroke fill',
-                color: 'transparent',
-                zIndex: 1,
-                lineHeight: '1'
-              }}>
-                azaleia
-              </h1>
-              <h1 style={{
-                fontFamily: "'Alfa Slab One', cursive",
-                fontSize: '2.5rem',
-                fontWeight: 'bold',
-                textTransform: 'lowercase',
-                letterSpacing: '3px',
-                margin: 0,
-                padding: '8px 16px',
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                WebkitTextStroke: '5px #D65436',
-                paintOrder: 'stroke fill',
-                color: 'transparent',
-                zIndex: 2,
-                lineHeight: '1'
-              }}>
-                azaleia
-              </h1>
-              <h1 style={{
-                fontFamily: "'Alfa Slab One', cursive",
-                fontSize: '2.5rem',
-                fontWeight: 'bold',
-                textTransform: 'lowercase',
-                letterSpacing: '3px',
-                margin: 0,
-                padding: '8px 16px',
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                color: '#F9D349',
-                zIndex: 3,
-                filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5))',
-                lineHeight: '1',
-                animation: 'glow 2s ease-in-out infinite'
-              }}>
-                azaleia
-              </h1>
-            </div>
-
             {/* Welcome Text */}
             <div className="space-y-3">
-              <h2 className="text-3xl font-bold text-white animate-fade-in">
+              <h2 className="text-4xl font-bold text-white animate-fade-in">
                 ¡Bienvenido!
               </h2>
-              <p className="text-xl font-semibold text-white/90 animate-fade-in-delay">
+              <p className="text-2xl font-semibold text-white/90 animate-fade-in-delay">
                 {userName}
               </p>
             </div>

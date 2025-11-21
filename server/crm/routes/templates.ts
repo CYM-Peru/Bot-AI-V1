@@ -6,6 +6,7 @@ import type { CrmRealtimeManager } from "../ws";
 import { getWhatsAppCredentials, getWhatsAppConnection } from "../../services/whatsapp-connections";
 import { registerTemplateUsage } from "../template-usage-tracker";
 import { adminDb } from "../../admin-db-postgres";
+import { formatEventTimestamp } from "../../utils/file-logger";
 
 export function createTemplatesRouter(socketManager: CrmRealtimeManager) {
   const router = Router();
@@ -175,19 +176,20 @@ export function createTemplatesRouter(socketManager: CrmRealtimeManager) {
 
         // Crear evento del sistema
         if (advisorId) {
-          await crmDb.createSystemEvent(conversation.id, 'conversation_assigned', {
-            assigned_to: advisorId,
-            assigned_by: advisorId,
-            reason: 'template_sent'
-          });
+          const timestamp = formatEventTimestamp();
+          await crmDb.createSystemEvent(
+            conversation.id,
+            'conversation_assigned',
+            `✅ Conversación asignada a ${advisorName} al enviar plantilla (${timestamp})`
+          );
         }
 
         conversation = (await crmDb.getConversationById(conversation.id))!;
         console.log(`[Templates] Marked as TRABAJANDO (attending) and assigned to ${advisorName} - template sent to ${phone}`);
       } else {
         // CONVERSACIÓN EXISTENTE (CON HISTORIAL)
-        // Si la conversación estaba archivada/cerrada, reactivarla como TRABAJANDO y asignar al asesor
-        if (conversation.status === 'archived' || conversation.status === 'closed') {
+        // Si la conversación estaba cerrada, reactivarla como TRABAJANDO y asignar al asesor
+        if (conversation.status === 'closed') {
           await crmDb.updateConversationMeta(conversation.id, {
             status: 'attending',
             queueId: null,
@@ -197,11 +199,12 @@ export function createTemplatesRouter(socketManager: CrmRealtimeManager) {
 
           // Crear evento del sistema
           if (advisorId) {
-            await crmDb.createSystemEvent(conversation.id, 'conversation_reopened', {
-              reason: 'template_sent',
-              previous_status: conversation.status,
-              assigned_to: advisorId
-            });
+            const timestamp = formatEventTimestamp();
+            await crmDb.createSystemEvent(
+              conversation.id,
+              'conversation_reopened',
+              `🔓 Conversación reabierta y asignada a ${advisorName} al enviar plantilla (${timestamp})`
+            );
           }
 
           conversation = (await crmDb.getConversationById(conversation.id))!;

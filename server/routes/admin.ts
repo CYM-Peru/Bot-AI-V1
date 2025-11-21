@@ -10,6 +10,7 @@ import { createUserSchema, updateUserSchema, userIdSchema } from "../schemas/val
 import logger from "../utils/logger";
 import { getCrmGateway } from "../crm/ws";
 import { requireAdmin, requireSupervisor } from "../middleware/roles";
+import { advisorPresence } from "../crm/advisor-presence";
 
 export function createAdminRouter(): Router {
   const router = Router();
@@ -680,7 +681,27 @@ export function createAdminRouter(): Router {
                   crmDb.updateConversationQueue(conv.id, status.redirectToQueue);
                   logger.info(`[Status-change] ✅ Conversation ${conv.id} redirected to queue: ${status.redirectToQueue}`);
                 } else {
-                  logger.info(`[Status-change] ✅ Conversation ${conv.id} released back to queue`);
+                  // CRITICAL FIX: If no redirectToQueue, reassign to fallback queue of the WhatsApp number
+                  // This ensures conversations don't get "lost" when advisor releases them
+                  try {
+                    // Get the conversation's display number to find fallback queue
+                    const whatsappNumbers = await adminDb.getAllWhatsAppNumbers();
+                    const normalizePhone = (phone: string) => phone.replace(/[\s\+\-\(\)]/g, '');
+                    const normalizedDisplay = normalizePhone(conv.displayNumber || '');
+
+                    const numberConfig = whatsappNumbers.find(num =>
+                      normalizePhone(num.phoneNumber) === normalizedDisplay
+                    );
+
+                    if (numberConfig && numberConfig.queueId) {
+                      await crmDb.updateConversationQueue(conv.id, numberConfig.queueId);
+                      logger.info(`[Status-change] ✅ Conversation ${conv.id} released back to fallback queue: ${numberConfig.queueId}`);
+                    } else {
+                      logger.warn(`[Status-change] ⚠️ No fallback queue found for ${conv.displayNumber} - conversation ${conv.id} released without queue`);
+                    }
+                  } catch (error) {
+                    logger.error(`[Status-change] Error reassigning conversation ${conv.id} to fallback queue:`, error);
+                  }
                 }
 
                 // Emit WebSocket update
@@ -714,9 +735,11 @@ export function createAdminRouter(): Router {
 
                       const otherAdvisorStatus = await adminDb.getAdvisorStatus(advisorId);
                       if (otherAdvisorStatus && otherAdvisorStatus.status) {
-                        if (otherAdvisorStatus.status.action === "accept") {
+                        // ✅ CRITICAL FIX: Check BOTH status AND isOnline()
+                        const isOnline = advisorPresence.isOnline(advisorId);
+                        if (otherAdvisorStatus.status.action === "accept" && isOnline) {
                           await crmDb.assignConversation(updatedConv.id, advisorId);
-                          logger.info(`[Status-change] 🎯 Auto-reassigned conversation ${updatedConv.id} to advisor ${advisorId}`);
+                          logger.info(`[Status-change] 🎯 Auto-reassigned conversation ${updatedConv.id} to advisor ${advisorId} (online & available)`);
 
                           gateway.emitConversationUpdate({
                             conversation: await crmDb.getConversationById(updatedConv.id)!
@@ -731,8 +754,8 @@ export function createAdminRouter(): Router {
             }
           }
 
-          // AUTO-ASSIGNMENT: If advisor becomes available, assign waiting conversations
-          if (status?.action === "accept") {
+          // AUTO-ASSIGNMENT: If advisor becomes available AND is online, assign waiting conversations
+          if (status?.action === "accept" && advisorPresence.isOnline(userId)) {
             // Find queues where this advisor is assigned
             const allQueues = await adminDb.getAllQueues();
             const advisorQueues = allQueues.filter(q => q.assignedAdvisors.includes(userId));
@@ -1031,16 +1054,22 @@ export function createAdminRouter(): Router {
         [limit, offset]
       );
 
-      const logs = result.rows.map(row => ({
-        id: row.id,
-        userId: row.user_id,
-        userName: row.user_name,
-        eventType: row.event_type,
-        statusId: row.status_id,
-        statusName: row.status_name,
-        timestamp: row.timestamp,
-        metadata: row.metadata || {},
-      }));
+      const logs = result.rows.map(row => {
+        // Convert UTC timestamp to Lima timezone by formatting as ISO string
+        // The timestamp from DB is in UTC, but we want to show it in Lima time
+        const timestamp = row.timestamp instanceof Date ? row.timestamp.toISOString() : row.timestamp;
+
+        return {
+          id: row.id,
+          userId: row.user_id,
+          userName: row.user_name,
+          eventType: row.event_type,
+          statusId: row.status_id,
+          statusName: row.status_name,
+          timestamp,
+          metadata: row.metadata || {},
+        };
+      });
 
       await pool.end();
       res.json({ logs, total: logs.length });
@@ -1118,6 +1147,90 @@ export function createAdminRouter(): Router {
     } catch (error) {
       logger.error("[Admin] Error saving bot config:", error);
       res.status(500).json({ error: "Failed to save bot config" });
+    }
+  });
+
+  // ============================================
+  // AI REPORTS ENDPOINTS (ADMIN ONLY)
+  // ============================================
+
+  /**
+   * GET /api/admin/ai-reports/:type
+   * Generate AI report in TOON format
+   * Types: daily, weekly, performance, problems
+   * ADMIN ONLY - Protegido con requireAdmin
+   */
+  router.get("/ai-reports/:type", requireAdmin, async (req, res) => {
+    try {
+      const { aiReportsService } = await import("../services/ai-reports-service");
+      const { type } = req.params;
+
+      let report;
+      switch (type) {
+        case 'daily':
+          report = await aiReportsService.generateDailyReport();
+          break;
+        case 'weekly':
+          report = await aiReportsService.generateWeeklyReport();
+          break;
+        case 'performance':
+          report = await aiReportsService.generatePerformanceReport();
+          break;
+        case 'problems':
+          report = await aiReportsService.generateProblemsReport();
+          break;
+        default:
+          res.status(400).json({ error: 'Invalid report type. Use: daily, weekly, performance, or problems' });
+          return;
+      }
+
+      logger.info(`[AI Reports] Generated ${type} report for admin ${req.user?.id}`);
+      res.json(report);
+    } catch (error) {
+      logger.error("[AI Reports] Error generating report:", error);
+      res.status(500).json({ error: "Failed to generate AI report" });
+    }
+  });
+
+  /**
+   * GET /api/admin/ai-reports
+   * Get list of available report types
+   */
+  router.get("/ai-reports", requireAdmin, async (req, res) => {
+    try {
+      res.json({
+        reports: [
+          {
+            type: 'daily',
+            name: 'Reporte Diario',
+            description: 'Resumen de las últimas 24 horas',
+            icon: '📊'
+          },
+          {
+            type: 'weekly',
+            name: 'Reporte Semanal',
+            description: 'Análisis de los últimos 7 días',
+            icon: '📈'
+          },
+          {
+            type: 'performance',
+            name: 'Performance',
+            description: 'Métricas de rendimiento de asesores',
+            icon: '⚡'
+          },
+          {
+            type: 'problems',
+            name: 'Problemas Actuales',
+            description: 'Detección de problemas en tiempo real',
+            icon: '🚨'
+          }
+        ],
+        metabaseUrl: 'https://wsp.azaleia.com.pe/metabase',
+        instructions: 'Copia el reporte TOON y pégalo en ChatGPT/Claude para obtener análisis inteligentes'
+      });
+    } catch (error) {
+      logger.error("[AI Reports] Error getting report list:", error);
+      res.status(500).json({ error: "Failed to get report list" });
     }
   });
 

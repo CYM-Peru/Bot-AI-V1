@@ -8,6 +8,10 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
+// Fecha desde la cual los datos de primera respuesta son confiables
+// Antes de esta fecha, el campo sent_by no era correcto y los timestamps de sesión estaban desincronizados
+const RELIABLE_METRICS_SINCE = new Date('2025-11-19T00:00:00-05:00').getTime(); // 19 Nov 2025, 00:00 (hora Perú)
+
 export interface ConversationMetric {
   id: string;
   conversationId: string;
@@ -33,6 +37,13 @@ export interface ConversationMetric {
 
 export class MetricsTrackerDB {
   private pool: Pool;
+
+  /**
+   * Retorna la fecha desde la cual las métricas de primera respuesta son confiables
+   */
+  static getReliableMetricsSince(): number {
+    return RELIABLE_METRICS_SINCE;
+  }
 
   constructor() {
     this.pool = new Pool({
@@ -70,7 +81,7 @@ export class MetricsTrackerDB {
         id, conversation_id, advisor_id, queue_id, channel_type, channel_id,
         started_at, status, transferred_from, message_count, response_count, tags
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 0, '[]'::jsonb)
-      ON CONFLICT (id) DO UPDATE SET
+      ON CONFLICT (conversation_id, advisor_id) DO UPDATE SET
         status = EXCLUDED.status,
         updated_at = NOW()`,
       [
@@ -106,11 +117,15 @@ export class MetricsTrackerDB {
    */
   async recordMessage(conversationId: string, isAdvisorMessage: boolean): Promise<void> {
     if (isAdvisorMessage) {
+      // Record advisor response and set first_response_at if this is the first response
+      const now = Date.now();
       await this.pool.query(
         `UPDATE conversation_metrics
-         SET response_count = response_count + 1, updated_at = NOW()
+         SET response_count = response_count + 1,
+             first_response_at = COALESCE(first_response_at, $2),
+             updated_at = NOW()
          WHERE conversation_id = $1`,
-        [conversationId]
+        [conversationId, now]
       );
     } else {
       await this.pool.query(
@@ -340,7 +355,7 @@ export class MetricsTrackerDB {
   /**
    * Calculate KPIs for an advisor
    */
-  async calculateKPIs(advisorId: string, startDate?: number, endDate?: number): Promise<{
+  async calculateKPIs(advisorId?: string, startDate?: number, endDate?: number): Promise<{
     totalConversations: number;
     received: number;
     active: number;
@@ -357,36 +372,63 @@ export class MetricsTrackerDB {
     avgMessagesPerConversation: number;
   }> {
     let query = `
+      WITH first_advisor_responses AS (
+        SELECT
+          cm.id as metric_id,
+          MIN(msg.created_at) as first_msg_time
+        FROM conversation_metrics cm
+        LEFT JOIN crm_messages msg ON msg.conversation_id = cm.conversation_id
+          AND msg.direction = 'outgoing'
+          AND msg.type = 'text'
+          AND msg.created_at > COALESCE(cm.session_start_time, cm.assigned_to_advisor_at, cm.started_at)
+        WHERE cm.started_at >= ${RELIABLE_METRICS_SINCE}
+          {FILTERS_PLACEHOLDER}
+        GROUP BY cm.id
+      )
       SELECT
         COUNT(*) as total_conversations,
-        COUNT(*) FILTER (WHERE status = 'received') as received,
-        COUNT(*) FILTER (WHERE status = 'active') as active,
-        COUNT(*) FILTER (WHERE status = 'transferred_out') as transferred_out,
-        COUNT(*) FILTER (WHERE status = 'transferred_in') as transferred_in,
-        COUNT(*) FILTER (WHERE status = 'rejected') as rejected,
-        COUNT(*) FILTER (WHERE status = 'completed') as completed,
-        COUNT(*) FILTER (WHERE status = 'abandoned') as abandoned,
-        AVG(first_response_at - started_at) FILTER (WHERE first_response_at IS NOT NULL) as avg_first_response_time,
-        AVG(ended_at - started_at) FILTER (WHERE ended_at IS NOT NULL) as avg_resolution_time,
-        AVG(session_duration) as avg_session_duration,
-        AVG(satisfaction_score) as avg_satisfaction_score,
-        SUM(message_count) as total_messages,
-        AVG(message_count) as avg_messages_per_conversation
-      FROM conversation_metrics
-      WHERE advisor_id = $1
+        COUNT(*) FILTER (WHERE cm.status = 'received') as received,
+        COUNT(*) FILTER (WHERE cm.status = 'active') as active,
+        COUNT(*) FILTER (WHERE cm.status = 'transferred_out') as transferred_out,
+        COUNT(*) FILTER (WHERE cm.status = 'transferred_in') as transferred_in,
+        COUNT(*) FILTER (WHERE cm.status = 'rejected') as rejected,
+        COUNT(*) FILTER (WHERE cm.status = 'completed') as completed,
+        COUNT(*) FILTER (WHERE cm.status = 'abandoned') as abandoned,
+        AVG(far.first_msg_time - COALESCE(cm.session_start_time, cm.assigned_to_advisor_at, cm.started_at)) FILTER (WHERE far.first_msg_time IS NOT NULL AND cm.started_at >= ${RELIABLE_METRICS_SINCE}) as avg_first_response_time,
+        AVG(cm.ended_at - cm.started_at) FILTER (WHERE cm.ended_at IS NOT NULL) as avg_resolution_time,
+        AVG(cm.session_duration) as avg_session_duration,
+        AVG(cm.satisfaction_score) as avg_satisfaction_score,
+        SUM(cm.message_count) as total_messages,
+        AVG(cm.message_count) as avg_messages_per_conversation
+      FROM conversation_metrics cm
+      LEFT JOIN first_advisor_responses far ON far.metric_id = cm.id
+      WHERE 1=1
     `;
 
-    const params: any[] = [advisorId];
+    const params: any[] = [];
+    let filters = '';
+
+    // Only filter by advisor if provided (allows seeing ALL metrics for admin/gerencia)
+    if (advisorId) {
+      params.push(advisorId);
+      filters += ` AND cm.advisor_id = $${params.length}`;
+    }
 
     if (startDate !== undefined) {
       params.push(startDate);
-      query += ` AND started_at >= $${params.length}`;
+      filters += ` AND cm.started_at >= $${params.length}`;
     }
 
     if (endDate !== undefined) {
       params.push(endDate);
-      query += ` AND started_at <= $${params.length}`;
+      filters += ` AND cm.started_at <= $${params.length}`;
     }
+
+    // Replace placeholder in CTE with actual filters
+    query = query.replace('{FILTERS_PLACEHOLDER}', filters);
+
+    // Add filters to main query too (with table alias)
+    query += filters.replace(/cm\./g, '');
 
     const result = await this.pool.query(query, params);
 

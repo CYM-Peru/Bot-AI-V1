@@ -1,4 +1,4 @@
-export type ConversationStatus = "active" | "attending" | "closed" | "archived";
+export type ConversationStatus = "active" | "attending" | "closed";
 
 export type ChannelType = "whatsapp" | "facebook" | "instagram" | "tiktok";
 
@@ -33,6 +33,7 @@ export interface Conversation {
   botFlowId?: string | null;       // ID del flujo que está atendiendo el bot
   category?: string | null;        // Categoría personalizada (ej: "desconocido" para envíos masivos)
   campaignId?: string | null;      // ID de campaña masiva (si el chat viene de un envío masivo)
+  closedReason?: string | null;    // Razón de cierre ('manual', 'archived', etc.)
   // Bounce system removed - distribution happens on advisor connection
 }
 
@@ -77,7 +78,7 @@ export type EventType =
   | "advisor_joined"             // Asesor se unió al chat
   | "advisor_left"               // Asesor salió del chat
   | "conversation_queued"        // Chat derivado a una cola
-  | "conversation_archived"      // Chat cerrado/archivado
+  | "conversation_archived"      // LEGACY: Chat cerrado (servidor usa status='closed', no envía este evento)
   | "conversation_reopened"      // Chat reabierto
   | "note_added";                // Nota interna agregada
 

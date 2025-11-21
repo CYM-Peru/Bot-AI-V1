@@ -63,14 +63,29 @@ router.get('/status', async (req, res) => {
       database = { chunks: [], version: '1.0.0', lastUpdated: new Date().toISOString() };
     }
 
+    // Calculate how many documents are indexed
+    const documents = knowledgeBase?.documents || [];
+    const documentsIndexed = documents.filter((doc: any) => {
+      return database.chunks.some(chunk => chunk.metadata.source === doc.id);
+    }).length;
+
+    // Mark documents as indexed
+    const documentsWithStatus = documents.map((doc: any) => {
+      const chunks = database.chunks.filter(chunk => chunk.metadata.source === doc.id);
+      return {
+        ...doc,
+        indexed: chunks.length > 0,
+        chunks: chunks.length
+      };
+    });
+
     res.json({
       enabled: knowledgeBase?.enabled || false,
-      hasApiKey,
-      documentsCount: knowledgeBase?.documents?.length || 0,
-      documents: knowledgeBase?.documents || [],
-      indexedChunks: database.chunks.length,
-      lastIndexed: database.lastUpdated,
-      dbPath
+      apiKeyConfigured: hasApiKey,
+      documentsIndexed,
+      totalDocuments: documents.length,
+      totalChunks: database.chunks.length,
+      documents: documentsWithStatus
     });
   } catch (error) {
     console.error('[RAG Admin] Error getting status:', error);
@@ -118,6 +133,21 @@ router.post('/save-api-key', async (req, res) => {
       return res.status(400).json({ error: 'API key requerida' });
     }
 
+    // Validate API key first
+    const validateResponse = await fetch('https://api.openai.com/v1/models', {
+      headers: { 'Authorization': `Bearer ${apiKey}` }
+    });
+
+    if (!validateResponse.ok) {
+      const error = await validateResponse.json();
+      return res.status(400).json({
+        error: error.error?.message || 'API key inválida'
+      });
+    }
+
+    const modelsData = await validateResponse.json();
+    const modelsAvailable = modelsData.data?.length || 0;
+
     const aiConfig = await readAIConfig();
     if (!aiConfig.openai) {
       aiConfig.openai = {};
@@ -126,7 +156,11 @@ router.post('/save-api-key', async (req, res) => {
 
     await writeAIConfig(aiConfig);
 
-    res.json({ success: true, message: 'API key guardada correctamente' });
+    res.json({
+      success: true,
+      message: 'API key guardada correctamente',
+      modelsAvailable
+    });
   } catch (error) {
     console.error('[RAG Admin] Error saving API key:', error);
     res.status(500).json({ error: String(error) });
@@ -172,6 +206,7 @@ router.post('/upload-pdf', upload.single('pdf'), async (req, res) => {
     res.json({
       success: true,
       message: 'PDF subido correctamente',
+      filename: document.name,
       document
     });
   } catch (error) {

@@ -31,6 +31,8 @@ export interface ProcessMessageOutput {
   responses: OutboundMessage[];
   session: ConversationSession | null;
   ended: boolean;
+  shouldTransfer?: boolean;
+  transferQueue?: string;
 }
 
 export class RuntimeEngine {
@@ -98,6 +100,8 @@ export class RuntimeEngine {
 
     const responses: OutboundMessage[] = [];
     let ended = false;
+    let shouldTransfer = false;
+    let transferQueue: string | undefined;
 
     if (session.awaitingNodeId) {
       const waitingNode = flow.nodes[session.awaitingNodeId];
@@ -110,44 +114,67 @@ export class RuntimeEngine {
         if (result.ended) {
           ended = true;
         }
+        if (result.shouldTransfer) {
+          shouldTransfer = true;
+          transferQueue = result.transferQueue;
+        }
         if (result.awaitingUserInput) {
           session.awaitingNodeId = result.nextNodeId ?? waitingNode.id;
           session.currentNodeId = result.nextNodeId ?? waitingNode.id;
           this.appendOutboundInteractions(session, responses, now);
           await this.persistSession(session);
-          return { responses, session, ended };
+          return { responses, session, ended, shouldTransfer, transferQueue };
         }
         session.awaitingNodeId = null;
         session.currentNodeId = result.nextNodeId ?? null;
         ended = ended || (!result.nextNodeId && Boolean(result.ended));
-        await this.runAutomaticNodes(flow, session, result.nextNodeId, responses, now);
+        const autoResult = await this.runAutomaticNodes(flow, session, result.nextNodeId, responses, now);
+        if (autoResult.shouldTransfer) {
+          shouldTransfer = true;
+          transferQueue = autoResult.transferQueue;
+        }
         this.appendOutboundInteractions(session, responses, now);
         if (ended || session.currentNodeId == null) {
           if (result.ended) {
             await this.sessionStore.deleteSession(session.id);
-            return { responses, session: null, ended: true };
+            return { responses, session: null, ended: true, shouldTransfer, transferQueue };
           }
         }
         await this.persistSession(session);
-        return { responses, session, ended: session.currentNodeId == null };
+        // CRITICAL: If there's a transfer, don't mark as ended even if currentNodeId is null
+        const finalEnded = shouldTransfer ? false : (session.currentNodeId == null);
+        return { responses, session, ended: finalEnded, shouldTransfer, transferQueue };
       }
       session.awaitingNodeId = null;
     }
 
     console.log('[RuntimeEngine] 🏃 Running automatic nodes from:', session.currentNodeId ?? flow.rootId);
-    await this.runAutomaticNodes(flow, session, session.currentNodeId ?? flow.rootId, responses, now, input.message);
-    console.log('[RuntimeEngine] ✅ Automatic nodes completed - responses:', responses.length, 'currentNodeId:', session.currentNodeId);
+    const autoResult = await this.runAutomaticNodes(flow, session, session.currentNodeId ?? flow.rootId, responses, now, input.message);
+    if (autoResult.shouldTransfer) {
+      shouldTransfer = true;
+      transferQueue = autoResult.transferQueue;
+      console.log('[RuntimeEngine] 🔄 Transfer captured from automatic nodes - queue:', transferQueue);
+    }
+    console.log('[RuntimeEngine] ✅ Automatic nodes completed - responses:', responses.length, 'currentNodeId:', session.currentNodeId, 'shouldTransfer:', shouldTransfer);
     this.appendOutboundInteractions(session, responses, now);
 
     if (!session.currentNodeId) {
+      // CRITICAL FIX: If there's a transfer, the flow is NOT ended - it's paused for human takeover
+      // Only mark as ended if there's NO transfer happening
+      if (shouldTransfer) {
+        console.log('[RuntimeEngine] ⏸️ Flow paused - transfer to human, NOT ending session');
+        await this.persistSession(session);
+        return { responses, session, ended: false, shouldTransfer, transferQueue };
+      }
+
       console.log('[RuntimeEngine] 🔚 Session ended - no currentNodeId');
       await this.sessionStore.deleteSession(session.id);
-      return { responses, session: null, ended: true };
+      return { responses, session: null, ended: true, shouldTransfer, transferQueue };
     }
 
     await this.persistSession(session);
     console.log('[RuntimeEngine] ✅ processMessage COMPLETE - responses:', responses.length, 'ended:', ended);
-    return { responses, session, ended };
+    return { responses, session, ended, shouldTransfer, transferQueue };
   }
 
   private async runAutomaticNodes(
@@ -157,17 +184,20 @@ export class RuntimeEngine {
     responses: OutboundMessage[],
     now: Date,
     initialMessage: IncomingMessage | null = null,
-  ): Promise<void> {
+  ): Promise<{ shouldTransfer: boolean; transferQueue?: string }> {
     console.log('[runAutomaticNodes] 🎬 START - startNodeId:', startNodeId);
     let nextNodeId = startNodeId;
     let message = initialMessage;
+    let shouldTransfer = false;
+    let transferQueue: string | undefined;
+
     while (nextNodeId) {
       console.log('[runAutomaticNodes] 🔍 Looking for node:', nextNodeId, 'in flow.nodes');
       const node = flow.nodes[nextNodeId];
       if (!node) {
         console.log('[runAutomaticNodes] ❌ Node NOT FOUND:', nextNodeId, 'Available nodes:', Object.keys(flow.nodes || {}).slice(0, 5));
         session.currentNodeId = null;
-        return;
+        return { shouldTransfer, transferQueue };
       }
       console.log('[runAutomaticNodes] ✅ Node found:', node.id, 'type:', node.type);
       const result = await this.executor.execute(flow, node, session, message, { now });
@@ -175,15 +205,21 @@ export class RuntimeEngine {
       if (result.variables) {
         session.variables = { ...session.variables, ...result.variables };
       }
+      // CRITICAL: Capture shouldTransfer and transferQueue from node execution
+      if (result.shouldTransfer) {
+        shouldTransfer = true;
+        transferQueue = result.transferQueue;
+        console.log('[runAutomaticNodes] 🔄 Transfer detected - queue:', transferQueue);
+      }
       if (result.ended) {
         session.currentNodeId = null;
-        return;
+        return { shouldTransfer, transferQueue };
       }
       if (result.awaitingUserInput) {
         console.log(`[Engine] ⚡ AWAITING USER INPUT: nodeId=${node.id}, awaitingNodeId=${node.id}, currentNodeId=${result.nextNodeId ?? node.id}`);
         session.awaitingNodeId = node.id;
         session.currentNodeId = result.nextNodeId ?? node.id;
-        return;
+        return { shouldTransfer, transferQueue };
       }
       nextNodeId = result.nextNodeId;
       session.currentNodeId = nextNodeId;
@@ -196,6 +232,7 @@ export class RuntimeEngine {
         session.currentNodeId = null;
       }
     }
+    return { shouldTransfer, transferQueue };
   }
 
   private appendOutboundInteractions(session: ConversationSession, responses: OutboundMessage[], now: Date): void {

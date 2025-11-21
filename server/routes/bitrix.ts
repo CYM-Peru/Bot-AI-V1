@@ -439,6 +439,202 @@ export function createBitrixRouter() {
   });
 
   /**
+   * GET /api/bitrix/leads
+   * Lista prospectos (leads) de Bitrix24 con paginación y búsqueda
+   * Query params:
+   *   - page: Número de página (default: 1)
+   *   - limit: Leads por página (default: 50)
+   *   - search: Término de búsqueda (título, nombre, teléfono)
+   *   - department: Filtro por departamento (campo UF_CRM_1662413427)
+   *   - status: Filtro por estado (STATUS_ID)
+   */
+  router.get("/leads", async (req, res) => {
+    try {
+      const tokens = readTokens();
+      if (!tokens?.access_token || !tokens.domain) {
+        res.status(401).json({ error: "not_authorized", message: "Bitrix24 not configured" });
+        return;
+      }
+
+      const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
+      const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || "50"), 10)));
+      const search = String(req.query.search || "").trim();
+      const department = String(req.query.department || "").trim();
+      const status = String(req.query.status || "").trim();
+
+      const baseUrl = tokens.domain.startsWith("http") ? tokens.domain : `https://${tokens.domain}`;
+      const start = (page - 1) * limit;
+
+      // Call Bitrix24 API to list leads
+      const endpoint = `${baseUrl.replace(/\/$/, "")}/rest/crm.lead.list.json`;
+
+      // Build base params with explicit field selection
+      const params = new URLSearchParams({
+        start: String(start),
+        limit: String(limit),
+      });
+
+      // Request specific fields from Bitrix
+      const selectFields = [
+        'ID',
+        'TITLE',
+        'NAME',
+        'LAST_NAME',
+        'PHONE',
+        'EMAIL',
+        'STATUS_ID',
+        'SOURCE_ID',
+        'UF_CRM_1662413427', // Departamentos
+        'ASSIGNED_BY_ID',
+        'DATE_CREATE',
+        'DATE_MODIFY',
+      ];
+
+      // Add select fields to params
+      selectFields.forEach(field => {
+        params.append('select[]', field);
+      });
+
+      // Build filter query string
+      const filterParams: string[] = [];
+
+      // Exact match filters
+      if (department) {
+        filterParams.push(`filter[UF_CRM_1662413427]=${encodeURIComponent(department)}`);
+      }
+      if (status) {
+        filterParams.push(`filter[STATUS_ID]=${encodeURIComponent(status)}`);
+      }
+
+      // Combine filter params
+      const filterQuery = filterParams.length > 0 ? '&' + filterParams.join('&') : '';
+
+      // If there's a search, use filter
+      if (search) {
+        // Search in multiple fields
+        const searchByTitleUrl = `${endpoint}?${params}&filter[%TITLE]=${encodeURIComponent(search)}${filterQuery}`;
+        const searchByNameUrl = `${endpoint}?${params}&filter[%NAME]=${encodeURIComponent(search)}${filterQuery}`;
+        const searchByPhoneUrl = `${endpoint}?${params}&filter[PHONE]=${encodeURIComponent(search)}${filterQuery}`;
+
+        const [titleResults, nameResults, phoneResults] = await Promise.all([
+          httpRequest<{ result?: any[]; total?: number }>(
+            searchByTitleUrl,
+            {
+              method: "GET",
+              headers: { Authorization: `Bearer ${tokens.access_token}` },
+              timeoutMs: 15000,
+            }
+          ),
+          httpRequest<{ result?: any[]; total?: number }>(
+            searchByNameUrl,
+            {
+              method: "GET",
+              headers: { Authorization: `Bearer ${tokens.access_token}` },
+              timeoutMs: 15000,
+            }
+          ),
+          httpRequest<{ result?: any[]; total?: number }>(
+            searchByPhoneUrl,
+            {
+              method: "GET",
+              headers: { Authorization: `Bearer ${tokens.access_token}` },
+              timeoutMs: 15000,
+            }
+          ),
+        ]);
+
+        // Merge and deduplicate results
+        const allResults = [
+          ...(titleResults.body?.result || []),
+          ...(nameResults.body?.result || []),
+          ...(phoneResults.body?.result || []),
+        ];
+        const uniqueLeads = Array.from(
+          new Map(allResults.map(lead => [lead.ID, lead])).values()
+        ).slice(0, limit);
+
+        res.json({
+          leads: uniqueLeads,
+          total: uniqueLeads.length,
+          page,
+          limit,
+          hasMore: false,
+        });
+        return;
+      }
+
+      // No search - regular list
+      const response = await httpRequest<{ result?: any[]; total?: number }>(
+        `${endpoint}?${params}${filterQuery}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${tokens.access_token}` },
+          timeoutMs: 15000,
+        }
+      );
+
+      if (!response.ok) {
+        // Try to refresh token if unauthorized
+        if (response.status === 401) {
+          try {
+            await refreshBitrixTokens();
+            // Retry the request with new token
+            const newTokens = readTokens();
+            const retryResponse = await httpRequest<{ result?: any[]; total?: number }>(
+              `${endpoint}?${params}${filterQuery}`,
+              {
+                method: "GET",
+                headers: { Authorization: `Bearer ${newTokens?.access_token}` },
+                timeoutMs: 15000,
+              }
+            );
+
+            if (retryResponse.ok) {
+              const leads = retryResponse.body?.result || [];
+              const total = retryResponse.body?.total || leads.length;
+
+              res.json({
+                leads,
+                total,
+                page,
+                limit,
+                hasMore: start + leads.length < total,
+              });
+              return;
+            }
+          } catch (refreshError) {
+            console.error("[Bitrix] Token refresh failed:", refreshError);
+          }
+        }
+
+        res.status(response.status).json({
+          error: "bitrix_error",
+          message: "Failed to fetch leads from Bitrix24",
+          details: response.body,
+        });
+        return;
+      }
+
+      const leads = response.body?.result || [];
+      const total = response.body?.total || leads.length;
+
+      res.json({
+        leads,
+        total,
+        page,
+        limit,
+        hasMore: start + leads.length < total,
+      });
+    } catch (error) {
+      console.error("[Bitrix] Error listing leads:", error);
+      res.status(500).json({
+        error: "server_error",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
    * POST /api/bitrix/contacts/:contactId/send-template
    * Enviar plantilla de WhatsApp a un contacto de Bitrix
    * Body:

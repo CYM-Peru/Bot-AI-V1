@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiUrl } from "../../lib/apiBase";
+import { useAuth } from "../../hooks/useAuth";
 
 interface User {
   id: string;
@@ -17,6 +18,7 @@ interface Role {
 }
 
 export function UserManagement() {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
@@ -170,11 +172,12 @@ export function UserManagement() {
       admin: "bg-purple-100 text-purple-700 border-purple-300",
       supervisor: "bg-blue-100 text-blue-700 border-blue-300",
       asesor: "bg-emerald-100 text-emerald-700 border-emerald-300",
+      gerencia: "bg-amber-100 text-amber-700 border-amber-300",
     };
 
     // Find role name from roles array or use default labels
     const roleObj = roles.find(r => r.id === role);
-    const roleName = roleObj ? roleObj.name : (role === 'admin' ? 'Admin' : role === 'supervisor' ? 'Supervisor' : role === 'asesor' ? 'Asesor' : role);
+    const roleName = roleObj ? roleObj.name : (role === 'admin' ? 'Admin' : role === 'supervisor' ? 'Supervisor' : role === 'asesor' ? 'Asesor' : role === 'gerencia' ? 'Gerencia' : role);
     const roleColor = colors[role as keyof typeof colors] || "bg-slate-100 text-slate-700 border-slate-300";
 
     return (
@@ -275,7 +278,15 @@ export function UserManagement() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {users.map((user) => (
+              {users
+                .filter((user) => {
+                  // Ocultar usuarios con rol "gerencia" si no es admin
+                  if (user.role === 'gerencia' && currentUser?.role !== 'admin') {
+                    return false;
+                  }
+                  return true;
+                })
+                .map((user) => (
                 <tr key={user.id} className="hover:bg-slate-50 transition">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
@@ -419,13 +430,23 @@ export function UserManagement() {
                       <option value="admin">Administrador</option>
                       <option value="supervisor">Supervisor</option>
                       <option value="asesor">Asesor</option>
+                      {/* GERENCIA solo visible para admin */}
+                      {currentUser?.role === 'admin' && (
+                        <option value="gerencia">Gerencia</option>
+                      )}
                     </>
                   ) : (
-                    roles.map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.name}
-                      </option>
-                    ))
+                    roles.map((role) => {
+                      // Ocultar rol "gerencia" si no es admin
+                      if (role.id === 'gerencia' && currentUser?.role !== 'admin') {
+                        return null;
+                      }
+                      return (
+                        <option key={role.id} value={role.id}>
+                          {role.name}
+                        </option>
+                      );
+                    })
                   )}
                 </select>
               </div>

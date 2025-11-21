@@ -1,4 +1,4 @@
-export type ConversationStatus = "active" | "attending" | "archived";
+export type ConversationStatus = "active" | "attending" | "closed";
 
 export type ChannelType = "whatsapp" | "facebook" | "instagram" | "tiktok";
 
@@ -32,6 +32,7 @@ export interface Conversation {
   lastMessageAt: number;
   unread: number;
   status: ConversationStatus;
+  closedReason: string | null;     // Reason for closing (archived, completed, timeout, etc.)
   lastMessagePreview: string | null;
   assignedTo: string | null;       // Advisor email/ID who accepted the conversation
   assignedAt: number | null;       // Timestamp when assigned
@@ -42,6 +43,8 @@ export interface Conversation {
   displayNumber: string | null;    // Display number for this connection (e.g., "+51 1 6193636")
   attendedBy: string[];            // Array of advisor userIds who have attended this conversation
   ticketNumber: number | null;     // Número correlativo del ticket/chat
+  category: string | null;         // Categoría de la conversación (cat-masivos, cat-en-cola-bot, etc)
+  campaignIds: string[];           // Array de IDs de campañas masivas recibidas
   aiAnalysis?: AIAnalysis;         // AI-powered conversation analysis
   adReferral?: AdReferralData;     // Datos de tracking de anuncios de Facebook/Instagram
 }

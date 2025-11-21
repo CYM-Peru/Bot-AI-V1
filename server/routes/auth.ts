@@ -52,8 +52,11 @@ export function createAuthRouter() {
       });
 
       // Log login activity
+      // NOTE: We don't mark advisor as online here - that's handled by WebSocket connection
+      // This prevents false "online" status when users login but don't open the CRM interface
       try {
         await adminDb.logAdvisorActivity(user.id, user.name || user.username, 'login');
+        logger.info(`[Auth] User ${user.id} (${user.username}) logged in`);
       } catch (error) {
         logger.error("[Auth] Failed to log login activity:", error);
       }
@@ -104,36 +107,31 @@ export function createAuthRouter() {
   });
 
   /**
-   * Add logout notifications to ALL conversations where the advisor has participated
-   * This includes conversations assigned to them AND conversations they've attended before
+   * Handle logout: Release "POR TRABAJAR" chats, keep "TRABAJANDO" chats assigned
    */
   async function addLogoutNotifications(userId: string, userName: string): Promise<void> {
     try {
       const { crmDb } = await import("../crm/db");
       const { getCrmGateway } = await import("../crm/ws");
 
-      // CHANGED: Get ALL conversations where this advisor has participated
-      // This includes: currently assigned + attended_by history (for full traceability)
+      // Get all conversations assigned to this advisor
       const allConversations = await crmDb.listConversations();
       const advisorConversations = allConversations.filter(conv => {
-        // Currently assigned to this advisor
         const isCurrentlyAssigned = conv.assignedTo === userId;
-
-        // Has attended this conversation before (check attended_by array)
-        const hasAttended = conv.attendedBy?.includes(userId) || false;
-
-        // Only include active/attending conversations (not archived)
         const isActive = conv.status === "active" || conv.status === "attending";
-
-        return (isCurrentlyAssigned || hasAttended) && isActive;
+        return isCurrentlyAssigned && isActive;
       });
 
       if (advisorConversations.length === 0) {
-        logger.info(`[Auth] No active conversations for ${userName} - skipping logout notifications`);
+        logger.info(`[Auth] No active conversations for ${userName} - skipping logout processing`);
         return;
       }
 
-      logger.info(`[Auth] Adding logout notifications to ${advisorConversations.length} conversations of ${userName} (assigned + attended)`);
+      // Separate: TRABAJANDO (attending) vs POR TRABAJAR (active)
+      const trabajando = advisorConversations.filter(c => c.status === "attending");
+      const porTrabajar = advisorConversations.filter(c => c.status === "active");
+
+      logger.info(`[Auth] ${userName} logout - TRABAJANDO: ${trabajando.length}, POR TRABAJAR: ${porTrabajar.length}`);
 
       const now = new Date();
       const timestamp = now.toLocaleString('es-PE', {
@@ -147,39 +145,44 @@ export function createAuthRouter() {
 
       const gateway = getCrmGateway();
 
-      // Add system message to each conversation AND close them
-      for (const conversation of advisorConversations) {
+      // 1. TRABAJANDO (attending) - Keep assigned, add notification
+      for (const conversation of trabajando) {
         const systemMessage = await crmDb.createSystemEvent(
           conversation.id,
           'advisor_logout',
-          `👋 ${userName} cerró sesión (${timestamp})`
+          `👋 ${userName} cerró sesión (${timestamp}) - Chat permanece asignado`
         );
 
-        // CRITICAL FIX: Close the conversation when advisor logs out
-        // Set status to 'closed' and clear assignment
-        await crmDb.updateConversation(conversation.id, {
-          status: 'closed',
-          assignedTo: null,
-          queueId: null
-        });
-
-        // Emit WebSocket events
         if (gateway) {
           gateway.emitNewMessage({ message: systemMessage });
-          gateway.emitConversationUpdate({
-            conversationId: conversation.id,
-            updates: {
-              status: 'closed',
-              assignedTo: null,
-              queueId: null
-            }
-          });
         }
       }
 
-      logger.info(`[Auth] ✅ Added logout notifications and closed ${advisorConversations.length} conversations`);
+      // 2. POR TRABAJAR (active) - Release to queue
+      for (const conversation of porTrabajar) {
+        // Release conversation back to queue
+        await crmDb.releaseConversation(conversation.id);
+
+        const systemMessage = await crmDb.createSystemEvent(
+          conversation.id,
+          'conversation_released',
+          `📤 ${userName} cerró sesión (${timestamp}) - Chat devuelto a cola`
+        );
+
+        if (gateway) {
+          gateway.emitNewMessage({ message: systemMessage });
+
+          // Emit conversation update
+          const updated = await crmDb.getConversationById(conversation.id);
+          if (updated) {
+            gateway.emitConversationUpdate({ conversation: updated });
+          }
+        }
+      }
+
+      logger.info(`[Auth] ✅ Logout processed - ${trabajando.length} chats kept, ${porTrabajar.length} chats released to queue`);
     } catch (error) {
-      logger.error(`[Auth] Error adding logout notifications:`, error);
+      logger.error(`[Auth] Error processing logout:`, error);
     }
   }
 
@@ -266,8 +269,9 @@ export function createAuthRouter() {
   /**
    * POST /api/auth/change-password
    * Cambiar contraseña del usuario autenticado
+   * NOTE: No usa authLimiter porque el usuario ya está autenticado
    */
-  router.post("/change-password", authLimiter, requireAuth, validateBody(changePasswordSchema), async (req, res) => {
+  router.post("/change-password", requireAuth, validateBody(changePasswordSchema), async (req, res) => {
     try {
       const { currentPassword, newPassword } = req.body;
 

@@ -35,6 +35,8 @@ import { AdminTicketsPanel } from "./components/AdminTicketsPanel";
 import { TicketFormModal } from "./components/TicketFormModal";
 import { MyTicketsPanel } from "./components/MyTicketsPanel";
 import { MaintenanceControlPanel } from "./components/MaintenanceAlert";
+import { AIReportsPanel } from "./components/AIReportsPanel";
+import { apiUrl } from "./lib/apiBase";
 const CampaignsPage = React.lazy(() => import("./campaigns/CampaignsPage"));
 const TemplateCreatorPage = React.lazy(() => import("./templates/TemplateCreatorPage"));
 const AgendaPage = React.lazy(() => import("./agenda/AgendaPage"));
@@ -309,6 +311,31 @@ export default function App(): JSX.Element {
   const { hasPermission } = usePermissions(user?.role);
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [userRoleName, setUserRoleName] = useState<string>('');
+
+  // Fetch user role name
+  useEffect(() => {
+    if (!user?.role) return;
+
+    const fetchRoleName = async () => {
+      try {
+        const response = await fetch(apiUrl("/api/admin/roles"), {
+          credentials: "include",
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const roles = data.roles || [];
+          const roleObj = roles.find((r: any) => r.id === user.role);
+          setUserRoleName(roleObj?.name?.toLowerCase() || user.role.toLowerCase());
+        }
+      } catch (error) {
+        console.error("[App] Error loading role name:", error);
+        setUserRoleName(user.role.toLowerCase());
+      }
+    };
+
+    fetchRoleName();
+  }, [user?.role]);
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [showTicketsPanel, setShowTicketsPanel] = useState(false);
   const [showReportMenu, setShowReportMenu] = useState(false);
@@ -325,10 +352,10 @@ export default function App(): JSX.Element {
   const [webhookTestResult, setWebhookTestResult] = useState<WebhookResponse | null>(null);
   const [webhookTesting, setWebhookTesting] = useState(false);
   // Default tab will be set by useEffect based on user role or from localStorage
-  const [mainTab, setMainTab] = useState<'canvas' | 'crm' | 'campaigns' | 'templates' | 'agenda' | 'advisors' | 'metrics' | 'config'>(() => {
+  const [mainTab, setMainTab] = useState<'canvas' | 'crm' | 'campaigns' | 'templates' | 'agenda' | 'advisors' | 'metrics' | 'config' | 'ai-reports'>(() => {
     // Try to restore from localStorage first
     const saved = localStorage.getItem('flowbuilder_mainTab');
-    if (saved && ['canvas', 'crm', 'campaigns', 'templates', 'agenda', 'advisors', 'metrics', 'config'].includes(saved)) {
+    if (saved && ['canvas', 'crm', 'campaigns', 'templates', 'agenda', 'advisors', 'metrics', 'config', 'ai-reports'].includes(saved)) {
       return saved as any;
     }
     return 'crm';
@@ -350,8 +377,8 @@ export default function App(): JSX.Element {
   const [queues, setQueues] = useState<Array<{ id: string; name: string }>>([]);
   const [advisors, setAdvisors] = useState<Array<{ id: string; name: string; email: string; isOnline: boolean }>>([]);
 
-  // WebSocket for advisor status panel real-time updates
-  const [advisorSocket, setAdvisorSocket] = useState<CrmSocket | null>(null);
+  // Global WebSocket for real-time advisor presence updates (always active)
+  const [globalAdvisorSocket, setGlobalAdvisorSocket] = useState<CrmSocket | null>(null);
 
   // Check for URL parameters to navigate to specific tabs (e.g., ?tab=crm)
   useEffect(() => {
@@ -372,27 +399,53 @@ export default function App(): JSX.Element {
     localStorage.setItem('flowbuilder_mainTab', mainTab);
   }, [mainTab]);
 
-  // Create WebSocket connection for advisor status panel when advisors tab is active
+  // Create GLOBAL WebSocket connection for real-time advisor presence updates
+  // This socket stays active regardless of which tab is visible
   useEffect(() => {
-    if (mainTab === 'advisors' && hasPermission('advisors.view')) {
-      console.log('[App] Creating CRM socket for advisor status panel...');
-      const socket = createCrmSocket();
-      setAdvisorSocket(socket);
+    console.log('[App] 🔌 Creating GLOBAL WebSocket for real-time advisor presence...');
+    const socket = createCrmSocket();
 
-      return () => {
-        console.log('[App] Disconnecting CRM socket for advisor status panel...');
-        socket.disconnect();
-        setAdvisorSocket(null);
-      };
-    } else {
-      // Clean up socket if tab changes away from advisors
-      if (advisorSocket) {
-        console.log('[App] Cleaning up advisor socket (tab changed)');
-        advisorSocket.disconnect();
-        setAdvisorSocket(null);
-      }
-    }
-  }, [mainTab]);
+    // Listen for real-time advisor presence updates
+    socket.on('crm:advisor:presence', (presence: any) => {
+      console.log('[App] 📡 Advisor presence update received (REAL-TIME):', presence);
+
+      // Update advisors state IMMEDIATELY when presence changes
+      setAdvisors(prev => {
+        const index = prev.findIndex(a => a.id === presence.userId);
+
+        if (index === -1) {
+          // New advisor, add to list
+          console.log(`[App] ➕ Adding new advisor: ${presence.userId}`);
+          return [...prev, {
+            id: presence.userId,
+            name: presence.user.name || presence.user.username,
+            email: presence.user.email,
+            isOnline: presence.isOnline
+          }];
+        } else {
+          // Update existing advisor
+          console.log(`[App] 🔄 Updating advisor ${presence.userId}: isOnline=${presence.isOnline}`);
+          const updated = [...prev];
+          updated[index] = {
+            id: presence.userId,
+            name: presence.user.name || presence.user.username,
+            email: presence.user.email,
+            isOnline: presence.isOnline
+          };
+          return updated;
+        }
+      });
+    });
+
+    setGlobalAdvisorSocket(socket);
+    console.log('[App] ✅ Global advisor presence WebSocket connected');
+
+    return () => {
+      console.log('[App] 🔌 Disconnecting global advisor socket (App unmount)');
+      socket.disconnect();
+      setGlobalAdvisorSocket(null);
+    };
+  }, []); // Only run once on mount, never disconnect until app closes
 
   // Set default tab based on user role when user is loaded (only if not already set from localStorage)
   useEffect(() => {
@@ -462,14 +515,26 @@ export default function App(): JSX.Element {
     const loadQueuesAndAdvisors = async () => {
       try {
         // Load queues
-        const queuesRes = await fetch('/api/admin/queues');
+        const queuesRes = await fetch('/api/admin/queues', {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
         if (queuesRes.ok) {
           const queuesData = await queuesRes.json();
           setQueues((queuesData.queues || []).map((q: any) => ({ id: q.id, name: q.name })));
+        } else {
+          console.error('Failed to load queues:', queuesRes.status, await queuesRes.text());
         }
 
         // Load advisors with presence
-        const advisorsRes = await fetch('/api/admin/advisor-presence');
+        const advisorsRes = await fetch('/api/admin/advisor-presence', {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
         if (advisorsRes.ok) {
           const advisorsData = await advisorsRes.json();
           setAdvisors((advisorsData.advisors || []).map((a: any) => ({
@@ -478,6 +543,8 @@ export default function App(): JSX.Element {
             email: a.user.email,
             isOnline: a.isOnline
           })));
+        } else {
+          console.error('Failed to load advisors:', advisorsRes.status, await advisorsRes.text());
         }
       } catch (error) {
         console.error('Failed to load queues and advisors:', error);
@@ -485,8 +552,8 @@ export default function App(): JSX.Element {
     };
 
     loadQueuesAndAdvisors();
-    // Refresh every 10 seconds
-    const interval = setInterval(loadQueuesAndAdvisors, 10000);
+    // Refresh every 5 minutes (only as backup - WebSocket provides real-time updates)
+    const interval = setInterval(loadQueuesAndAdvisors, 300000); // 5 minutes
     return () => clearInterval(interval);
   }, []);
 
@@ -1666,7 +1733,7 @@ export default function App(): JSX.Element {
         const stored = await loadFlow<PersistedState>(workspaceIdRef.current);
         if (!stored || !stored.flow || cancelled) return;
         replaceFlow(stored.flow, stored.positions ?? {});
-        showToast("Flujo cargado", "success");
+        // Toast removed - no need to notify users on auto-load
       } catch (error) {
         if (!cancelled) {
           console.error(error);
@@ -2685,72 +2752,14 @@ export default function App(): JSX.Element {
 
         <div className="relative z-10 text-center">
           <div className="glass-card rounded-3xl px-16 py-12 shadow-2xl border border-white/20 backdrop-blur-xl bg-white/10 animate-fade-in">
-            <div className="mb-6 animate-wave">
-              <div className="inline-block text-8xl">👋</div>
+            <div className="mb-8 animate-wave">
+              <div className="inline-block text-9xl">👋</div>
             </div>
 
-            {/* Logo Retro Azaleia */}
-            <div className="mb-6" style={{ position: 'relative', display: 'inline-block' }}>
-              <h1 style={{
-                fontFamily: "'Alfa Slab One', cursive",
-                fontSize: '2.5rem',
-                fontWeight: 'bold',
-                textTransform: 'lowercase',
-                letterSpacing: '3px',
-                margin: 0,
-                padding: '8px 16px',
-                position: 'relative',
-                WebkitTextStroke: '8px rgba(255, 255, 255, 0.1)',
-                paintOrder: 'stroke fill',
-                color: 'transparent',
-                zIndex: 1,
-                lineHeight: '1'
-              }}>
-                azaleia
-              </h1>
-              <h1 style={{
-                fontFamily: "'Alfa Slab One', cursive",
-                fontSize: '2.5rem',
-                fontWeight: 'bold',
-                textTransform: 'lowercase',
-                letterSpacing: '3px',
-                margin: 0,
-                padding: '8px 16px',
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                WebkitTextStroke: '5px #D65436',
-                paintOrder: 'stroke fill',
-                color: 'transparent',
-                zIndex: 2,
-                lineHeight: '1'
-              }}>
-                azaleia
-              </h1>
-              <h1 style={{
-                fontFamily: "'Alfa Slab One', cursive",
-                fontSize: '2.5rem',
-                fontWeight: 'bold',
-                textTransform: 'lowercase',
-                letterSpacing: '3px',
-                margin: 0,
-                padding: '8px 16px',
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                color: '#F9D349',
-                zIndex: 3,
-                filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5))',
-                lineHeight: '1'
-              }}>
-                azaleia
-              </h1>
-            </div>
-
-            <h2 className="text-4xl font-bold text-white mb-3 animate-slide-up">
+            <h2 className="text-5xl font-bold text-white mb-4 animate-slide-up">
               ¡Hasta pronto!
             </h2>
-            <p className="text-xl text-white/80 animate-slide-up animation-delay-200">
+            <p className="text-2xl text-white/90 animate-slide-up animation-delay-200">
               {user?.name || user?.username || "Usuario"}
             </p>
           </div>
@@ -2976,8 +2985,8 @@ export default function App(): JSX.Element {
 
           {/* Tabs Pills - Centrados */}
           <div className="flex gap-1.5 flex-1 justify-center flex-wrap">
-            {/* Canvas tab */}
-            {hasPermission('canvas.view') && (
+            {/* Canvas tab - Oculto para GERENCIA */}
+            {hasPermission('canvas.view') && userRoleName !== 'gerencia' && (
               <button
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'canvas' ? 'bg-slate-200 text-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                 onClick={() => setMainTab('canvas')}
@@ -2986,6 +2995,7 @@ export default function App(): JSX.Element {
                 📄 Canvas
               </button>
             )}
+            {/* Chat - Visible para GERENCIA */}
             {hasPermission('crm.view') && (
               <button
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'crm' ? 'bg-green-200 text-green-700' : 'bg-green-100 text-green-600 hover:bg-green-200'}`}
@@ -2995,7 +3005,8 @@ export default function App(): JSX.Element {
                 💬 Chat
               </button>
             )}
-            {hasPermission('campaigns.view') && (
+            {/* Campañas - Oculto para GERENCIA */}
+            {hasPermission('campaigns.view') && userRoleName !== 'gerencia' && (
               <button
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'campaigns' ? 'bg-red-200 text-red-700' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}
                 onClick={() => setMainTab('campaigns')}
@@ -3004,7 +3015,8 @@ export default function App(): JSX.Element {
                 📢 Campañas
               </button>
             )}
-            {hasPermission('templates.view') && (
+            {/* Plantillas - Oculto para GERENCIA */}
+            {hasPermission('templates.view') && userRoleName !== 'gerencia' && (
               <button
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'templates' ? 'bg-purple-200 text-purple-700' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'}`}
                 onClick={() => setMainTab('templates')}
@@ -3013,7 +3025,8 @@ export default function App(): JSX.Element {
                 📝 Plantillas
               </button>
             )}
-            {hasPermission('agenda.view') && (
+            {/* Agenda - Oculto para GERENCIA */}
+            {hasPermission('agenda.view') && userRoleName !== 'gerencia' && (
               <button
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'agenda' ? 'bg-blue-200 text-blue-700' : 'bg-blue-100 text-blue-600 hover:bg-blue-200'}`}
                 onClick={() => setMainTab('agenda')}
@@ -3022,6 +3035,7 @@ export default function App(): JSX.Element {
                 📅 Agenda
               </button>
             )}
+            {/* Asesores - Visible para GERENCIA */}
             {hasPermission('advisors.view') && (
               <button
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'advisors' ? 'bg-purple-200 text-purple-700' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'}`}
@@ -3031,6 +3045,7 @@ export default function App(): JSX.Element {
                 👥 Asesores
               </button>
             )}
+            {/* Métricas - Visible para GERENCIA */}
             {hasPermission('metrics.view') && (
               <button
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'metrics' ? 'bg-pink-200 text-pink-700' : 'bg-pink-100 text-pink-600 hover:bg-pink-200'}`}
@@ -3040,13 +3055,24 @@ export default function App(): JSX.Element {
                 📊 Métricas
               </button>
             )}
-            {hasPermission('config.view') && (
+            {/* Config - Oculto para GERENCIA */}
+            {hasPermission('config.view') && userRoleName !== 'gerencia' && (
               <button
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'config' ? 'bg-slate-200 text-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                 onClick={() => setMainTab('config')}
                 type="button"
               >
                 ⚙️ Config
+              </button>
+            )}
+            {/* AI Reports - SOLO ADMIN */}
+            {user && user.role === 'admin' && (
+              <button
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'ai-reports' ? 'bg-purple-200 text-purple-700' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'}`}
+                onClick={() => setMainTab('ai-reports')}
+                type="button"
+              >
+                🤖 Informes IA
               </button>
             )}
           </div>
@@ -5057,7 +5083,7 @@ export default function App(): JSX.Element {
       {mainTab === 'advisors' && hasPermission('advisors.view') && (
         <div className="mt-2 h-[calc(100vh-70px)]">
           <div className="h-full max-w-4xl mx-auto">
-            <AdvisorStatusPanel socket={advisorSocket} />
+            <AdvisorStatusPanel socket={globalAdvisorSocket} />
           </div>
         </div>
       )}
@@ -5077,6 +5103,13 @@ export default function App(): JSX.Element {
             onUpdateWhatsappNumbers={setWhatsappNumbers}
             user={user}
           />
+        </div>
+      )}
+
+      {/* AI Reports Tab - SOLO ADMIN */}
+      {mainTab === 'ai-reports' && user && user.role === 'admin' && (
+        <div className="mt-2 h-[calc(100vh-70px)] overflow-y-auto">
+          <AIReportsPanel />
         </div>
       )}
       </div>

@@ -9,13 +9,11 @@
  *
  * - active: Conversation in queue, no advisor assigned
  * - attending: Advisor is actively attending the conversation
- * - archived: Auto-closed by system after 24h of client inactivity
- * - closed: Manually closed by advisor OR campaign message (not responded)
+ * - closed: Closed by advisor, auto-closed by system, or campaign message (not responded)
  */
 export enum ConversationStatus {
   ACTIVE = 'active',
   ATTENDING = 'attending',
-  ARCHIVED = 'archived',
   CLOSED = 'closed',
 }
 
@@ -26,16 +24,11 @@ export enum ConversationStatus {
 const VALID_TRANSITIONS: Record<ConversationStatus, ConversationStatus[]> = {
   [ConversationStatus.ACTIVE]: [
     ConversationStatus.ATTENDING,  // Advisor accepts
-    ConversationStatus.ARCHIVED,   // Auto-archive
     ConversationStatus.CLOSED,     // Manual close
   ],
   [ConversationStatus.ATTENDING]: [
     ConversationStatus.ACTIVE,     // Transfer/unassign
-    ConversationStatus.ARCHIVED,   // Auto-archive
     ConversationStatus.CLOSED,     // Manual close
-  ],
-  [ConversationStatus.ARCHIVED]: [
-    ConversationStatus.ACTIVE,     // Client writes back / unarchive
   ],
   [ConversationStatus.CLOSED]: [
     ConversationStatus.ACTIVE,     // Client responds to campaign / reopen
@@ -126,8 +119,6 @@ export function getStatusDescription(status: string): string {
       return 'En cola, sin asesor asignado';
     case ConversationStatus.ATTENDING:
       return 'Siendo atendido por asesor';
-    case ConversationStatus.ARCHIVED:
-      return 'Archivado automáticamente por inactividad';
     case ConversationStatus.CLOSED:
       return 'Cerrado manualmente o campaña masiva';
     default:
@@ -139,7 +130,7 @@ export function getStatusDescription(status: string): string {
  * Check if status represents a "finished" conversation
  */
 export function isFinishedStatus(status: string): boolean {
-  return status === ConversationStatus.ARCHIVED || status === ConversationStatus.CLOSED;
+  return status === ConversationStatus.CLOSED;
 }
 
 /**

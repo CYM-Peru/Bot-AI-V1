@@ -8,6 +8,7 @@ interface EventBubbleProps {
 }
 
 // Icons for each event type
+// NOTE: conversation_archived is LEGACY (server never sends it, kept for backwards compatibility)
 const EVENT_ICONS: Record<string, string> = {
   conversation_accepted: "✅",
   conversation_rejected: "❌",
@@ -18,7 +19,7 @@ const EVENT_ICONS: Record<string, string> = {
   advisor_logout: "👋",
   advisor_status_change: "⏸️",
   conversation_queued: "📋",
-  conversation_archived: "📁",
+  conversation_archived: "📁",  // LEGACY: Server uses status='closed', doesn't emit this event
   conversation_reopened: "🔓",
   conversation_taken: "🔄",
   note_added: "📌",
@@ -58,12 +59,13 @@ const EVENT_BG_COLORS: Record<string, string> = {
 export default function EventBubble({ message, onDelete }: EventBubbleProps) {
   const { user } = useAuth();
 
-  if (!message.eventType) return null;
-
-  const icon = EVENT_ICONS[message.eventType] || "📌";
+  // Handle messages with eventType (modern) and without (legacy)
+  const icon = message.eventType ? (EVENT_ICONS[message.eventType] || "📌") : "ℹ️";
 
   // PRIORITY: Use metadata.backgroundColor if present (for status changes)
-  const backgroundColor = message.metadata?.backgroundColor || EVENT_BG_COLORS[message.eventType] || "#6b7280";
+  const backgroundColor = message.metadata?.backgroundColor ||
+                         (message.eventType ? EVENT_BG_COLORS[message.eventType] : null) ||
+                         "#6b7280";
 
   // Format timestamp
   const date = new Date(message.createdAt);
@@ -96,9 +98,9 @@ export default function EventBubble({ message, onDelete }: EventBubbleProps) {
   };
 
   return (
-    <div className="flex justify-center my-2 group relative">
+    <div className="flex justify-center my-0.5 group">
       <div
-        className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold text-white shadow-sm"
+        className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold text-white shadow-sm relative"
         style={{ backgroundColor }}
       >
         <span className="text-sm">{icon}</span>
@@ -107,10 +109,10 @@ export default function EventBubble({ message, onDelete }: EventBubbleProps) {
         {user?.role === 'admin' && (
           <button
             onClick={handleDelete}
-            className="opacity-0 group-hover:opacity-100 transition-opacity ml-2 hover:bg-white/20 rounded p-1"
+            className="absolute -right-8 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/20 rounded p-1"
             title="Eliminar mensaje"
           >
-            <Trash2 size={12} className="text-white" />
+            <Trash2 size={12} className="text-red-500" />
           </button>
         )}
       </div>

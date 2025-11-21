@@ -105,11 +105,43 @@ export async function executeAgent(
       : [];
 
     // Add user message to history
-    const userMessage = message?.text || '';
-    if (userMessage) {
+    const userMessage = message?.text || message?.caption || '';
+
+    // Check if message has media (image/video)
+    const hasMedia = message?.type === 'media' && message.mediaUrl;
+    const isImage = hasMedia && message.mediaType?.startsWith('image');
+
+    if (userMessage || hasMedia) {
+      // Build message content
+      let messageContent: any;
+
+      if (isImage) {
+        // GPT-4 Vision format: array with text and image_url
+        console.log('[Agent] 📸 Image detected:', message.mediaUrl);
+        messageContent = [
+          {
+            type: 'text',
+            text: userMessage || 'El cliente envió esta imagen. Analízala y ayúdalo.',
+          },
+          {
+            type: 'image_url',
+            image_url: {
+              url: message.mediaUrl,
+              detail: 'high', // Use high detail for product recognition
+            },
+          },
+        ];
+      } else if (hasMedia) {
+        // For non-image media (videos, documents), just mention it
+        messageContent = userMessage + `\n\n[El cliente envió un archivo: ${message.mediaType}]`;
+      } else {
+        // Plain text message
+        messageContent = userMessage;
+      }
+
       conversationHistory.push({
         role: 'user',
-        content: userMessage,
+        content: messageContent,
       });
 
       // Check if this is the first message in conversation

@@ -211,6 +211,37 @@ export const SEARCH_KNOWLEDGE_BASE_TOOL: OpenAITool = {
 };
 
 /**
+ * Tool: Extract Text from Image (OCR)
+ * Extracts text from images/documents using Google Vision OCR
+ */
+export const EXTRACT_TEXT_OCR_TOOL: OpenAITool = {
+  type: 'function',
+  function: {
+    name: 'extract_text_ocr',
+    description: 'Extrae texto de imágenes de documentos usando OCR (reconocimiento óptico de caracteres). USA ESTA HERRAMIENTA cuando el cliente envíe: DNI, RUC, comprobantes, facturas, vouchers de pago, documentos escaneados, o cualquier imagen con texto que necesite ser leído. IMPORTANTE: Esta herramienta es SOLO para extraer texto de documentos, NO para analizar productos. Para productos usa la capacidad de Vision integrada.',
+    parameters: {
+      type: 'object',
+      properties: {
+        image_url: {
+          type: 'string',
+          description: 'URL de la imagen del documento a procesar'
+        },
+        document_type: {
+          type: 'string',
+          enum: ['dni', 'ruc', 'voucher', 'factura', 'comprobante', 'documento_general'],
+          description: 'Tipo de documento para optimizar el procesamiento'
+        },
+        purpose: {
+          type: 'string',
+          description: 'Para qué necesitas el texto extraído (ej: "verificar número de DNI", "obtener número de operación del voucher")'
+        }
+      },
+      required: ['image_url', 'document_type']
+    }
+  }
+};
+
+/**
  * All available tools for the agent
  */
 export const ALL_AGENT_TOOLS: OpenAITool[] = [
@@ -219,5 +250,6 @@ export const ALL_AGENT_TOOLS: OpenAITool[] = [
   TRANSFER_TO_QUEUE_TOOL,
   CHECK_BUSINESS_HOURS_TOOL,
   SAVE_LEAD_INFO_TOOL,
+  EXTRACT_TEXT_OCR_TOOL,
   END_CONVERSATION_TOOL,
 ];

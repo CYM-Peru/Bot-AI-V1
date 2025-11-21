@@ -12,6 +12,7 @@ import type { ConversationSession } from "./session";
 import type { Bitrix24Client } from "../integrations/bitrix24";
 import { botLogger } from "./monitoring";
 import { replaceVariables } from "../../server/utils/variables";
+import { saveMenuOptionSelection } from "../../server/menu-analytics-db";
 
 // Keyword tracking global handler (set by server)
 let keywordUsageHandler: ((data: any) => void) | null = null;
@@ -411,6 +412,20 @@ export class NodeExecutor {
       },
     });
 
+    // Save to PostgreSQL for persistent analytics
+    saveMenuOptionSelection({
+      sessionId: session.id,
+      nodeId: node.id,
+      optionId: selected.id,
+      optionLabel: selected.label,
+      metadata: {
+        value: selected.value ?? selected.label,
+        targetId: selected.targetId,
+      },
+    }).catch(err => {
+      console.error('[Executor] Failed to save menu option to DB:', err);
+    });
+
     return {
       responses: [],
       nextNodeId: selected.targetId ?? null,
@@ -464,6 +479,21 @@ export class NodeExecutor {
         label: selected.label,
         value: selected.value ?? selected.label,
       },
+    });
+
+    // Save to PostgreSQL for persistent analytics
+    saveMenuOptionSelection({
+      sessionId: session.id,
+      nodeId: node.id,
+      optionId: selected.id,
+      optionLabel: selected.label,
+      metadata: {
+        value: selected.value ?? selected.label,
+        targetId: selected.targetId,
+        menuType: 'text',
+      },
+    }).catch(err => {
+      console.error('[Executor] Failed to save text menu option to DB:', err);
     });
 
     return {
@@ -936,11 +966,15 @@ export class NodeExecutor {
       },
     });
 
+    // CRITICAL FIX: Don't end the flow when transferring to queue
+    // The conversation should stay open and wait for an advisor
     return {
       responses,
       nextNodeId: null,
       awaitingUserInput: false,
-      ended: true,
+      ended: false,  // ← CHANGED: Don't close chat when transferring
+      shouldTransfer: true,  // ← CRITICAL: Signal that transfer is happening
+      transferQueue: finalQueueId,  // ← CRITICAL: Pass queue ID for transfer
     };
   }
 

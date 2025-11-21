@@ -5,17 +5,32 @@ import type { CrmRealtimeManager } from "./crm/ws";
 import { formatEventTimestamp } from "./utils/file-logger";
 import { metricsTracker } from "./crm/metrics-tracker";
 import { canBeAutoAssigned } from "../shared/conversation-rules";
+import { Pool } from "pg";
+
+const pool = new Pool({
+  user: process.env.POSTGRES_USER || 'whatsapp_user',
+  host: process.env.POSTGRES_HOST || 'localhost',
+  database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+  password: process.env.POSTGRES_PASSWORD || 'azaleia_pg_2025_secure',
+  port: parseInt(process.env.POSTGRES_PORT || '5432'),
+});
 
 /**
  * QueueDistributor
  *
  * Distribuye automáticamente chats en cola a asesores disponibles
  * Corre cada X segundos de forma continua
+ *
+ * LÓGICA ESPECIAL - PRIMER ASESOR DEL DÍA:
+ * - Horario: 9am - 6pm
+ * - Primer asesor "Disponible" después de 6pm → recibe TODOS los chats acumulados
+ * - Asesores siguientes → solo reciben chats NUEVOS (distribución normal)
  */
 export class QueueDistributor {
   private intervalId: NodeJS.Timeout | null = null;
   private socketManager: CrmRealtimeManager | null = null;
   private isRunning = false;
+  private dailyResetTimestamps: Map<string, number> = new Map(); // queueId -> timestamp of last reset
 
   constructor(socketManager?: CrmRealtimeManager) {
     this.socketManager = socketManager || null;
@@ -90,6 +105,44 @@ export class QueueDistributor {
   }
 
   /**
+   * Verificar si es el inicio del día (después de las 6pm del día anterior)
+   * Horario: 9am - 6pm (América/Lima UTC-5)
+   */
+  private isStartOfDay(queueId: string): boolean {
+    const now = new Date();
+    const peruTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Lima' }));
+    const currentHour = peruTime.getHours();
+
+    // Verificar si estamos en horario laboral (9am - 6pm)
+    if (currentHour < 9 || currentHour >= 18) {
+      return false; // Fuera de horario
+    }
+
+    // Verificar si ya hubo reset hoy
+    const lastReset = this.dailyResetTimestamps.get(queueId);
+    if (!lastReset) {
+      return true; // Nunca se ha hecho reset
+    }
+
+    const lastResetDate = new Date(lastReset);
+    const lastResetPeru = new Date(lastResetDate.toLocaleString('en-US', { timeZone: 'America/Lima' }));
+
+    // Si el último reset fue antes de las 6pm de ayer, es inicio de día
+    const yesterdayEndOfDay = new Date(peruTime);
+    yesterdayEndOfDay.setDate(yesterdayEndOfDay.getDate() - 1);
+    yesterdayEndOfDay.setHours(18, 0, 0, 0);
+
+    return lastResetPeru < yesterdayEndOfDay;
+  }
+
+  /**
+   * Marcar que ya se hizo la asignación inicial del día
+   */
+  private markDailyReset(queueId: string): void {
+    this.dailyResetTimestamps.set(queueId, Date.now());
+  }
+
+  /**
    * Distribuir chats de una cola específica
    */
   private async distributeQueue(queueId: string, queueName: string, distributionMode: string): Promise<void> {
@@ -126,7 +179,16 @@ export class QueueDistributor {
 
       console.log(`[QueueDistributor] 📊 Cola "${queueName}": ${unassignedChats.length} chats → ${availableAdvisors.length} asesores disponibles`);
 
-      // 3. Distribuir según el modo
+      // 3. LÓGICA ESPECIAL: Si es el inicio del día Y solo hay 1 asesor disponible
+      //    → Asignar TODOS los chats a ese asesor (primer asesor del día)
+      if (this.isStartOfDay(queueId) && availableAdvisors.length === 1) {
+        console.log(`[QueueDistributor] 🌅 Cola "${queueName}": INICIO DE DÍA - Asignando TODOS los chats al primer asesor`);
+        await this.assignAllChatsToFirstAdvisor(unassignedChats, availableAdvisors[0], queueName);
+        this.markDailyReset(queueId);
+        return;
+      }
+
+      // 4. Distribución normal (round-robin o least-busy)
       if (distributionMode === "round-robin") {
         await this.distributeRoundRobin(unassignedChats, availableAdvisors, queueName);
       } else if (distributionMode === "least-busy") {
@@ -138,6 +200,65 @@ export class QueueDistributor {
     } catch (error) {
       console.error(`[QueueDistributor] ❌ Error distribuyendo cola "${queueName}":`, error);
     }
+  }
+
+  /**
+   * Asignar TODOS los chats acumulados al primer asesor del día
+   */
+  private async assignAllChatsToFirstAdvisor(chats: any[], advisorId: string, queueName: string): Promise<void> {
+    let assigned = 0;
+
+    // Obtener nombre del asesor
+    const user = await adminDb.getUserById(advisorId);
+    const advisorName = user?.name || user?.username || advisorId;
+
+    console.log(`[QueueDistributor] 🌅 PRIMER ASESOR DEL DÍA: ${advisorName} recibirá ${chats.length} chats acumulados`);
+
+    for (const chat of chats) {
+      try {
+        const assignSuccess = await crmDb.assignConversation(chat.id, advisorId);
+
+        if (!assignSuccess) {
+          console.warn(`[QueueDistributor] ⚠️  Cola "${queueName}": Chat ${chat.phone} NO pudo ser asignado`);
+          continue;
+        }
+
+        console.log(`[QueueDistributor] ✅ Cola "${queueName}": Chat ${chat.phone} → ${advisorName} (INICIAL)`);
+
+        // Start tracking metrics
+        const metricId = `metric_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        metricsTracker.startConversation(metricId, chat.id, advisorId, {
+          queueId: chat.queueId || undefined,
+          channelType: chat.channel as any,
+          channelId: chat.channelConnectionId || undefined,
+        });
+
+        // Create system message
+        const timestamp = formatEventTimestamp();
+        const assignMessage = await crmDb.createSystemEvent(
+          chat.id,
+          'conversation_assigned',
+          `🌅 Asignado a ${advisorName} - PRIMER ASESOR DEL DÍA (${timestamp})`
+        );
+
+        // Emit WebSocket events
+        if (this.socketManager) {
+          this.socketManager.emitNewMessage({ message: assignMessage, attachment: null });
+
+          const updated = await crmDb.getConversationById(chat.id);
+          if (updated) {
+            this.socketManager.emitConversationUpdate({ conversation: updated });
+          }
+        }
+
+        assigned++;
+
+      } catch (error) {
+        console.error(`[QueueDistributor] ❌ Error asignando chat ${chat.id}:`, error);
+      }
+    }
+
+    console.log(`[QueueDistributor] 🎯 INICIO DE DÍA - Cola "${queueName}": ${assigned}/${chats.length} chats asignados a ${advisorName}`);
   }
 
   /**
@@ -154,26 +275,60 @@ export class QueueDistributor {
         continue;
       }
 
-      // 2. Verificar que esté online
+      // 2. Verificar que esté online (logueado)
       if (!advisorPresence.isOnline(advisorId)) {
         continue;
       }
 
-      // 3. Verificar que tenga estado con action='accept'
-      const statusAssignment = await adminDb.getAdvisorStatus(advisorId);
-      if (!statusAssignment || !statusAssignment.status) continue;
-
-      if (statusAssignment.status.action !== "accept") {
+      // 3. NUEVO: Verificar que NO esté en estado de "redirect" (como "En Refrigerio")
+      const canReceive = await this.canAdvisorReceiveChats(advisorId);
+      if (!canReceive) {
+        console.log(`[QueueDistributor] ⏸️  Asesor ${advisorId} está en refrigerio/pausa - no se le asignan chats`);
         continue;
       }
 
-      // 4. Verificar que no esté en su límite de chats
+      // 4. Verificar que no esté en su límite de chats (futuro)
       // TODO: Implementar verificación de maxConcurrent
 
       availableAdvisors.push(advisorId);
     }
 
     return availableAdvisors;
+  }
+
+  /**
+   * Verifica si un asesor puede recibir chats automáticamente
+   * Retorna false si está en un estado con acción "redirect" (ej: En Refrigerio, En Capacitación, etc)
+   */
+  private async canAdvisorReceiveChats(advisorId: string): Promise<boolean> {
+    try {
+      const result = await pool.query(
+        `SELECT s.action
+         FROM crm_advisor_status_assignments asa
+         INNER JOIN crm_advisor_statuses s ON s.id = asa.status_id
+         WHERE asa.user_id = $1`,
+        [advisorId]
+      );
+
+      // Si no tiene status asignado, asumimos que puede recibir chats
+      if (result.rows.length === 0) {
+        return true;
+      }
+
+      const action = result.rows[0].action;
+
+      // Si el status tiene acción "redirect", NO puede recibir chats automáticos
+      // Esto incluye: "En Refrigerio", "En Capacitación", "Reunión", etc.
+      if (action === 'redirect') {
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error(`[QueueDistributor] Error checking advisor status for ${advisorId}:`, error);
+      // En caso de error, permitimos la asignación para no bloquear el sistema
+      return true;
+    }
   }
 
   /**
@@ -189,7 +344,13 @@ export class QueueDistributor {
       try {
         // IMPORTANTE: Solo ASIGNAR (no aceptar) para que quede en categoría "POR TRABAJAR"
         // El asesor deberá presionar "Aceptar" para pasar a "TRABAJANDO"
-        await crmDb.assignConversation(chat.id, advisorId);
+        const assignSuccess = await crmDb.assignConversation(chat.id, advisorId);
+
+        // CRITICAL FIX: Only continue if assignment was successful
+        if (!assignSuccess) {
+          console.warn(`[QueueDistributor] ⚠️  Cola "${queueName}": Chat ${chat.phone} NO pudo ser asignado (status no es 'active')`);
+          continue; // Skip to next chat
+        }
 
         // Obtener nombre del asesor
         const user = await adminDb.getUserById(advisorId);
@@ -263,7 +424,13 @@ export class QueueDistributor {
 
         // IMPORTANTE: Solo ASIGNAR (no aceptar) para que quede en categoría "POR TRABAJAR"
         // El asesor deberá presionar "Aceptar" para pasar a "TRABAJANDO"
-        await crmDb.assignConversation(chat.id, leastBusyAdvisorId);
+        const assignSuccess = await crmDb.assignConversation(chat.id, leastBusyAdvisorId);
+
+        // CRITICAL FIX: Only continue if assignment was successful
+        if (!assignSuccess) {
+          console.warn(`[QueueDistributor] ⚠️  Cola "${queueName}": Chat ${chat.phone} NO pudo ser asignado (status no es 'active')`);
+          continue; // Skip to next chat
+        }
 
         // Obtener nombre del asesor
         const user = await adminDb.getUserById(leastBusyAdvisorId);

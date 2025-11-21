@@ -41,20 +41,33 @@ export default function AIAnalyticsPanel() {
   }, [dateRange]);
 
   const loadConversations = async () => {
+    console.log('[AIAnalytics] 🔍 loadConversations called with range:', dateRange);
     setLoading(true);
     try {
-      const response = await fetch(`/api/crm/conversations/analytics?from=${dateRange.from}&to=${dateRange.to}`, {
+      const url = `/api/crm/conversations/analytics?from=${dateRange.from}&to=${dateRange.to}`;
+      console.log('[AIAnalytics] 📡 Fetching:', url);
+
+      const response = await fetch(url, {
         credentials: 'include'
       });
 
+      console.log('[AIAnalytics] ✅ Response status:', response.status, response.ok);
+
       if (response.ok) {
         const data = await response.json();
+        console.log('[AIAnalytics] 📊 Received data:', data);
         setDayGroups(data.dayGroups || []);
+        console.log('[AIAnalytics] 📈 Set dayGroups:', data.dayGroups?.length || 0, 'groups');
+      } else {
+        console.error('[AIAnalytics] ❌ Response not OK:', response.status, response.statusText);
+        const errorText = await response.text();
+        console.error('[AIAnalytics] Error details:', errorText);
       }
     } catch (error) {
-      console.error('Error loading conversations:', error);
+      console.error('[AIAnalytics] ❌ Error loading conversations:', error);
     } finally {
       setLoading(false);
+      console.log('[AIAnalytics] ✅ Loading complete');
     }
   };
 
@@ -148,7 +161,7 @@ export default function AIAnalyticsPanel() {
       <div className="bg-white border-b border-slate-200 p-6 flex-shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
               🤖 Analytics con IA
             </h2>
             <p className="text-sm text-slate-600 mt-1">
@@ -256,7 +269,7 @@ export default function AIAnalyticsPanel() {
               </div>
             </div>
           ) : (
-            <div className="p-6 space-y-4">
+            <div className="p-4 space-y-3">
               {/* Day header with analyze all button */}
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-4">
@@ -288,23 +301,23 @@ export default function AIAnalyticsPanel() {
                 {/* Day stats */}
                 <div className="grid grid-cols-4 gap-4">
                   <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4">
-                    <div className="text-blue-600 text-3xl font-bold">{selectedDayData.totalConversations}</div>
+                    <div className="text-blue-600 text-2xl font-bold">{selectedDayData.totalConversations}</div>
                     <div className="text-blue-700 text-sm font-medium">Total de chats</div>
                   </div>
                   <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4">
-                    <div className="text-green-600 text-3xl font-bold flex items-center gap-2">
+                    <div className="text-green-600 text-2xl font-bold flex items-center gap-2">
                       {selectedDayData.sentimentDistribution.positive} 😊
                     </div>
                     <div className="text-green-700 text-sm font-medium">Positivos</div>
                   </div>
                   <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg p-4">
-                    <div className="text-slate-600 text-3xl font-bold flex items-center gap-2">
+                    <div className="text-slate-600 text-2xl font-bold flex items-center gap-2">
                       {selectedDayData.sentimentDistribution.neutral} 😐
                     </div>
                     <div className="text-slate-700 text-sm font-medium">Neutrales</div>
                   </div>
                   <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-lg p-4">
-                    <div className="text-red-600 text-3xl font-bold flex items-center gap-2">
+                    <div className="text-red-600 text-2xl font-bold flex items-center gap-2">
                       {selectedDayData.sentimentDistribution.negative} 😞
                     </div>
                     <div className="text-red-700 text-sm font-medium">Negativos</div>

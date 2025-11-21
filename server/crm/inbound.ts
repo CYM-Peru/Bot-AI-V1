@@ -12,6 +12,32 @@ import { adminDb } from "../admin-db";
 import { errorTracker } from "./error-tracker";
 import axios from "axios";
 import { Pool } from "pg";
+import { LocalStorageFlowProvider } from "../flow-provider";
+
+// Create flowProvider instance to check if bot is active for a number
+const flowProvider = new LocalStorageFlowProvider();
+
+/**
+ * Normalize displayNumber format for consistency
+ * Removes extra spaces and ensures the number starts with "+"
+ * Examples:
+ *   "+51 1 6193636" -> "+51 6193636"
+ *   "51961842916"   -> "+51961842916"
+ *   "+51 961842916" -> "+51 961842916"
+ */
+function normalizeDisplayNumber(displayNumber: string | null): string | null {
+  if (!displayNumber) return null;
+
+  // Remove all whitespace characters
+  let normalized = displayNumber.replace(/\s+/g, '');
+
+  // Ensure it starts with "+"
+  if (!normalized.startsWith('+')) {
+    normalized = '+' + normalized;
+  }
+
+  return normalized;
+}
 
 /**
  * Update connection with WABA ID from webhook
@@ -56,6 +82,84 @@ interface HandleIncomingArgs {
   bitrixService: BitrixService;
 }
 
+/**
+ * Check if conversation should auto-close based on:
+ * - Last business message had buttons "Sí por favor" / "No gracias"
+ * - More than 1 hour has passed since that message
+ * - Customer just responded
+ */
+async function checkAndAutoCloseConversation(
+  conversationId: string,
+  socketManager: CrmRealtimeManager
+): Promise<void> {
+  try {
+    // Get last outgoing message from business
+    const messages = await crmDb.getMessagesByConversation(conversationId);
+    const lastOutgoing = messages
+      .filter(m => m.direction === 'outgoing')
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0];
+
+    if (!lastOutgoing) {
+      return; // No outgoing messages
+    }
+
+    // Check if message has buttons in metadata
+    const metadata = lastOutgoing.metadata as any;
+    const buttons = metadata?.buttons;
+
+    if (!buttons || !Array.isArray(buttons)) {
+      return; // No buttons found
+    }
+
+    // Check if buttons match "Sí por favor" / "No gracias"
+    const hasTargetButtons = buttons.some((btn: any) =>
+      btn.title === 'Sí por favor' || btn.title === 'No gracias'
+    ) && buttons.some((btn: any) =>
+      btn.title === 'No gracias' || btn.title === 'Sí por favor'
+    );
+
+    if (!hasTargetButtons) {
+      return; // Not the target buttons
+    }
+
+    // Check if more than 1 hour has passed
+    const now = Date.now();
+    const messageTime = lastOutgoing.timestamp || 0;
+    const hourInMs = 60 * 60 * 1000;
+
+    if (now - messageTime <= hourInMs) {
+      return; // Less than 1 hour
+    }
+
+    // AUTO-CLOSE: All conditions met
+    logDebug(`[CRM] 🔒 Auto-closing conversation ${conversationId} - customer responded after 1h to "Sí por favor"/"No gracias" buttons`);
+
+    await crmDb.updateConversationMeta(conversationId, {
+      status: 'closed',
+      closedReason: 'Auto-cerrado: respuesta tardía a botones de finalización',
+      closedAt: now
+    });
+
+    // Create system message
+    const systemMessage = await crmDb.createSystemEvent(
+      conversationId,
+      'conversation_closed',
+      '🔒 Conversación cerrada automáticamente (respuesta tardía)'
+    );
+
+    // Emit WebSocket events
+    const conversation = await crmDb.getConversationById(conversationId);
+    if (conversation) {
+      socketManager.emitConversationUpdate({ conversation });
+    }
+    socketManager.emitNewMessage({ message: systemMessage });
+
+    logDebug(`[CRM] ✅ Conversation ${conversationId} auto-closed successfully`);
+  } catch (error) {
+    logError(`[CRM] ❌ Error in checkAndAutoCloseConversation:`, error);
+  }
+}
+
 export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): Promise<void> {
   const phone = args.message.from;
   if (!phone) {
@@ -65,7 +169,8 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
   // CRITICAL: Extract phoneNumberId and displayNumber from webhook metadata
   // This ensures conversations from different WhatsApp numbers stay separate
   const phoneNumberId = args.value.metadata?.phone_number_id || null;
-  const displayNumber = args.value.metadata?.display_phone_number || null;
+  const rawDisplayNumber = args.value.metadata?.display_phone_number || null;
+  const displayNumber = normalizeDisplayNumber(rawDisplayNumber); // Normalize format for consistency
   const wabaId = args.entryId; // WhatsApp Business Account ID from webhook entry
 
   logDebug(`[CRM] Incoming message from ${phone} via phoneNumberId: ${phoneNumberId} (${displayNumber}), WABA: ${wabaId}`);
@@ -120,71 +225,112 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
     // This ensures conversations are automatically assigned to a queue when no bot is available
     // IMPROVED: Use display_number as fallback when phone_number_id is not available (handles Meta API issues)
     if (phoneNumberId || displayNumber) {
-      const whatsappNumbers = await adminDb.getAllWhatsAppNumbers();
+      // CRITICAL FIX: First check if there's a bot active for this number
+      // ONLY assign fallback queue if NO bot is configured
+      let hasActiveBot = false;
+      if (phoneNumberId) {
+        try {
+          const assignedFlow = await flowProvider.findFlowByWhatsAppNumber(phoneNumberId);
+          hasActiveBot = !!assignedFlow;
+          if (hasActiveBot) {
+            logDebug(`[CRM] 🤖 Bot active for number ${displayNumber} (${phoneNumberId}) - skipping fallback queue assignment`);
+          }
+        } catch (error) {
+          logError(`[CRM] Error checking for active bot:`, error);
+        }
+      }
 
-      // Normalize phone numbers for comparison (remove spaces, +, -, parentheses)
-      const normalizePhone = (phone: string) => phone.replace(/[\s\+\-\(\)]/g, '');
-      const normalizedDisplay = normalizePhone(displayNumber || '');
+      // Only assign fallback queue if NO bot is active
+      if (!hasActiveBot) {
+        const whatsappNumbers = await adminDb.getAllWhatsAppNumbers();
 
-      const numberConfig = whatsappNumbers.find(num =>
-        normalizePhone(num.phoneNumber) === normalizedDisplay
-      );
+        // Normalize phone numbers for comparison (remove spaces, +, -, parentheses)
+        const normalizePhone = (phone: string) => phone.replace(/[\s\+\-\(\)]/g, '');
+        const normalizedDisplay = normalizePhone(displayNumber || '');
 
-      if (numberConfig && numberConfig.queueId) {
-        const matchMethod = phoneNumberId ? 'phone_number_id' : 'display_number';
-        logDebug(`[CRM] 🔄 Applying fallback queue "${numberConfig.queueId}" for conversation ${conversation.id} (matched ${numberConfig.phoneNumber} with ${displayNumber} via ${matchMethod})`);
-        await crmDb.updateConversationMeta(conversation.id, {
-          queueId: numberConfig.queueId,
-          queuedAt: Date.now()
-        });
-
-        // Create system message to indicate conversation is in queue
-        const queue = adminDb.getQueueById(numberConfig.queueId);
-        const queueName = queue?.name || numberConfig.queueId;
-        const now = new Date();
-        const timestamp = now.toLocaleString('es-PE', {
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false
-        });
-
-        const systemMessage = await crmDb.createSystemEvent(
-          conversation.id,
-          'conversation_queued',
-          `⏳ En cola ${queueName} - Esperando asignación (${timestamp})`
+        const numberConfig = whatsappNumbers.find(num =>
+          normalizePhone(num.phoneNumber) === normalizedDisplay
         );
 
-        // Refresh conversation to get updated data
-        conversation = (await crmDb.getConversationById(conversation.id))!;
-        logDebug(`[CRM] ✅ Conversation ${conversation.id} assigned to fallback queue ${numberConfig.queueId}`);
+        if (numberConfig && numberConfig.queueId) {
+          const matchMethod = phoneNumberId ? 'phone_number_id' : 'display_number';
+          logDebug(`[CRM] 🔄 Applying fallback queue "${numberConfig.queueId}" for conversation ${conversation.id} (matched ${numberConfig.phoneNumber} with ${displayNumber} via ${matchMethod}) - NO bot active`);
+          await crmDb.updateConversationMeta(conversation.id, {
+            queueId: numberConfig.queueId,
+            queuedAt: Date.now()
+          });
 
-        // Emit WebSocket events
-        args.socketManager.emitConversationUpdate({ conversation });
-        args.socketManager.emitNewMessage({ message: systemMessage });
-      } else {
-        logDebug(`[CRM] ℹ️  No fallback queue configured for WhatsApp number ${displayNumber}`);
+          // Create system message to indicate conversation is in queue
+          const queue = adminDb.getQueueById(numberConfig.queueId);
+          const queueName = queue?.name || numberConfig.queueId;
+          const now = new Date();
+          const timestamp = now.toLocaleString('es-PE', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          });
+
+          const systemMessage = await crmDb.createSystemEvent(
+            conversation.id,
+            'conversation_queued',
+            `⏳ En cola ${queueName} - Esperando asignación (${timestamp})`
+          );
+
+          // Refresh conversation to get updated data
+          conversation = (await crmDb.getConversationById(conversation.id))!;
+          logDebug(`[CRM] ✅ Conversation ${conversation.id} assigned to fallback queue ${numberConfig.queueId}`);
+
+          // Emit WebSocket events
+          args.socketManager.emitConversationUpdate({ conversation });
+          args.socketManager.emitNewMessage({ message: systemMessage });
+        } else {
+          logDebug(`[CRM] ℹ️  No fallback queue configured for WhatsApp number ${displayNumber}`);
+        }
       }
     } else {
       logDebug(`[CRM] ⚠️  Cannot assign fallback queue - no phone_number_id or display_number available`);
     }
   }
 
-  // Auto-unarchive if client writes back
-  if (conversation.status === "archived") {
-    // CRITICAL: Clear both queueId and assignedTo when unarchiving
+  // CRITICAL: Check if message type should NOT reactivate closed conversations
+  // Reactions, contacts, and unsupported messages are passive interactions
+  const shouldNotReactivate = args.message.type === 'reaction' ||
+                               args.message.type === 'contacts' ||
+                               args.message.type === 'unsupported';
+
+  // Log when passive message is received on closed conversation (but don't reactivate)
+  if (conversation.status === "closed" && shouldNotReactivate) {
+    logDebug(`[CRM] 📨 Received ${args.message.type} on closed conversation ${conversation.id} - NOT reactivating (passive interaction)`);
+  }
+
+  // Auto-reopen if client writes back (BUT NOT for reactions/contacts/unsupported)
+  if (conversation.status === "closed" && !shouldNotReactivate) {
+    // CRITICAL: Clear both queueId and assignedTo when reopening
     // The bot or advisor that reopens it will be assigned
+
+    // CAMPAIGNS: Si tiene categoría cat-masivos, cambiar a cat-en-cola-bot
+    // (la categoría se actualizará dinámicamente según el bot o transferencia)
+    const categoryUpdate = conversation.category === 'cat-masivos' ? 'cat-en-cola-bot' : conversation.category;
+
     await crmDb.updateConversationMeta(conversation.id, {
       status: "active",
       queueId: null,
-      assignedTo: null
+      assignedTo: null,
+      category: categoryUpdate,
+      closedReason: null  // CRITICAL: Clear closed_reason when auto-reopening
     });
     conversation = (await crmDb.getConversationById(conversation.id))!;
-    logDebug(`[CRM] Conversación ${conversation.id} auto-desarchivada - listo para bot o reasignación`);
 
-    // Automatic queue assignment when unarchiving - reassign to fallback queue if available
+    if (categoryUpdate === 'cat-en-cola-bot') {
+      logDebug(`[CRM] 📬 Conversación ${conversation.id} de campaña masiva reabierta - categoría: cat-en-cola-bot`);
+    } else {
+      logDebug(`[CRM] Conversación ${conversation.id} auto-reabierta - listo para bot o reasignación`);
+    }
+
+    // Automatic queue assignment when reopening - reassign to fallback queue if available
     // This ensures conversations return to the queue when customers write back
     if (!conversation.queueId && phoneNumberId) {
       const whatsappNumbers = await adminDb.getAllWhatsAppNumbers();
@@ -276,6 +422,10 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
   }
 
   args.socketManager.emitNewMessage({ message: storedMessage, attachment: storedAttachment });
+
+  // AUTO-CLOSE: Check if last business message had "Sí por favor"/"No gracias" buttons > 1 hour ago
+  await checkAndAutoCloseConversation(conversation.id, args.socketManager);
+
   const refreshed = await crmDb.getConversationById(conversation.id);
   if (refreshed) {
     args.socketManager.emitConversationUpdate({ conversation: refreshed });
@@ -323,6 +473,26 @@ async function translateMessage(message: WhatsAppMessage): Promise<{
     }
     case "button":
       return { type: "text", text: message.button?.text ?? message.button?.payload ?? "", attachment: null };
+    case "reaction": {
+      // Format reaction as readable text
+      const emoji = message.reaction?.emoji ?? "👍";
+      const text = `${emoji} Reaccionó a un mensaje`;
+      return { type: "system", text, attachment: null };
+    }
+    case "contacts": {
+      // Format shared contact as readable text
+      const contact = message.contacts?.[0];
+      const name = contact?.name?.formatted_name ?? "Contacto";
+      const phone = contact?.phones?.[0]?.phone ?? "";
+      const text = `📇 Compartió contacto: ${name}${phone ? ` (${phone})` : ""}`;
+      return { type: "system", text, attachment: null };
+    }
+    case "unsupported": {
+      // Format unsupported message
+      const errorDetails = message.errors?.[0]?.error_data?.details ?? "Tipo de mensaje no soportado";
+      const text = `⚠️ ${errorDetails}`;
+      return { type: "system", text, attachment: null };
+    }
     case "image":
     case "video":
     case "audio":

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiUrl } from "../lib/apiBase";
 import { SendTemplateModal } from "./SendTemplateModal";
-import { Search, RefreshCw, Send, Phone, MessageCircle, Eye, ChevronLeft, ChevronRight, Filter, X } from "lucide-react";
+import { Search, RefreshCw, Send, Phone, MessageCircle, Eye, ChevronLeft, ChevronRight, Filter, X, Settings2, Check, FileText } from "lucide-react";
 
 interface BitrixContact {
   ID: string;
@@ -15,7 +15,26 @@ interface BitrixContact {
   UF_CRM_67D702957E80A?: string; // Tipo de Contacto
   UF_CRM_68121FB2B841A?: string; // Departamento
   UF_CRM_1565801603901?: string; // Stencil
+  [key: string]: any; // Permitir cualquier campo adicional de Bitrix
 }
+
+interface BitrixLead {
+  ID: string;
+  TITLE?: string;
+  NAME?: string;
+  LAST_NAME?: string;
+  PHONE?: Array<{ VALUE: string; VALUE_TYPE?: string }>;
+  EMAIL?: Array<{ VALUE: string }>;
+  STATUS_ID?: string;
+  SOURCE_ID?: string;
+  UF_CRM_1662413427?: string; // Departamentos
+  ASSIGNED_BY_ID?: string;
+  DATE_CREATE?: string;
+  [key: string]: any; // Permitir cualquier campo adicional de Bitrix
+}
+
+type EntityType = "contact" | "lead";
+type BitrixEntity = BitrixContact | BitrixLead;
 
 interface ContactsResponse {
   contacts: BitrixContact[];
@@ -25,8 +44,115 @@ interface ContactsResponse {
   hasMore: boolean;
 }
 
+interface LeadsResponse {
+  leads: BitrixLead[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+// Definición de columnas disponibles para cada entidad
+interface ColumnDefinition {
+  id: string;
+  label: string;
+  defaultVisible: boolean;
+  getValue: (entity: BitrixEntity) => string;
+}
+
+const CONTACT_COLUMNS: ColumnDefinition[] = [
+  { id: "name", label: "Nombre", defaultVisible: true, getValue: (e) => {
+    const c = e as BitrixContact;
+    return [c.NAME, c.LAST_NAME].filter(Boolean).join(" ") || "Sin nombre";
+  }},
+  { id: "phone", label: "Teléfono", defaultVisible: true, getValue: (e) => {
+    const c = e as BitrixContact;
+    if (!c.PHONE || c.PHONE.length === 0) return "—";
+    const workPhone = c.PHONE.find(p => p.VALUE_TYPE === "WORK");
+    if (workPhone) return workPhone.VALUE;
+    const mobilePhone = c.PHONE.find(p => p.VALUE_TYPE === "MOBILE");
+    if (mobilePhone) return mobilePhone.VALUE;
+    return c.PHONE[0]?.VALUE || "—";
+  }},
+  { id: "email", label: "Email", defaultVisible: false, getValue: (e) => {
+    const c = e as BitrixContact;
+    return c.EMAIL?.[0]?.VALUE || "—";
+  }},
+  { id: "company", label: "Empresa", defaultVisible: false, getValue: (e) => {
+    const c = e as BitrixContact;
+    return c.COMPANY_TITLE || "—";
+  }},
+  { id: "document", label: "N° Documento", defaultVisible: false, getValue: (e) => {
+    const c = e as BitrixContact;
+    return c.UF_CRM_5DEAADAE301BB || "—";
+  }},
+  { id: "address", label: "Dirección", defaultVisible: false, getValue: (e) => {
+    const c = e as BitrixContact;
+    return c.UF_CRM_1745466972 || "—";
+  }},
+  { id: "contactType", label: "Tipo de Contacto", defaultVisible: false, getValue: (e) => {
+    const c = e as BitrixContact;
+    return c.UF_CRM_67D702957E80A || "—";
+  }},
+  { id: "department", label: "Departamento", defaultVisible: true, getValue: (e) => {
+    const c = e as BitrixContact;
+    return c.UF_CRM_68121FB2B841A || "—";
+  }},
+  { id: "stencil", label: "Stencil", defaultVisible: true, getValue: (e) => {
+    const c = e as BitrixContact;
+    return c.UF_CRM_1565801603901 || "—";
+  }},
+];
+
+const LEAD_COLUMNS: ColumnDefinition[] = [
+  { id: "title", label: "Título", defaultVisible: true, getValue: (e) => {
+    const l = e as BitrixLead;
+    return l.TITLE || "Sin título";
+  }},
+  { id: "name", label: "Nombre", defaultVisible: true, getValue: (e) => {
+    const l = e as BitrixLead;
+    return [l.NAME, l.LAST_NAME].filter(Boolean).join(" ") || "Sin nombre";
+  }},
+  { id: "phone", label: "Teléfono", defaultVisible: true, getValue: (e) => {
+    const l = e as BitrixLead;
+    if (!l.PHONE || l.PHONE.length === 0) return "—";
+    const workPhone = l.PHONE.find(p => p.VALUE_TYPE === "WORK");
+    if (workPhone) return workPhone.VALUE;
+    const mobilePhone = l.PHONE.find(p => p.VALUE_TYPE === "MOBILE");
+    if (mobilePhone) return mobilePhone.VALUE;
+    return l.PHONE[0]?.VALUE || "—";
+  }},
+  { id: "email", label: "Email", defaultVisible: false, getValue: (e) => {
+    const l = e as BitrixLead;
+    return l.EMAIL?.[0]?.VALUE || "—";
+  }},
+  { id: "status", label: "Estado", defaultVisible: true, getValue: (e) => {
+    const l = e as BitrixLead;
+    return l.STATUS_ID || "—";
+  }},
+  { id: "source", label: "Fuente", defaultVisible: false, getValue: (e) => {
+    const l = e as BitrixLead;
+    return l.SOURCE_ID || "—";
+  }},
+  { id: "departments", label: "Departamentos", defaultVisible: true, getValue: (e) => {
+    const l = e as BitrixLead;
+    return l.UF_CRM_1662413427 || "—";
+  }},
+  { id: "dateCreate", label: "Fecha Creación", defaultVisible: false, getValue: (e) => {
+    const l = e as BitrixLead;
+    if (!l.DATE_CREATE) return "—";
+    return new Date(l.DATE_CREATE).toLocaleDateString("es-PE");
+  }},
+];
+
 export default function AgendaPage() {
-  const [contacts, setContacts] = useState<BitrixContact[]>([]);
+  // Estado de entidad (Contacto o Prospecto)
+  const [entityType, setEntityType] = useState<EntityType>(() => {
+    return (localStorage.getItem("agenda_entity_type") as EntityType) || "contact";
+  });
+
+  // Estado de datos
+  const [entities, setEntities] = useState<BitrixEntity[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
@@ -36,12 +162,12 @@ export default function AgendaPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  const [selectedContact, setSelectedContact] = useState<BitrixContact | null>(null);
+  const [selectedEntity, setSelectedEntity] = useState<BitrixEntity | null>(null);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [showPhoneSelector, setShowPhoneSelector] = useState(false);
-  const [phoneSelectContact, setPhoneSelectContact] = useState<BitrixContact | null>(null);
+  const [phoneSelectEntity, setPhoneSelectEntity] = useState<BitrixEntity | null>(null);
   const [phoneSelectConversations, setPhoneSelectConversations] = useState<Array<{
     id: string;
     channelConnectionId: string;
@@ -52,7 +178,25 @@ export default function AgendaPage() {
   }>>([]);
   const [loadingConversations, setLoadingConversations] = useState(false);
 
+  // Estado del modal de detalles completos
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [detailsEntity, setDetailsEntity] = useState<BitrixEntity | null>(null);
+
+  // Estado de columnas visibles
+  const [showColumnSelector, setShowColumnSelector] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<string[]>(() => {
+    const saved = localStorage.getItem(`agenda_visible_columns_${entityType}`);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+    const columns = entityType === "contact" ? CONTACT_COLUMNS : LEAD_COLUMNS;
+    return columns.filter(col => col.defaultVisible).map(col => col.id);
+  });
+
   const limit = 50;
+
+  // Obtener columnas actuales según el tipo de entidad
+  const currentColumns = entityType === "contact" ? CONTACT_COLUMNS : LEAD_COLUMNS;
 
   // Available filter options (extracted from your contacts)
   const departments = [
@@ -78,7 +222,29 @@ export default function AgendaPage() {
     "Proveedor",
   ];
 
-  const fetchContacts = useCallback(async (
+  // Guardar preferencias de columnas
+  const saveColumnPreferences = useCallback((columns: string[]) => {
+    localStorage.setItem(`agenda_visible_columns_${entityType}`, JSON.stringify(columns));
+    setVisibleColumns(columns);
+  }, [entityType]);
+
+  // Toggle visibilidad de columna
+  const toggleColumn = useCallback((columnId: string) => {
+    setVisibleColumns(prev => {
+      const newColumns = prev.includes(columnId)
+        ? prev.filter(id => id !== columnId)
+        : [...prev, columnId];
+      localStorage.setItem(`agenda_visible_columns_${entityType}`, JSON.stringify(newColumns));
+      return newColumns;
+    });
+  }, [entityType]);
+
+  // Función para obtener columnas visibles en el orden correcto
+  const getVisibleColumnsInOrder = useCallback(() => {
+    return currentColumns.filter(col => visibleColumns.includes(col.id));
+  }, [currentColumns, visibleColumns]);
+
+  const fetchEntities = useCallback(async (
     pageNum: number,
     searchTerm: string,
     dept: string,
@@ -102,65 +268,97 @@ export default function AgendaPage() {
         ...(comp ? { company: comp } : {}),
       });
 
-      const response = await fetch(apiUrl(`/api/bitrix/contacts?${params}`), {
+      const endpoint = entityType === "contact"
+        ? `/api/bitrix/contacts?${params}`
+        : `/api/bitrix/leads?${params}`;
+
+      const response = await fetch(apiUrl(endpoint), {
         credentials: "include",
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch contacts");
+        throw new Error(`Failed to fetch ${entityType}s`);
       }
 
-      const data: ContactsResponse = await response.json();
-      setContacts(data.contacts);
-      setTotal(data.total);
-      setHasMore(data.hasMore);
+      if (entityType === "contact") {
+        const data: ContactsResponse = await response.json();
+        setEntities(data.contacts);
+        setTotal(data.total);
+        setHasMore(data.hasMore);
+      } else {
+        const data: LeadsResponse = await response.json();
+        setEntities(data.leads);
+        setTotal(data.total);
+        setHasMore(data.hasMore);
+      }
+
       setLastSync(new Date());
     } catch (error) {
-      console.error("Error fetching contacts:", error);
+      console.error(`Error fetching ${entityType}s:`, error);
     } finally {
       setLoading(false);
       setSyncing(false);
     }
-  }, []);
+  }, [entityType]);
+
+  // Effect para cambio de tipo de entidad
+  useEffect(() => {
+    localStorage.setItem("agenda_entity_type", entityType);
+    // Cargar columnas guardadas para este tipo de entidad
+    const saved = localStorage.getItem(`agenda_visible_columns_${entityType}`);
+    if (saved) {
+      setVisibleColumns(JSON.parse(saved));
+    } else {
+      const columns = entityType === "contact" ? CONTACT_COLUMNS : LEAD_COLUMNS;
+      setVisibleColumns(columns.filter(col => col.defaultVisible).map(col => col.id));
+    }
+    // Resetear filtros y cargar datos
+    setPage(1);
+    setSearch("");
+    setDepartment("");
+    setContactType("");
+    setCompany("");
+    fetchEntities(1, "", "", "", "");
+  }, [entityType, fetchEntities]);
 
   // Initial load
   useEffect(() => {
-    fetchContacts(1, "", "", "", "");
-  }, [fetchContacts]);
+    fetchEntities(1, "", "", "", "");
+  }, [fetchEntities]);
 
   // Auto-sync every 5 minutes
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchContacts(page, search, department, contactType, company, true);
+      fetchEntities(page, search, department, contactType, company, true);
     }, 5 * 60 * 1000); // 5 minutes
 
     return () => clearInterval(interval);
-  }, [page, search, department, contactType, company, fetchContacts]);
+  }, [page, search, department, contactType, company, fetchEntities]);
 
   // Search and filter handler with debounce
   useEffect(() => {
     const timer = setTimeout(() => {
       setPage(1);
-      fetchContacts(1, search, department, contactType, company);
+      fetchEntities(1, search, department, contactType, company);
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [search, department, contactType, company, fetchContacts]);
+  }, [search, department, contactType, company, fetchEntities]);
 
-  const handleSendTemplate = (contact: BitrixContact) => {
-    setSelectedContact(contact);
+  const handleSendTemplate = (entity: BitrixEntity) => {
+    setSelectedEntity(entity);
     setShowTemplateModal(true);
   };
 
   const handleRefresh = () => {
-    fetchContacts(page, search, department, contactType, company, true);
+    fetchEntities(page, search, department, contactType, company, true);
   };
 
   const handlePrevPage = () => {
     if (page > 1) {
       const newPage = page - 1;
       setPage(newPage);
-      fetchContacts(newPage, search, department, contactType, company);
+      fetchEntities(newPage, search, department, contactType, company);
     }
   };
 
@@ -168,7 +366,7 @@ export default function AgendaPage() {
     if (hasMore) {
       const newPage = page + 1;
       setPage(newPage);
-      fetchContacts(newPage, search, department, contactType, company);
+      fetchEntities(newPage, search, department, contactType, company);
     }
   };
 
@@ -189,24 +387,24 @@ export default function AgendaPage() {
     return count;
   };
 
-  const getFullName = (contact: BitrixContact) => {
-    const parts = [contact.NAME, contact.LAST_NAME].filter(Boolean);
+  const getFullName = (entity: BitrixEntity) => {
+    const parts = [entity.NAME, entity.LAST_NAME].filter(Boolean);
     return parts.length > 0 ? parts.join(" ") : "Sin nombre";
   };
 
-  const getPhone = (contact: BitrixContact) => {
-    if (!contact.PHONE || contact.PHONE.length === 0) return "—";
+  const getPhone = (entity: BitrixEntity) => {
+    if (!entity.PHONE || entity.PHONE.length === 0) return "—";
 
     // Priorizar teléfono de trabajo (WORK)
-    const workPhone = contact.PHONE.find(p => p.VALUE_TYPE === "WORK");
+    const workPhone = entity.PHONE.find(p => p.VALUE_TYPE === "WORK");
     if (workPhone) return workPhone.VALUE;
 
     // Si no hay WORK, buscar MOBILE
-    const mobilePhone = contact.PHONE.find(p => p.VALUE_TYPE === "MOBILE");
+    const mobilePhone = entity.PHONE.find(p => p.VALUE_TYPE === "MOBILE");
     if (mobilePhone) return mobilePhone.VALUE;
 
     // Si no hay ninguno, usar el primero disponible
-    return contact.PHONE[0]?.VALUE || "—";
+    return entity.PHONE[0]?.VALUE || "—";
   };
 
   const formatLastSync = () => {
@@ -226,10 +424,10 @@ export default function AgendaPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-              📇 Agenda de Contactos
+              📇 Agenda de {entityType === "contact" ? "Contactos" : "Prospectos"}
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              {loading ? "Cargando..." : `${total} contactos en Bitrix24`}
+              {loading ? "Cargando..." : `${total} ${entityType === "contact" ? "contactos" : "prospectos"} en Bitrix24`}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -262,10 +460,33 @@ export default function AgendaPage() {
           />
         </div>
 
-        {/* Filter Bar */}
+        {/* Toolbar: Entity Selector, Column Config, and Filters */}
         <div className="mt-3">
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Toggle Filters Button */}
+            {/* Entity Type Selector */}
+            <select
+              value={entityType}
+              onChange={(e) => setEntityType(e.target.value as EntityType)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 border-blue-300 bg-white text-blue-700 hover:border-blue-400 transition-all text-sm font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="contact">👤 Contactos</option>
+              <option value="lead">📋 Prospectos</option>
+            </select>
+
+            {/* Column Configuration Button */}
+            <button
+              onClick={() => setShowColumnSelector(!showColumnSelector)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 border-purple-300 bg-white text-purple-700 hover:border-purple-400 hover:bg-purple-50 transition-all"
+              title="Configurar columnas visibles"
+            >
+              <Settings2 className="w-4 h-4" />
+              <span className="text-sm font-medium">Columnas</span>
+              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-purple-500 text-white text-xs font-bold">
+                {visibleColumns.length}
+              </span>
+            </button>
+
+            {/* Filters Button */}
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 transition-all ${
@@ -320,6 +541,42 @@ export default function AgendaPage() {
               </span>
             )}
           </div>
+
+          {/* Column Selector (expandable) */}
+          {showColumnSelector && (
+            <div className="mt-3 p-4 bg-purple-50 rounded-lg border border-purple-200">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-purple-900">
+                  Seleccionar columnas visibles
+                </h3>
+                <button
+                  onClick={() => setShowColumnSelector(false)}
+                  className="text-purple-600 hover:text-purple-800 transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                {currentColumns.map((column) => (
+                  <label
+                    key={column.id}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-purple-200 hover:border-purple-400 cursor-pointer transition-all"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.includes(column.id)}
+                      onChange={() => toggleColumn(column.id)}
+                      className="w-4 h-4 text-purple-600 border-purple-300 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-sm text-slate-700">{column.label}</span>
+                    {visibleColumns.includes(column.id) && (
+                      <Check className="w-3 h-3 text-purple-600 ml-auto" />
+                    )}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Filter Dropdowns (expandable) */}
           {showFilters && (
@@ -389,10 +646,12 @@ export default function AgendaPage() {
               <p className="text-slate-600">Cargando contactos...</p>
             </div>
           </div>
-        ) : contacts.length === 0 ? (
+        ) : entities.length === 0 ? (
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
-              <p className="text-lg text-slate-600 mb-2">No se encontraron contactos</p>
+              <p className="text-lg text-slate-600 mb-2">
+                No se encontraron {entityType === "contact" ? "contactos" : "prospectos"}
+              </p>
               <p className="text-sm text-slate-500">
                 {search ? "Intenta con otro término de búsqueda" : "Conecta tu cuenta de Bitrix24"}
               </p>
@@ -403,54 +662,55 @@ export default function AgendaPage() {
             <table className="w-full">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                    Contacto
+                  {/* Columna de ID con avatar siempre visible */}
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider sticky left-0 bg-slate-50 z-10">
+                    {entityType === "contact" ? "Contacto" : "Prospecto"}
                   </th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                    Teléfono de Trabajo
-                  </th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                    Departamento
-                  </th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                    Stencil
-                  </th>
-                  <th className="text-center px-6 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  {/* Columnas dinámicas basadas en selección del usuario */}
+                  {getVisibleColumnsInOrder().map((column) => (
+                    <th
+                      key={column.id}
+                      className="text-left px-6 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider"
+                    >
+                      {column.label}
+                    </th>
+                  ))}
+                  {/* Columna de acciones siempre visible */}
+                  <th className="text-center px-6 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider sticky right-0 bg-slate-50 z-10">
                     Acciones
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {contacts.map((contact) => (
+                {entities.map((entity) => (
                   <tr
-                    key={contact.ID}
+                    key={entity.ID}
                     className="hover:bg-slate-50 transition-colors group"
                   >
-                    <td className="px-6 py-4">
+                    {/* Columna de ID con avatar siempre visible */}
+                    <td className="px-6 py-4 sticky left-0 bg-white group-hover:bg-slate-50 z-10">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-semibold text-sm shadow-sm">
-                          {getFullName(contact).charAt(0).toUpperCase()}
+                          {getFullName(entity).charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <p className="font-semibold text-slate-800">{getFullName(contact)}</p>
-                          <p className="text-xs text-slate-500">ID: {contact.ID}</p>
+                          <p className="font-semibold text-slate-800">{getFullName(entity)}</p>
+                          <p className="text-xs text-slate-500">ID: {entity.ID}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <p className="text-sm font-mono text-slate-700">{getPhone(contact)}</p>
-                    </td>
-                    <td className="px-6 py-4">
-                      <p className="text-sm text-slate-700">{contact.UF_CRM_68121FB2B841A || "—"}</p>
-                    </td>
-                    <td className="px-6 py-4">
-                      <p className="text-sm text-slate-700">{contact.UF_CRM_1565801603901 || "—"}</p>
-                    </td>
-                    <td className="px-6 py-4">
+                    {/* Columnas dinámicas */}
+                    {getVisibleColumnsInOrder().map((column) => (
+                      <td key={column.id} className="px-6 py-4">
+                        <p className="text-sm text-slate-700">{column.getValue(entity)}</p>
+                      </td>
+                    ))}
+                    {/* Columna de acciones siempre visible */}
+                    <td className="px-6 py-4 sticky right-0 bg-white group-hover:bg-slate-50 z-10">
                       <div className="flex items-center justify-center gap-2">
                         {/* Primary Action: Send Template */}
                         <button
-                          onClick={() => handleSendTemplate(contact)}
+                          onClick={() => handleSendTemplate(entity)}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-xs font-semibold hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow-md transform hover:scale-105"
                           title="Enviar plantilla WhatsApp"
                         >
@@ -460,7 +720,7 @@ export default function AgendaPage() {
 
                         {/* Secondary Actions */}
                         <button
-                          onClick={() => window.open(`tel:${getPhone(contact)}`, "_self")}
+                          onClick={() => window.open(`tel:${getPhone(entity)}`, "_self")}
                           className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
                           title="Llamar"
                         >
@@ -468,12 +728,12 @@ export default function AgendaPage() {
                         </button>
                         <button
                           onClick={async () => {
-                            // Load conversations for this contact's phone
-                            setPhoneSelectContact(contact);
+                            // Load conversations for this entity's phone
+                            setPhoneSelectEntity(entity);
                             setShowPhoneSelector(true);
                             setLoadingConversations(true);
                             try {
-                              const phone = getPhone(contact).replace(/[^0-9]/g, "");
+                              const phone = getPhone(entity).replace(/[^0-9]/g, "");
                               const response = await fetch(apiUrl(`/api/crm/conversations/search-by-phone?phone=${phone}`), {
                                 credentials: "include",
                               });
@@ -493,7 +753,20 @@ export default function AgendaPage() {
                           <MessageCircle className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => window.open(`https://azaleia-peru.bitrix24.es/crm/contact/details/${contact.ID}/`, "_blank")}
+                          onClick={() => {
+                            setDetailsEntity(entity);
+                            setShowDetailsModal(true);
+                          }}
+                          className="p-2 rounded-lg bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
+                          title="Ver todos los detalles"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            const type = entityType === "contact" ? "contact" : "lead";
+                            window.open(`https://azaleia-peru.bitrix24.es/crm/${type}/details/${entity.ID}/`, "_blank");
+                          }}
                           className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
                           title="Ver en Bitrix24"
                         >
@@ -510,11 +783,11 @@ export default function AgendaPage() {
       </div>
 
       {/* Pagination */}
-      {!loading && contacts.length > 0 && (
+      {!loading && entities.length > 0 && (
         <div className="bg-white border-t border-slate-200 px-6 py-4">
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-600">
-              Mostrando {(page - 1) * limit + 1} - {Math.min(page * limit, total)} de {total} contactos
+              Mostrando {(page - 1) * limit + 1} - {Math.min(page * limit, total)} de {total} {entityType === "contact" ? "contactos" : "prospectos"}
             </p>
             <div className="flex items-center gap-2">
               <button
@@ -542,18 +815,18 @@ export default function AgendaPage() {
       )}
 
       {/* Send Template Modal */}
-      {showTemplateModal && selectedContact && (
+      {showTemplateModal && selectedEntity && (
         <SendTemplateModal
-          contact={selectedContact}
+          contact={selectedEntity as BitrixContact}
           onClose={() => {
             setShowTemplateModal(false);
-            setSelectedContact(null);
+            setSelectedEntity(null);
           }}
         />
       )}
 
-      {/* Phone Selector Modal - Shows our numbers this contact has talked to */}
-      {showPhoneSelector && phoneSelectContact && (
+      {/* Phone Selector Modal - Shows our numbers this entity has talked to */}
+      {showPhoneSelector && phoneSelectEntity && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
             {/* Header */}
@@ -561,12 +834,12 @@ export default function AgendaPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-bold text-white">Seleccionar conversación</h3>
-                  <p className="text-green-100 text-sm">{getFullName(phoneSelectContact)}</p>
+                  <p className="text-green-100 text-sm">{getFullName(phoneSelectEntity)}</p>
                 </div>
                 <button
                   onClick={() => {
                     setShowPhoneSelector(false);
-                    setPhoneSelectContact(null);
+                    setPhoneSelectEntity(null);
                     setPhoneSelectConversations([]);
                   }}
                   className="text-white/80 hover:text-white transition p-1"
@@ -600,7 +873,7 @@ export default function AgendaPage() {
                           detail: { conversationId: conv.id }
                         }));
                         setShowPhoneSelector(false);
-                        setPhoneSelectContact(null);
+                        setPhoneSelectEntity(null);
                         setPhoneSelectConversations([]);
                       }}
                       className="w-full flex items-center justify-between p-4 rounded-lg border-2 border-slate-200 hover:border-green-500 hover:bg-green-50 transition-all group"
@@ -624,6 +897,153 @@ export default function AgendaPage() {
                   <p className="text-sm">No hay conversaciones con este contacto</p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Details Modal - Mostrar TODOS los campos */}
+      {showDetailsModal && detailsEntity && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-purple-500 to-indigo-600 px-6 py-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-white">
+                    Detalles Completos - {entityType === "contact" ? "Contacto" : "Prospecto"}
+                  </h3>
+                  <p className="text-purple-100 text-sm mt-1">{getFullName(detailsEntity)} (ID: {detailsEntity.ID})</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowDetailsModal(false);
+                    setDetailsEntity(null);
+                  }}
+                  className="text-white/80 hover:text-white transition p-1"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {Object.entries(detailsEntity)
+                  .sort(([keyA], [keyB]) => {
+                    // Priorizar campos importantes
+                    const priority: Record<string, number> = {
+                      'ID': 1,
+                      'NAME': 2,
+                      'LAST_NAME': 3,
+                      'PHONE': 4,
+                      'EMAIL': 5,
+                      'COMPANY_TITLE': 6
+                    };
+                    const prioA = priority[keyA] || 999;
+                    const prioB = priority[keyB] || 999;
+                    if (prioA !== prioB) return prioA - prioB;
+                    return keyA.localeCompare(keyB);
+                  })
+                  .map(([key, value]) => {
+                    // Formatear el valor según el tipo
+                    let displayValue = '—';
+
+                    if (value === null || value === undefined || value === '') {
+                      displayValue = '—';
+                    } else if (Array.isArray(value)) {
+                      if (value.length === 0) {
+                        displayValue = '—';
+                      } else if (key === 'PHONE' || key === 'EMAIL') {
+                        // Formateo especial para teléfonos y emails
+                        displayValue = value.map((item: any) => {
+                          if (typeof item === 'object' && item.VALUE) {
+                            const type = item.VALUE_TYPE ? ` (${item.VALUE_TYPE})` : '';
+                            return `${item.VALUE}${type}`;
+                          }
+                          return String(item);
+                        }).join(', ');
+                      } else {
+                        displayValue = JSON.stringify(value, null, 2);
+                      }
+                    } else if (typeof value === 'object') {
+                      displayValue = JSON.stringify(value, null, 2);
+                    } else if (typeof value === 'boolean') {
+                      displayValue = value ? 'Sí' : 'No';
+                    } else {
+                      displayValue = String(value);
+                    }
+
+                    // Formatear el nombre del campo
+                    let fieldName = key;
+                    // Mapeo de campos conocidos
+                    const fieldLabels: Record<string, string> = {
+                      'ID': 'ID',
+                      'NAME': 'Nombre',
+                      'LAST_NAME': 'Apellido',
+                      'PHONE': 'Teléfonos',
+                      'EMAIL': 'Emails',
+                      'COMPANY_TITLE': 'Empresa',
+                      'TITLE': 'Título',
+                      'STATUS_ID': 'Estado',
+                      'SOURCE_ID': 'Fuente',
+                      'ASSIGNED_BY_ID': 'Asignado a',
+                      'DATE_CREATE': 'Fecha de Creación',
+                      'UF_CRM_5DEAADAE301BB': 'N° Documento',
+                      'UF_CRM_1745466972': 'Dirección',
+                      'UF_CRM_67D702957E80A': 'Tipo de Contacto',
+                      'UF_CRM_68121FB2B841A': 'Departamento',
+                      'UF_CRM_1565801603901': 'Stencil',
+                      'UF_CRM_1662413427': 'Departamentos'
+                    };
+                    fieldName = fieldLabels[key] || key;
+
+                    return (
+                      <div key={key} className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                        <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">
+                          {fieldName}
+                        </div>
+                        <div className="text-sm text-slate-900 break-words whitespace-pre-wrap">
+                          {displayValue}
+                        </div>
+                        {key.startsWith('UF_CRM_') && (
+                          <div className="text-xs text-slate-400 mt-1 font-mono">
+                            {key}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex items-center justify-between">
+              <div className="text-xs text-slate-500">
+                {Object.keys(detailsEntity).length} campos totales
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    const type = entityType === "contact" ? "contact" : "lead";
+                    window.open(`https://azaleia-peru.bitrix24.es/crm/${type}/details/${detailsEntity.ID}/`, "_blank");
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center gap-2"
+                >
+                  <Eye className="w-4 h-4" />
+                  Abrir en Bitrix24
+                </button>
+                <button
+                  onClick={() => {
+                    setShowDetailsModal(false);
+                    setDetailsEntity(null);
+                  }}
+                  className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-all"
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
           </div>
         </div>

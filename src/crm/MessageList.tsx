@@ -261,8 +261,10 @@ export default function MessageList({ messages, attachments, onReply }: MessageL
 
           // Render grouped notifications with collapse functionality
           if (item.type === 'notification_group') {
+            // Create stable key from notification IDs
+            const groupKey = item.notifications.map(n => n.id).join('-');
             return (
-              <div key={`notification-group-${index}`}>
+              <div key={`notification-group-${groupKey}`}>
                 <CollapsibleNotifications notifications={item.notifications} />
               </div>
             );
@@ -279,51 +281,12 @@ export default function MessageList({ messages, attachments, onReply }: MessageL
             );
           }
 
-          // LEGACY: Render old system messages that have eventType using EventBubble
-          // This provides backward compatibility for messages created before standardization
-          if (message.type === "system" && message.eventType) {
+          // Render all system messages (type="system" or type="event")
+          // Use EventBubble for consistent rendering
+          if (message.type === "system" || message.type === "event") {
             return (
               <div key={message.id} id={`message-${message.id}`}>
                 <EventBubble message={message} />
-              </div>
-            );
-          }
-
-          // LEGACY FALLBACK: Render very old system messages without eventType
-          // These are messages from before the event system was implemented
-          if (message.type === "system") {
-            // Format timestamp
-            const timestamp = new Date(message.createdAt).toLocaleTimeString('es-PE', {
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: false
-            });
-
-            // Simplify multi-line text to single line
-            const simplifiedText = message.text?.replace(/\n/g, ' ') || '';
-
-            // Use metadata.backgroundColor if present, otherwise default gray
-            const backgroundColor = message.metadata?.backgroundColor || '#6b7280';
-            const textColor = 'white';
-
-            return (
-              <div key={message.id} id={`message-${message.id}`} className="flex justify-center my-2 group relative">
-                <div
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold shadow-sm"
-                  style={{ backgroundColor, color: textColor }}
-                >
-                  <span>{simplifiedText}</span>
-                  <span className="text-[10px] opacity-80">{timestamp}</span>
-                  {user?.role === 'admin' && (
-                    <button
-                      onClick={() => handleDeleteMessage(message.id)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity ml-2 hover:bg-white/20 rounded p-1"
-                      title="Eliminar mensaje"
-                    >
-                      <Trash2 size={12} className="text-white" />
-                    </button>
-                  )}
-                </div>
               </div>
             );
           }

@@ -67,10 +67,11 @@ export const flowLimiter = rateLimit({
 /**
  * Rate limiter for metrics endpoints
  * More lenient for real-time dashboard updates with polling
+ * Increased limits to support multiple concurrent users
  */
 export const metricsLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 120, // Limit to 120 requests per minute (2 per second average)
+  max: 500, // Limit to 500 requests per minute (much higher for internal dashboards)
   message: {
     error: "Metrics rate limit exceeded. Please slow down.",
   },

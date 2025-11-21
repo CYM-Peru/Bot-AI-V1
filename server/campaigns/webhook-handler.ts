@@ -40,7 +40,7 @@ export class CampaignWebhookHandler {
   /**
    * Process WhatsApp webhook for status updates
    */
-  processWebhook(payload: WhatsAppWebhookPayload): void {
+  async processWebhook(payload: WhatsAppWebhookPayload): Promise<void> {
     try {
       if (!payload.entry || payload.entry.length === 0) {
         return;
@@ -51,7 +51,7 @@ export class CampaignWebhookHandler {
           const statuses = change.value?.statuses;
 
           if (statuses && statuses.length > 0) {
-            this.processStatusUpdates(statuses);
+            await this.processStatusUpdates(statuses);
           }
         }
       }
@@ -63,7 +63,7 @@ export class CampaignWebhookHandler {
   /**
    * Process status updates from WhatsApp
    */
-  private processStatusUpdates(statuses: WhatsAppStatus[]): void {
+  private async processStatusUpdates(statuses: WhatsAppStatus[]): Promise<void> {
     for (const status of statuses) {
       try {
         const messageId = status.id;
@@ -73,13 +73,13 @@ export class CampaignWebhookHandler {
         console.log(`[CampaignWebhook] Status update: messageId=${messageId}, status=${newStatus}, phone=${recipientPhone}`);
 
         // Find which campaign this message belongs to
-        const campaign = this.findCampaignByMessageId(messageId, recipientPhone);
+        const campaign = await this.findCampaignByMessageId(messageId, recipientPhone);
 
         if (campaign) {
           console.log(`[CampaignWebhook] ✅ Found campaign: ${campaign.id} - Updating status to '${newStatus}'`);
 
           // Update campaign metrics
-          campaignStorage.updateMessageStatus(
+          await campaignStorage.updateMessageStatus(
             campaign.id,
             recipientPhone,
             newStatus,
@@ -101,35 +101,11 @@ export class CampaignWebhookHandler {
   /**
    * Find campaign that contains a specific message ID and recipient phone
    */
-  private findCampaignByMessageId(messageId: string, recipientPhone: string): { id: string } | null {
+  private async findCampaignByMessageId(messageId: string, recipientPhone: string): Promise<{ id: string } | null> {
     try {
-      const campaigns = campaignStorage.getAllCampaigns();
-
-      for (const campaign of campaigns) {
-        const metrics = campaignStorage.getCampaignMetrics(campaign.id);
-
-        if (!metrics) continue;
-
-        // Check if this campaign has this recipient
-        const detail = metrics.details.find(d => {
-          // Clean phone numbers for comparison (remove country code prefix if needed)
-          const cleanRecipient = recipientPhone.replace(/^\+/, '');
-          const cleanDetail = d.phone.replace(/^\+/, '');
-
-          return cleanDetail === cleanRecipient ||
-                 cleanDetail.endsWith(cleanRecipient) ||
-                 cleanRecipient.endsWith(cleanDetail);
-        });
-
-        if (detail) {
-          // Check if message ID matches
-          if (detail.messageId === messageId) {
-            return campaign;
-          }
-        }
-      }
-
-      return null;
+      // Query database directly for better performance
+      const result = await campaignStorage.findCampaignByMessageId(messageId, recipientPhone);
+      return result;
     } catch (error) {
       console.error('[CampaignWebhook] Error finding campaign:', error);
       return null;

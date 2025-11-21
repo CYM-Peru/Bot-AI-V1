@@ -35,6 +35,7 @@ import { createApiRoutes } from "./api-routes";
 import { registerCrmModule } from "./crm";
 import { initCrmWSS } from "./crm/ws";
 import { CrmStatusWebhookHandler } from "./crm/status-webhook-handler";
+import { CampaignWebhookHandler } from "./campaigns/webhook-handler";
 import { ensureStorageSetup } from "./utils/storage";
 import { getWhatsAppEnv, getWhatsAppVerifyToken, getBitrixClientConfig } from "./utils/env";
 import whatsappConnectionsRouter from "./connections/whatsapp-routes";
@@ -273,6 +274,7 @@ timerScheduler.setEngine(runtimeEngine);
 // Conversational CRM module
 const crmSocketManager = initCrmWSS(server);
 const crmStatusWebhookHandler = new CrmStatusWebhookHandler(crmSocketManager);
+const campaignWebhookHandler = new CampaignWebhookHandler();
 const crmModule = registerCrmModule({
   app,
   socketManager: crmSocketManager,
@@ -302,10 +304,16 @@ console.log("[Server] 🤖⏱️ Bot Timeout Scheduler started - checking bot ti
 // Initialize Queue Distributor for automatic chat assignment
 const queueDistributor = new QueueDistributor(crmSocketManager);
 
-// Start automatic distribution every 20 seconds (dar tiempo al bot para procesar)
-queueDistributor.start(20000);
+// Start automatic distribution every 10 seconds
+queueDistributor.start(10000);
 
-console.log("[Server] 🎯 Queue Distributor started - distributing chats every 20 seconds");
+console.log("[Server] 🎯 Queue Distributor started - distributing chats every 10 seconds");
+
+// Initialize NEW Event-Driven Queue Assignment Service
+// Running IN PARALLEL with QueueDistributor for now (safe deployment)
+import { initQueueAssignmentService } from "./crm/queue-assignment-service";
+const queueAssignmentService = initQueueAssignmentService(crmSocketManager);
+console.log("[Server] ⚡ Event-Driven Queue Assignment Service initialized (running in parallel)");
 
 // Initialize Message Grouping Service for IA Agent
 // This service groups multiple messages from the same user before sending to AI
@@ -396,7 +404,8 @@ async function createWhatsAppHandler() {
         // When bot sends a menu and waits for selection, conversation might have queueId already assigned
         // but we MUST let the bot process the user's response
         if (existingConversation.status === 'active' && existingConversation.queueId) {
-          const sessionId = `whatsapp_${phoneNumber}`;
+          // CRITICAL FIX: Include phoneNumberId to prevent session conflicts with multiple connections
+          const sessionId = `whatsapp_${phoneNumber}_${phoneNumberId || 'default'}`;
           const botSession = await sessionStore.getSession(sessionId);
 
           if (botSession && botSession.awaitingNodeId) {
@@ -444,7 +453,8 @@ async function createWhatsAppHandler() {
           }
 
           // Log conversation start
-          const sessionId = `whatsapp_${phoneNumber}`;
+          // CRITICAL FIX: Include phoneNumberId to prevent session conflicts
+          const sessionId = `whatsapp_${phoneNumber}_${phoneNumberId || 'default'}`;
           botLogger.logConversationStarted(sessionId, flowId);
           metricsTracker.startConversation(sessionId, flowId);
 
@@ -523,7 +533,8 @@ async function createWhatsAppHandler() {
 
               console.log('[Bot Transfer] 2/7 Deleting bot session...');
               // CRITICAL: Terminate bot session when transferring to queue
-              const sessionId = `whatsapp_${payload.phone}`;
+              // CRITICAL FIX: Include phoneNumberId to prevent session conflicts with multiple connections
+              const sessionId = `whatsapp_${payload.phone}_${payload.phoneNumberId || 'default'}`;
               await sessionStore.deleteSession(sessionId);
               logger.info(`[Bot Transfer] 🛑 Bot session TERMINATED - conversation transferred to queue ${queueId}`);
 
@@ -543,13 +554,15 @@ async function createWhatsAppHandler() {
               if (queue && queue.assignedAdvisors && queue.assignedAdvisors.length > 0) {
                 console.log('[Bot Transfer] 4/7 Trying auto-assignment to', queue.assignedAdvisors.length, 'advisors...');
 
-                // Get available advisors (those with status action = "accept")
+                // Get available advisors (those with status action = "accept" AND online)
                 const availableAdvisors = [];
                 for (const advisorId of queue.assignedAdvisors) {
                   const statusAssignment = await adminDb.getAdvisorStatus(advisorId);
                   if (statusAssignment) {
                     const status = await adminDb.getAdvisorStatusById(statusAssignment.statusId);
-                    if (status?.action === "accept") {
+                    // ✅ CRITICAL FIX: Check BOTH status AND isOnline()
+                    const isOnline = advisorPresence.isOnline(advisorId);
+                    if (status?.action === "accept" && isOnline) {
                       availableAdvisors.push(advisorId);
                     }
                   }
@@ -635,7 +648,8 @@ async function createWhatsAppHandler() {
               logger.info(`[Bot Transfer] 🎯 Conversation ${conversation.id} assigned to advisor: ${transferDestination}`);
 
               // CRITICAL: Terminate bot session when transferring to advisor
-              const sessionId = `whatsapp_${payload.phone}`;
+              // CRITICAL FIX: Include phoneNumberId to prevent session conflicts with multiple connections
+              const sessionId = `whatsapp_${payload.phone}_${payload.phoneNumberId || 'default'}`;
               await sessionStore.deleteSession(sessionId);
               logger.info(`[Bot Transfer] 🛑 Bot session TERMINATED - conversation transferred to advisor ${transferDestination}`);
 
@@ -675,7 +689,8 @@ async function createWhatsAppHandler() {
             if (transferDestination) {
               logger.info(`[Bot Transfer] 🤖 Transferring conversation ${conversation.id} to bot: ${transferDestination}`);
               // Clear session to restart from beginning
-              const sessionId = `whatsapp_${payload.phone}`;
+              // CRITICAL FIX: Include phoneNumberId to prevent session conflicts with multiple connections
+              const sessionId = `whatsapp_${payload.phone}_${payload.phoneNumberId || 'default'}`;
               await sessionStore.deleteSession(sessionId);
               logger.info(`[Bot Transfer] ✅ Session cleared for fresh start with flow: ${transferDestination}`);
               // Note: The next message will trigger the new flow automatically
@@ -707,7 +722,8 @@ async function createWhatsAppHandler() {
         console.log('[Flow End] ✅ Conversation found:', conversation.id);
 
         // Delete bot session
-        const sessionId = `whatsapp_${payload.phone}`;
+        // CRITICAL FIX: Include phoneNumberId to prevent session conflicts with multiple connections
+        const sessionId = `whatsapp_${payload.phone}_${payload.phoneNumberId || 'default'}`;
         await sessionStore.deleteSession(sessionId);
         logger.info(`[Flow End] 🛑 Bot session TERMINATED - flow ended`);
 
@@ -718,10 +734,10 @@ async function createWhatsAppHandler() {
         });
         logger.info(`[Flow End] ✅ Bot fields cleared (botStartedAt, botFlowId)`);
 
-        // CRITICAL: ALWAYS archive conversation when END node is executed
+        // CRITICAL: ALWAYS close conversation when END node is executed
         // The END node explicitly terminates the conversation, regardless of queue/assignment status
-        await crmDb.updateConversationMeta(conversation.id, { status: 'archived' });
-        logger.info(`[Flow End] 📦 Conversation ${conversation.id} archived - END node executed`);
+        await crmDb.updateConversationMeta(conversation.id, { status: 'closed' });
+        logger.info(`[Flow End] 📦 Conversation ${conversation.id} closed - END node executed`);
 
         // Also clear queue assignment since conversation is now closed
         await crmDb.updateConversationQueue(conversation.id, null);
@@ -752,13 +768,27 @@ async function createWhatsAppHandler() {
       try {
         const { crmDb } = await import('./crm/db');
 
-        // CRITICAL: Find conversation by phone AND phoneNumberId to avoid cross-contamination
+        // CRITICAL FIX: First try to find ANY active conversation for this phone
+        // This prevents creating duplicate conversations when bot responds from different number
         const phoneNumberId = payload.phoneNumberId;
         let conversation = await crmDb.getConversationByPhoneAndChannel(payload.phone, 'whatsapp', phoneNumberId);
 
         if (!conversation) {
-          // Create conversation with proper channel info
-          conversation = await crmDb.createConversation(payload.phone, null, null, 'whatsapp', phoneNumberId);
+          // Try to find active conversation with ANY phoneNumberId (prevent duplicates)
+          const allConversations = await crmDb.getAllConversations();
+          conversation = allConversations.find(c =>
+            c.phone === payload.phone &&
+            c.channel === 'whatsapp' &&
+            c.status !== 'closed'
+          ) || null;
+
+          if (!conversation) {
+            // No active conversation found - create new one
+            conversation = await crmDb.createConversation(payload.phone, null, null, 'whatsapp', phoneNumberId);
+            logger.info(`[Bot Message] ✅ Created NEW conversation ${conversation.id} for ${payload.phone}`);
+          } else {
+            logger.info(`[Bot Message] ✅ Using existing conversation ${conversation.id} (channelConnectionId: ${conversation.channelConnectionId}) for bot response`);
+          }
         }
 
         // CRITICAL: If bot is sending messages and conversation is not assigned, claim it
@@ -944,6 +974,8 @@ app.all("/api/meta/webhook", webhookLimiter, async (req: Request, res: Response)
     // Process status updates for CRM messages (delivered, read, etc.)
     if (req.method === "POST" && req.body) {
       crmStatusWebhookHandler.processWebhook(req.body);
+      // Also process webhooks for campaign messages
+      campaignWebhookHandler.processWebhook(req.body);
     }
 
     // Build Request options conditionally - don't include body for GET/HEAD

@@ -39,7 +39,7 @@ export const phoneNumberSchema = z.string()
 
 export const conversationSearchSchema = z.object({
   query: z.string().min(1).max(200).optional(),
-  status: z.enum(['active', 'attending', 'archived']).optional(),
+  status: z.enum(['active', 'attending', 'closed']).optional(),
   assignedTo: z.string().uuid().optional(),
   limit: z.number().int().min(1).max(100).default(50),
   offset: z.number().int().min(0).default(0),

@@ -57,7 +57,6 @@ class RealtimeMetricsService {
 
       // Count by status
       const active = conversations.filter(c => c.status === 'active').length;
-      const archived = conversations.filter(c => c.status === 'archived').length;
       const closed = conversations.filter(c => c.status === 'closed').length;
       const queued = conversations.filter(c => c.queueId && c.status === 'active').length;
 
@@ -93,24 +92,46 @@ class RealtimeMetricsService {
         messagesPerMinute = 0;
       }
 
-      // Response time - get average from metrics tracker for last 24h
+      // Response time - TIEMPO QUE TARDA ASESOR EN RESPONDER DESPUÉS DE TRANSFERENCIA DEL BOT
       let avgResponseTime = 0;
       try {
-        // Get KPIs for recent period to calculate average first response time
-        const allMetrics = await metricsTrackerDB.getAllMetrics(last24h, now);
+        // Get conversations where advisor responded after bot transfer (last 24h)
+        const advisorResponseTimes = await crmDb.pool.query(`
+          SELECT
+            (m.timestamp - c.assigned_at) as response_time_ms
+          FROM crm_conversations c
+          JOIN crm_messages m ON m.conversation_id = c.id
+          WHERE c.assigned_to_advisor IS NOT NULL
+            AND c.assigned_at IS NOT NULL
+            AND m.direction = 'outgoing'
+            AND m.type != 'system'
+            AND m.timestamp > c.assigned_at
+            AND c.assigned_at > $1
+            AND (m.timestamp - c.assigned_at) > 0
+            AND (m.timestamp - c.assigned_at) < 600000
+          ORDER BY c.id, m.timestamp
+        `, [last24h]);
 
-        // Calculate average first response time across all recent conversations
-        const firstResponseTimes = allMetrics
-          .filter(m => m.firstResponseAt && m.startedAt)
-          .map(m => m.firstResponseAt! - m.startedAt);
+        // Get first response per conversation
+        const conversationFirstResponse = new Map<string, number>();
+        for (const row of advisorResponseTimes.rows) {
+          const responseTime = parseInt(row.response_time_ms);
+          // We only want the first response (smallest time) per conversation
+          // Since we ordered by timestamp, first occurrence is the first response
+          if (!conversationFirstResponse.has(row.conversation_id)) {
+            conversationFirstResponse.set(row.conversation_id, responseTime);
+          }
+        }
 
-        if (firstResponseTimes.length > 0) {
+        const responseTimes = Array.from(conversationFirstResponse.values());
+
+        if (responseTimes.length > 0) {
           avgResponseTime = Math.round(
-            firstResponseTimes.reduce((sum, time) => sum + time, 0) / firstResponseTimes.length
+            responseTimes.reduce((sum, time) => sum + time, 0) / responseTimes.length
           );
         }
       } catch (error) {
-        console.error('[RealtimeMetrics] Error calculating response time:', error);
+        console.error('[RealtimeMetrics] Error calculating advisor response time:', error);
         avgResponseTime = 0;
       }
 
@@ -132,7 +153,6 @@ class RealtimeMetricsService {
         averageResponseTime: avgResponseTime,
         errorRate, // Real error rate from error_logs table
         uptime: (now - this.startTime) / 1000,
-        archivedConversations: archived,
         closedConversations: closed,
         unreadCount: unread,
         queuedConversations: queued,
@@ -195,7 +215,7 @@ class RealtimeMetricsService {
         let duration: number | undefined;
         let endedAt: string | undefined;
 
-        if (conv.status === 'archived' || conv.status === 'closed') {
+        if (conv.status === 'closed') {
           // Calculate real duration from first to last message
           duration = conv.lastMessageAt - (conv.queuedAt || conv.lastMessageAt);
           endedAt = new Date(conv.lastMessageAt).toISOString();

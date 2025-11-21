@@ -41,6 +41,14 @@ export default function CRMPage() {
   const [isDetached, setIsDetached] = useState(false);
   const detachedWindowRef = useRef<Window | null>(null);
 
+  // Resizable conversation list
+  const [conversationListWidth, setConversationListWidth] = useState(() => {
+    const saved = localStorage.getItem("crm:conversationListWidth");
+    return saved ? parseInt(saved, 10) : 380;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const [isHoveringResizer, setIsHoveringResizer] = useState(false);
+
   // Handle detach/reattach
   const handleDetach = useCallback(() => {
     if (!selectedConversationId) return;
@@ -92,6 +100,36 @@ export default function CRMPage() {
       }, 500);
     }
   }, [selectedConversationId, conversations, conversationData]);
+
+  // Handle resize of conversation list
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = e.clientX;
+      // Min 280px, Max 600px
+      const clampedWidth = Math.max(280, Math.min(600, newWidth));
+      setConversationListWidth(clampedWidth);
+      localStorage.setItem("crm:conversationListWidth", clampedWidth.toString());
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
 
   // SYNC DISABLED - Causaba error #321
   // useEffect(() => {
@@ -442,9 +480,12 @@ export default function CRMPage() {
   );
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className={`flex h-full flex-col overflow-hidden ${isResizing ? 'select-none' : ''}`}>
       <div className="flex flex-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
-          <div className="w-[380px] flex-shrink-0 h-full">
+          <div
+            className="flex-shrink-0 h-full relative"
+            style={{ width: `${conversationListWidth}px` }}
+          >
             {loadingConversations && conversations.length === 0 ? (
               <div className="flex h-full items-center justify-center text-sm text-slate-500">
                 Cargando conversaciones…
@@ -458,6 +499,89 @@ export default function CRMPage() {
                 currentUserRole={user?.role}
               />
             )}
+
+            {/* Ultra Elegant Resizer */}
+            <div
+              className="absolute top-0 right-0 h-full w-3 -mr-1.5 cursor-col-resize flex items-center justify-center group"
+              onMouseDown={handleMouseDown}
+              onMouseEnter={() => setIsHoveringResizer(true)}
+              onMouseLeave={() => setIsHoveringResizer(false)}
+              style={{ zIndex: 10 }}
+            >
+              {/* Invisible hit area for better UX */}
+              <div className="absolute inset-0"></div>
+
+              {/* Main resizer line */}
+              <div
+                className={`w-px h-full transition-all duration-300 ease-out ${
+                  isResizing
+                    ? 'bg-gradient-to-b from-blue-400 via-blue-500 to-blue-400 shadow-lg shadow-blue-500/50'
+                    : isHoveringResizer
+                    ? 'bg-gradient-to-b from-slate-300 via-slate-400 to-slate-300'
+                    : 'bg-slate-200/50'
+                }`}
+              >
+                {/* Glow effect when active */}
+                {(isHoveringResizer || isResizing) && (
+                  <div className="absolute inset-0 bg-gradient-to-b from-blue-400/20 via-blue-500/20 to-blue-400/20 blur-sm"></div>
+                )}
+              </div>
+
+              {/* Floating handle indicator */}
+              <div
+                className={`absolute top-1/2 -translate-y-1/2 transition-all duration-300 ease-out ${
+                  isHoveringResizer || isResizing
+                    ? 'opacity-100 scale-100 translate-x-0'
+                    : 'opacity-0 scale-90 -translate-x-2'
+                }`}
+              >
+                <div className="relative">
+                  {/* Backdrop blur effect */}
+                  <div className="absolute inset-0 bg-white/80 backdrop-blur-sm rounded-full scale-110"></div>
+
+                  {/* Main handle */}
+                  <div
+                    className={`relative w-3.5 h-16 rounded-full shadow-xl transition-all duration-300 ${
+                      isResizing
+                        ? 'bg-gradient-to-r from-blue-400 to-blue-500 shadow-blue-500/40 scale-105'
+                        : 'bg-gradient-to-r from-slate-400 to-slate-500 shadow-slate-500/30'
+                    }`}
+                  >
+                    {/* Shine effect */}
+                    <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent rounded-full"></div>
+
+                    {/* Grip dots */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 py-4">
+                      {[...Array(6)].map((_, i) => (
+                        <div
+                          key={i}
+                          className={`w-0.5 h-0.5 rounded-full transition-all duration-300 ${
+                            isResizing ? 'bg-white shadow-sm' : 'bg-white/70'
+                          }`}
+                          style={{
+                            transitionDelay: `${i * 20}ms`
+                          }}
+                        ></div>
+                      ))}
+                    </div>
+
+                    {/* Pulse animation when resizing */}
+                    {isResizing && (
+                      <div className="absolute inset-0 rounded-full bg-blue-400 animate-ping opacity-20"></div>
+                    )}
+                  </div>
+
+                  {/* Subtle outer glow */}
+                  <div
+                    className={`absolute -inset-2 rounded-full blur-md transition-opacity duration-300 ${
+                      isResizing
+                        ? 'bg-blue-400/30 opacity-100'
+                        : 'bg-slate-400/20 opacity-0'
+                    }`}
+                  ></div>
+                </div>
+              </div>
+            </div>
           </div>
           {isDetached ? (
             <div className="flex-1 flex items-center justify-center bg-gradient-to-br from-purple-50 to-white">

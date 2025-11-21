@@ -16,6 +16,11 @@ import {
 // CRITICAL FIX: Import backend WhatsApp sending function (works correctly)
 import { sendWhatsAppMessage } from "../../server/services/whatsapp";
 import type { MessageGroupingService } from "../../server/services/message-grouping";
+// CRITICAL FIX: Import Pool to query attachments for Vision API
+import { Pool } from "pg";
+// CRITICAL FIX: Import attachment storage to read images for base64 conversion
+import { attachmentStorage } from "../../server/crm/storage";
+import { readFile } from "fs/promises";
 
 export interface Logger {
   info?(message: string, meta?: Record<string, unknown>): void;
@@ -200,12 +205,17 @@ export class WhatsAppWebhookHandler {
         console.log('[processMessage] 📦 Using message grouping for IA Agent flow');
         // Use message grouping - add message to queue and wait for timeout
         const conversationId = `${resolution.contactId}_${this.currentPhoneNumberId || 'default'}`;
+        // CRITICAL FIX: Capture phoneNumberId NOW before it gets overwritten by other concurrent messages
+        const capturedPhoneNumberId = this.currentPhoneNumberId;
 
         await this.messageGroupingService!.addMessage(
           conversationId,
           message,
           async (groupedMessages) => {
             console.log(`[processMessage] ⚡ Processing ${groupedMessages.length} grouped messages for ${conversationId}`);
+            // CRITICAL FIX: Restore the correct phoneNumberId for this conversation before processing
+            this.currentPhoneNumberId = capturedPhoneNumberId;
+            console.log(`[processMessage] 📱 Restored phoneNumberId: ${this.currentPhoneNumberId} for conversation ${conversationId}`);
             await this.processGroupedMessages(entryId, value, groupedMessages, resolution);
           }
         );
@@ -318,7 +328,7 @@ export class WhatsAppWebhookHandler {
     resolution: FlowResolution
   ): Promise<void> {
     console.log('[processSingleMessage] Converting message to runtime format...');
-    const incoming = convertMessageToRuntime(message);
+    const incoming = await convertMessageToRuntime(message);
     console.log('[processSingleMessage] 📤 Converted message:', JSON.stringify(incoming, null, 2));
 
     console.log('[processSingleMessage] 🚀 Calling engine.processMessage with:', {
@@ -350,18 +360,19 @@ export class WhatsAppWebhookHandler {
       }
     }
 
-    // Handle IA Agent transfers
-    // TODO: Re-enable when ProcessMessageOutput includes shouldTransfer and transferQueue
+    // DISABLED: Transfer is already handled by the system message processor (lines 560-580)
+    // This was causing duplicate onBotTransfer calls and duplicate system messages
     // if (result.shouldTransfer && result.transferQueue) {
     //   console.log('[processSingleMessage] 🎯 IA Agent requested transfer to queue:', result.transferQueue);
     //   if (this.onBotTransfer) {
     //     console.log('[processSingleMessage] 📞 Calling onBotTransfer callback for IA Agent...');
     //     await this.onBotTransfer({
     //       phone: message.from,
+    //       phoneNumberId: this.currentPhoneNumberId,
     //       queueId: result.transferQueue,
-    //       target: 'queue',
-    //       destination: result.transferQueue,
-    //       phoneNumberId: resolution.phoneNumberId,
+    //       transferTarget: 'queue',
+    //       transferDestination: result.transferQueue,
+    //       flowId: this.currentFlowId,
     //     });
     //     console.log('[processSingleMessage] ✅ IA Agent transfer callback completed');
     //   } else {
@@ -369,8 +380,20 @@ export class WhatsAppWebhookHandler {
     //   }
     // }
 
-    // NOTE: Flow end is handled via system message with action:"end" in dispatchOutbound
-    // No need to call onFlowEnd here - it's already called when processing the system message
+    // Handle flow ended - call onFlowEnd callback to archive conversation
+    if (result.ended) {
+      console.log('[processSingleMessage] 🏁 Flow ended - calling onFlowEnd callback');
+      if (this.onFlowEnd) {
+        await this.onFlowEnd({
+          phone: message.from,
+          phoneNumberId: this.currentPhoneNumberId,
+          flowId: this.currentFlowId,
+        });
+        console.log('[processSingleMessage] ✅ onFlowEnd callback completed');
+      } else {
+        console.log('[processSingleMessage] ⚠️  No onFlowEnd callback registered');
+      }
+    }
   }
 
   private async getActiveApiConfig(): Promise<WhatsAppApiConfig> {
@@ -688,7 +711,61 @@ export class WhatsAppWebhookHandler {
   }
 }
 
-function convertMessageToRuntime(message: WhatsAppMessage): IncomingMessage {
+// PostgreSQL connection pool for attachment lookups
+const pgPool = new Pool({
+  user: process.env.POSTGRES_USER || 'postgres',
+  host: process.env.POSTGRES_HOST || 'localhost',
+  database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+  password: process.env.POSTGRES_PASSWORD || 'azaleia_pg_2025_secure',
+  port: parseInt(process.env.POSTGRES_PORT || '5432'),
+  max: 5,
+});
+
+/**
+ * Get base64-encoded image for OpenAI Vision API
+ * Looks up attachment in DB by WhatsApp media ID (stored as filename)
+ * Reads file and converts to base64 data URL
+ */
+async function getPublicMediaUrl(mediaId: string | undefined): Promise<string | undefined> {
+  if (!mediaId) return undefined;
+
+  try {
+    // Query DB for attachment by filename (WhatsApp media ID is stored as filename)
+    const result = await pgPool.query(
+      'SELECT id, url FROM crm_attachments WHERE filename = $1 LIMIT 1',
+      [mediaId]
+    );
+
+    if (result.rows.length > 0) {
+      const attachmentId = result.rows[0].id;
+
+      // Get file metadata and path
+      const metadata = await attachmentStorage.getMetadata(attachmentId);
+      if (!metadata) {
+        console.log(`[Vision] ⚠️  Attachment metadata not found for ${attachmentId}`);
+        return mediaId;
+      }
+
+      // Read file as buffer
+      const buffer = await readFile(metadata.filepath);
+
+      // Convert to base64
+      const base64 = buffer.toString('base64');
+      const dataUrl = `data:${metadata.mime};base64,${base64}`;
+
+      console.log(`[Vision] 📸 Converted attachment ${attachmentId} to base64 (${buffer.length} bytes, ${metadata.mime})`);
+      return dataUrl;
+    }
+
+    console.log(`[Vision] ⚠️  No attachment found for media ID: ${mediaId}, using original ID`);
+    return mediaId;
+  } catch (error) {
+    console.error('[Vision] Error converting image to base64:', error);
+    return mediaId; // Fallback to original ID
+  }
+}
+
+async function convertMessageToRuntime(message: WhatsAppMessage): Promise<IncomingMessage> {
   const raw = message as unknown as Record<string, unknown>;
   switch (message.type) {
     case "text":
@@ -721,7 +798,7 @@ function convertMessageToRuntime(message: WhatsAppMessage): IncomingMessage {
     case "image":
       return {
         type: "media",
-        mediaUrl: message.image?.id ?? message.image?.link,
+        mediaUrl: await getPublicMediaUrl(message.image?.id) ?? message.image?.link,
         mediaType: "image",
         caption: message.image?.caption,
         raw,
@@ -729,7 +806,7 @@ function convertMessageToRuntime(message: WhatsAppMessage): IncomingMessage {
     case "video":
       return {
         type: "media",
-        mediaUrl: message.video?.id ?? message.video?.link,
+        mediaUrl: await getPublicMediaUrl(message.video?.id) ?? message.video?.link,
         mediaType: "video",
         caption: message.video?.caption,
         raw,
@@ -737,7 +814,7 @@ function convertMessageToRuntime(message: WhatsAppMessage): IncomingMessage {
     case "document":
       return {
         type: "media",
-        mediaUrl: message.document?.id ?? message.document?.link,
+        mediaUrl: await getPublicMediaUrl(message.document?.id) ?? message.document?.link,
         mediaType: "document",
         caption: message.document?.caption,
         filename: message.document?.filename,
@@ -746,14 +823,14 @@ function convertMessageToRuntime(message: WhatsAppMessage): IncomingMessage {
     case "audio":
       return {
         type: "media",
-        mediaUrl: message.audio?.id ?? message.audio?.link,
+        mediaUrl: await getPublicMediaUrl(message.audio?.id) ?? message.audio?.link,
         mediaType: "audio",
         raw,
       };
     case "sticker":
       return {
         type: "media",
-        mediaUrl: message.sticker?.id ?? message.sticker?.link,
+        mediaUrl: await getPublicMediaUrl(message.sticker?.id) ?? message.sticker?.link,
         mediaType: "sticker",
         raw,
       };
@@ -866,4 +943,30 @@ interface MediaMessage extends WhatsAppMessageBase {
   sticker?: { id?: string; link?: string; mime_type?: string };
 }
 
-export type WhatsAppMessage = TextMessage | ButtonMessage | InteractiveButtonMessage | MediaMessage;
+interface ReactionMessage extends WhatsAppMessageBase {
+  type: "reaction";
+  reaction?: {
+    message_id: string;  // ID of the message being reacted to
+    emoji: string;       // The emoji reaction (e.g., "👏", "❤️")
+  };
+}
+
+interface ContactsMessage extends WhatsAppMessageBase {
+  type: "contacts";
+  contacts?: Array<{
+    name?: { formatted_name?: string };
+    phones?: Array<{ phone?: string; wa_id?: string; type?: string }>;
+  }>;
+}
+
+interface UnsupportedMessage extends WhatsAppMessageBase {
+  type: "unsupported";
+  errors?: Array<{
+    code?: number;
+    title?: string;
+    message?: string;
+    error_data?: { details?: string };
+  }>;
+}
+
+export type WhatsAppMessage = TextMessage | ButtonMessage | InteractiveButtonMessage | MediaMessage | ReactionMessage | ContactsMessage | UnsupportedMessage;

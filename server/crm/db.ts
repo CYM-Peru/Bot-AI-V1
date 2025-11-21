@@ -250,7 +250,7 @@ export class CRMDatabase {
   }
 
   archiveConversation(convId: string) {
-    this.updateConversationMeta(convId, { status: "archived" });
+    this.updateConversationMeta(convId, { status: "closed" });
   }
 
   storeAttachment(input: Omit<Attachment, "createdAt">): Attachment {

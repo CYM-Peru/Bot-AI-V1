@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiUrl } from "../lib/apiBase";
+import { useAuth } from "../hooks/useAuth";
 import BitrixContactCard from "./BitrixContactCard";
 import Composer from "./Composer";
 import MessageList from "./MessageList";
@@ -41,17 +42,43 @@ interface ChatTheme {
 }
 
 export default function ChatWindow({ conversation, messages, attachments, onSend, onDetach, isDetached, showToast, socket, userRole }: ChatWindowProps) {
+  const { user } = useAuth();
+  const [userRoleName, setUserRoleName] = useState<string>('');
   const [replyTo, setReplyTo] = useState<{ message: Message; attachments: Attachment[] } | null>(null);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
   const [chatBackground, setChatBackground] = useState(() => {
-    return localStorage.getItem("crm:chat:background") || "default";
+    return localStorage.getItem("crm:chat:background") || "none";
   });
   const [chatTheme, setChatTheme] = useState<ChatTheme>({
     chatBackgroundImage: "",
     chatBackgroundColor: "",
   });
+
+  // Fetch user role name to check if user is "ghost" (admin/supervisor/gerencia)
+  useEffect(() => {
+    if (!user?.role) return;
+
+    const fetchRoleName = async () => {
+      try {
+        const response = await fetch(apiUrl("/api/admin/roles"), {
+          credentials: "include",
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const roles = data.roles || [];
+          const roleObj = roles.find((r: any) => r.id === user.role);
+          setUserRoleName(roleObj?.name?.toLowerCase() || user.role.toLowerCase());
+        }
+      } catch (error) {
+        console.error("[ChatWindow] Error loading role name:", error);
+        setUserRoleName(user.role.toLowerCase());
+      }
+    };
+
+    fetchRoleName();
+  }, [user?.role]);
 
   // Listen for background changes
   useEffect(() => {
@@ -128,8 +155,17 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
   }, [messages]);
 
   // Mark conversation as read when opened
+  // UNLESS user is "ghost" (admin/supervisor/gerencia) - they can view without marking as read
   useEffect(() => {
     if (!conversation || conversation.readAt) return;
+
+    // Check if user is a "ghost" - admin, supervisor, or gerencia can view without marking as read
+    const isGhostRole = userRoleName === 'admin' || userRoleName === 'supervisor' || userRoleName === 'gerencia';
+
+    if (isGhostRole) {
+      console.log(`[ChatWindow] 👻 Ghost mode: ${userRoleName} viewing without marking as read`);
+      return; // Don't mark as read for ghost roles
+    }
 
     const markAsRead = async () => {
       try {
@@ -143,7 +179,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
     };
 
     markAsRead();
-  }, [conversation?.id]);
+  }, [conversation?.id, userRoleName]);
 
   const [accepting, setAccepting] = useState(false);
   const [rejecting, setRejecting] = useState(false);
@@ -510,7 +546,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-slate-50">
       <ChatWindowHeader
         conversation={conversation}
         advisors={advisors}
@@ -576,7 +612,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
           2. OR conversation is assigned but not yet accepted (status !== "attending")
           3. EXCLUDE bots (they have their own button above)
       */}
-      {conversation.status !== "archived" && conversation.status !== "attending" && (
+      {conversation.status !== "closed" && conversation.status !== "attending" && (
         conversation.queueId || conversation.assignedTo
       ) && !conversation.assignedTo?.startsWith('bot-') && (
         <QueueActions
@@ -593,7 +629,7 @@ export default function ChatWindow({ conversation, messages, attachments, onSend
       <div className="flex-shrink-0">
         <Composer
           disabled={
-            conversation.status === "archived" || // Bloqueado si está archivado (FINALIZADOS)
+            conversation.status === "closed" || // Bloqueado si está cerrado (FINALIZADOS)
             (conversation.status === "active" && !conversation.assignedTo) // Bloqueado si está en cola/bot sin asesor (EN COLA / BOT)
           }
           replyingTo={replyTo}

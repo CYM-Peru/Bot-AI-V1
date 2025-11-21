@@ -4,6 +4,8 @@ import MetricsDashboard from '../crm/MetricsDashboard';
 import AIAnalyticsPanel from './AIAnalyticsPanel';
 import InvestmentControlPanel from './InvestmentControlPanel';
 import KeywordUsagePanel from './KeywordUsagePanel';
+import { CampaignsPanel } from './CampaignsPanel';
+import { AdTrackingPanel } from './AdTrackingPanel';
 import type { WhatsAppNumberAssignment } from '../flow/types';
 
 interface UnifiedMetricsPanelProps {
@@ -11,7 +13,7 @@ interface UnifiedMetricsPanelProps {
 }
 
 export function UnifiedMetricsPanel({ whatsappNumbers = [] }: UnifiedMetricsPanelProps) {
-  const [activeTab, setActiveTab] = useState<'bot' | 'advisors' | 'ai-analytics' | 'investment' | 'keywords'>('bot');
+  const [activeTab, setActiveTab] = useState<'bot' | 'advisors' | 'ai-analytics' | 'investment' | 'keywords' | 'campaigns' | 'ad-tracking'>('bot');
 
   return (
     <div className="h-full flex flex-col bg-slate-50">
@@ -69,6 +71,26 @@ export function UnifiedMetricsPanel({ whatsappNumbers = [] }: UnifiedMetricsPane
             >
               🔑 Palabras Clave
             </button>
+            <button
+              onClick={() => setActiveTab('campaigns')}
+              className={`px-6 py-3 text-sm font-semibold rounded-t-lg transition-all ${
+                activeTab === 'campaigns'
+                  ? 'bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 border-b-2 border-emerald-600'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              📢 Campañas
+            </button>
+            <button
+              onClick={() => setActiveTab('ad-tracking')}
+              className={`px-6 py-3 text-sm font-semibold rounded-t-lg transition-all ${
+                activeTab === 'ad-tracking'
+                  ? 'bg-gradient-to-r from-cyan-50 to-blue-50 text-cyan-700 border-b-2 border-cyan-600'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              🎯 Tracking de Ads
+            </button>
           </div>
         </div>
       </div>
@@ -87,8 +109,12 @@ export function UnifiedMetricsPanel({ whatsappNumbers = [] }: UnifiedMetricsPane
           <AIAnalyticsPanel />
         ) : activeTab === 'investment' ? (
           <InvestmentControlPanel />
-        ) : (
+        ) : activeTab === 'keywords' ? (
           <KeywordUsagePanel />
+        ) : activeTab === 'campaigns' ? (
+          <CampaignsPanel />
+        ) : (
+          <AdTrackingPanel />
         )}
       </div>
     </div>
