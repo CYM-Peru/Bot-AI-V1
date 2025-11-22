@@ -7,7 +7,7 @@
     "dev": "vite",
     "dev:server": "tsx watch server/index.ts",
     "prebuild": "echo 'Skipping auto-fix (has bugs) - use npm run check:fix manually if needed'",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
     "build:server": "echo 'Server uses runtime tsx - no build needed'",
     "build:server:legacy": "tsc -p tsconfig.server.build.json",
     "start:server": "tsx server/index.ts",

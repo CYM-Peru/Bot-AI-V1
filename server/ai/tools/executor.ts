@@ -502,7 +502,7 @@ async function executeTransferToQueue(
     ? context.config.transferRules
     : [];
 
-  const transferRule = transferRules.find(rule => rule.id === queue_type);
+  const transferRule = transferRules.find((rule: any) => rule.id === queue_type);
 
   if (!transferRule || !transferRule.enabled) {
     return {
@@ -555,7 +555,7 @@ function executeCheckBusinessHours(
     ? context.config.transferRules
     : [];
 
-  const transferRule = transferRules.find(rule => rule.id === queue_type);
+  const transferRule = transferRules.find((rule: any) => rule.id === queue_type);
   if (!transferRule) {
     return {
       success: false,

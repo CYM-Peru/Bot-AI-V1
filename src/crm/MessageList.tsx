@@ -272,16 +272,7 @@ export default function MessageList({ messages, attachments, onReply }: MessageL
 
           const message = item.message;
 
-          // Render event messages (trazabilidad) - should not reach here as they're grouped
-          if (message.type === "event") {
-            return (
-              <div key={message.id} id={`message-${message.id}`}>
-                <EventBubble message={message} />
-              </div>
-            );
-          }
-
-          // Render all system messages (type="system" or type="event")
+          // Render all system/event messages (trazabilidad)
           // Use EventBubble for consistent rendering
           if (message.type === "system" || message.type === "event") {
             return (
