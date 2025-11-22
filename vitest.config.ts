@@ -1,13 +1,16 @@
 import { defineConfig } from "vitest/config";
-import path from "path";
+import { resolve } from "path";
 
 export default defineConfig({
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": resolve(__dirname, "./src"),
     },
+    extensions: [".ts", ".tsx", ".js", ".jsx", ".json"],
   },
   test: {
+    globals: true,
+    environment: "node",
     coverage: {
       provider: "custom",
       customProviderModule: "./vitest-coverage-stub.ts",
