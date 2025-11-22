@@ -4,6 +4,7 @@ import { ConversationStatus } from "./crm/conversation-status";
 import { Pool } from "pg";
 import { promises as fs } from "fs";
 import path from "path";
+import type { SessionStore } from "../src/runtime/session";
 
 // PostgreSQL connection pool
 const pool = new Pool({
@@ -34,10 +35,12 @@ interface BotConfig {
 export class BotTimeoutScheduler {
   private checkInterval: NodeJS.Timeout | null = null;
   private socketManager: CrmRealtimeManager | null = null;
+  private sessionStore: SessionStore | null = null;
   private config: BotConfig = { perFlowConfig: {} };
 
-  constructor(socketManager?: CrmRealtimeManager) {
+  constructor(socketManager?: CrmRealtimeManager, sessionStore?: SessionStore) {
     this.socketManager = socketManager || null;
+    this.sessionStore = sessionStore || null;
     // Load config async (don't block constructor)
     this.loadConfig().catch(err => {
       console.error('[BotTimeoutScheduler] Failed to load initial config:', err);
@@ -46,6 +49,39 @@ export class BotTimeoutScheduler {
 
   setSocketManager(socketManager: CrmRealtimeManager): void {
     this.socketManager = socketManager;
+  }
+
+  /**
+   * Delete bot session JSON file
+   */
+  private async deleteBotSession(phone: string, channelConnectionId: string): Promise<void> {
+    try {
+      const sessionId = `whatsapp_${phone}_${channelConnectionId}`;
+
+      if (this.sessionStore) {
+        await this.sessionStore.deleteSession(sessionId);
+        console.log(`[BotTimeoutScheduler] 🗑️ Deleted bot session file: ${sessionId}`);
+      } else {
+        console.warn(`[BotTimeoutScheduler] ⚠️ Cannot delete session ${sessionId} - sessionStore not available`);
+      }
+    } catch (error) {
+      console.error(`[BotTimeoutScheduler] ❌ Error deleting bot session for ${phone}:`, error);
+    }
+  }
+
+  /**
+   * Get bot flow ID from JSON session file (fallback when DB has NULL)
+   */
+  private async getBotFlowIdFromSession(phone: string, channelConnectionId: string): Promise<string | null> {
+    try {
+      const sessionPath = path.join('/opt/flow-builder/data/sessions', `whatsapp_${phone}_${channelConnectionId}.json`);
+      const sessionData = await fs.readFile(sessionPath, 'utf-8');
+      const session = JSON.parse(sessionData);
+      return session.flowId || null;
+    } catch (error) {
+      // Session file not found or invalid
+      return null;
+    }
   }
 
   /**
@@ -175,21 +211,44 @@ export class BotTimeoutScheduler {
       const now = Date.now();
       const pool = crmDb.pool;
 
-      // Get all active conversations with bot
+      // Get all active conversations with bot (including those with bot_flow_id=NULL but assigned_to='bot')
+      // This handles cases where bot_flow_id was cleared but JSON session still exists
       const result = await pool.query(
-        `SELECT id, bot_flow_id, bot_started_at, phone, phone_number_id
+        `SELECT id, bot_flow_id, bot_started_at, phone, phone_number_id, assigned_to
          FROM crm_conversations
          WHERE status = $1
-           AND bot_flow_id IS NOT NULL
-           AND bot_started_at IS NOT NULL`,
+           AND (
+             (bot_flow_id IS NOT NULL AND bot_started_at IS NOT NULL)
+             OR
+             (assigned_to = 'bot')
+           )`,
         [ConversationStatus.ACTIVE]
       );
 
       for (const row of result.rows) {
-        const flowConfig = this.config.perFlowConfig[row.bot_flow_id];
+        // If bot_flow_id is NULL but assigned_to='bot', try to get flowId from JSON session file
+        let botFlowId = row.bot_flow_id;
+        if (!botFlowId && row.assigned_to === 'bot') {
+          console.log(`[BotTimeoutScheduler] 🔍 Chat ${row.id} has assigned_to='bot' but bot_flow_id=NULL - checking JSON session...`);
+          botFlowId = await this.getBotFlowIdFromSession(row.phone, row.phone_number_id);
+          if (botFlowId) {
+            console.log(`[BotTimeoutScheduler] ✅ Found flowId in JSON session: ${botFlowId}`);
+          } else {
+            console.log(`[BotTimeoutScheduler] ⚠️ No JSON session found - skipping chat ${row.id}`);
+            continue;
+          }
+        }
+
+        const flowConfig = this.config.perFlowConfig[botFlowId];
 
         if (!flowConfig || !flowConfig.fallbackQueue) {
           continue; // No config for this flow
+        }
+
+        // If bot_started_at is NULL, skip (we need a timestamp to calculate timeout)
+        if (!row.bot_started_at) {
+          console.log(`[BotTimeoutScheduler] ⚠️ Chat ${row.id} has no bot_started_at - skipping`);
+          continue;
         }
 
         const botDuration = (now - row.bot_started_at) / 1000 / 60; // minutes
@@ -204,6 +263,9 @@ export class BotTimeoutScheduler {
             console.log(
               `[BotTimeoutScheduler] 🤖⏱️ Bot timeout exceeded for conversation ${row.id} (${botDuration.toFixed(1)}/${timeoutMinutes} min) - bot waiting for buttons - CLOSING conversation`
             );
+
+            // Delete bot session JSON file BEFORE clearing DB fields
+            await this.deleteBotSession(row.phone, row.phone_number_id);
 
             await pool.query(
               `UPDATE crm_conversations
@@ -224,6 +286,9 @@ export class BotTimeoutScheduler {
             console.log(
               `[BotTimeoutScheduler] 🤖⏱️ Bot timeout exceeded for conversation ${row.id} (${botDuration.toFixed(1)}/${timeoutMinutes} min) - transferring to queue ${flowConfig.fallbackQueue}`
             );
+
+            // Delete bot session JSON file BEFORE clearing DB fields
+            await this.deleteBotSession(row.phone, row.phone_number_id);
 
             // Transfer to fallback queue
             await pool.query(

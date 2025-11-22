@@ -622,6 +622,13 @@ export function createAdminRouter(): Router {
       const assignment = await adminDb.setAdvisorStatus(userId, statusId);
       const status = await adminDb.getAdvisorStatusById(statusId);
 
+      // 🐛 BUG FIX #4: When status ACTUALLY changes, return ALL chats to queue
+      if (assignment.statusChanged) {
+        logger.info(`[Status-change] 🔄 Status changed for ${userId} - returning ALL chats to queue`);
+        const { advisorPresence } = await import("../crm/advisor-presence");
+        await advisorPresence.returnAllChatsToQueue(userId);
+      }
+
       // Emit real-time presence update via WebSocket
       const gateway = getCrmGateway();
        if(gateway) {
@@ -664,6 +671,10 @@ export function createAdminRouter(): Router {
             logger.info(`[Status-change] ✅ Created ${advisorConversations.length} status change messages for ${status.name}`);
           }
 
+          // 🐛 BUG FIX #4: OLD LOGIC COMMENTED OUT
+          // The new logic above (returnAllChatsToQueue) already handles returning ALL chats to queue
+          // when status changes, regardless of the action type. This old logic is no longer needed.
+          /*
           // RELEASE CONVERSATIONS: If advisor becomes unavailable, release assigned conversations
            if(status?.action === "pause" || status?.action === "redirect") {
             // Filter only attending conversations for release
@@ -753,6 +764,7 @@ export function createAdminRouter(): Router {
               }
             }
           }
+          */ // End of commented out release logic
 
           // AUTO-ASSIGNMENT: If advisor becomes available AND is online, assign waiting conversations
           if (status?.action === "accept" && advisorPresence.isOnline(userId)) {

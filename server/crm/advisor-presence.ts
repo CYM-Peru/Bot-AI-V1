@@ -7,6 +7,7 @@
 
 import { crmDb } from "./db";
 import { adminDb } from "../admin-db";
+import { sessionsStorageDB } from "./sessions-db";
 
 export interface AdvisorPresence {
   userId: string;
@@ -141,6 +142,12 @@ export class AdvisorPresenceTracker {
           // Emit presence update immediately
           this.emitPresenceUpdate(userId);
 
+          // 🐛 BUG FIX #1: Close all open database sessions for this advisor
+          console.log(`[AdvisorPresence] 🔒 Closing all open sessions for ${userId}`);
+          this.closeAdvisorSessions(userId).catch(error => {
+            console.error(`[AdvisorPresence] ❌ Error closing sessions for ${userId}:`, error);
+          });
+
           // CRITICAL FIX: Return chats in 'active' status (POR TRABAJAR) back to queue
           // Chats in 'attending' status (TRABAJANDO) stay with the advisor
           this.returnActiveChatsToQueue(userId).catch(error => {
@@ -181,6 +188,12 @@ export class AdvisorPresenceTracker {
 
             // CRITICAL FIX: Emit presence update after marking offline
             this.emitPresenceUpdate(userId);
+
+            // 🐛 BUG FIX #1: Close all open database sessions for this advisor
+            console.log(`[AdvisorPresence] 🔒 Closing all open sessions for ${userId} (timeout)`);
+            this.closeAdvisorSessions(userId).catch(error => {
+              console.error(`[AdvisorPresence] ❌ Error closing sessions for ${userId}:`, error);
+            });
 
             // CRITICAL FIX: Return chats in 'active' status (POR TRABAJAR) back to queue
             // Chats in 'attending' status (TRABAJANDO) stay with the advisor
@@ -537,6 +550,92 @@ export class AdvisorPresenceTracker {
 
     } catch (error) {
       console.error(`[AdvisorPresence] ❌ Error in returnActiveChatsToQueue for ${userId}:`, error);
+    }
+  }
+
+  /**
+   * 🐛 BUG FIX #4: Return ALL chats (both active and attending) to queue
+   * Used when advisor changes ESTADO (manual status change)
+   * Unlike returnActiveChatsToQueue, this returns TRABAJANDO chats too
+   */
+  async returnAllChatsToQueue(userId: string): Promise<void> {
+    try {
+      console.log(`[AdvisorPresence] 🔄 Returning ALL chats to queue for ${userId} (status change)`);
+
+      // Get all conversations assigned to this advisor
+      const allConversations = await crmDb.listConversations();
+      const advisorChats = allConversations.filter(conv => conv.assignedTo === userId);
+
+      if (advisorChats.length === 0) {
+        console.log(`[AdvisorPresence] ✅ No chats assigned to ${userId}`);
+        return;
+      }
+
+      // Separate chats by status for logging
+      const activeChats = advisorChats.filter(conv => conv.status === 'active');
+      const attendingChats = advisorChats.filter(conv => conv.status === 'attending');
+
+      console.log(`[AdvisorPresence] 📊 ${userId} has ${activeChats.length} POR_TRABAJAR + ${attendingChats.length} TRABAJANDO = ${advisorChats.length} total chats (returning ALL to queue)`);
+
+      // Return ALL chats to queue (both active AND attending)
+      let returned = 0;
+      for (const chat of advisorChats) {
+        // Only return chats that are still active or attending
+        if (chat.status === 'active' || chat.status === 'attending') {
+          try {
+            await crmDb.updateConversationMeta(chat.id, {
+              assignedTo: null,  // Clear assignment
+              assignedAt: null   // Clear assignment timestamp
+            });
+            console.log(`[AdvisorPresence] ✅ Returned chat ${chat.id} (${chat.phone}) [${chat.status}] to queue ${chat.queueId}`);
+            returned++;
+          } catch (error) {
+            console.error(`[AdvisorPresence] ❌ Failed to return chat ${chat.id} to queue:`, error);
+          }
+        }
+      }
+
+      console.log(`[AdvisorPresence] ✅ Returned ${returned} chat(s) to queue for ${userId} (status change)`);
+
+    } catch (error) {
+      console.error(`[AdvisorPresence] ❌ Error in returnAllChatsToQueue for ${userId}:`, error);
+    }
+  }
+
+  /**
+   * 🐛 BUG FIX #1: Close all open database sessions for an advisor
+   * This prevents accumulating unclosed sessions in the database
+   */
+  private async closeAdvisorSessions(userId: string): Promise<void> {
+    try {
+      // Get all sessions for this advisor
+      const allSessions = await sessionsStorageDB.getAdvisorSessions(userId);
+
+      // Filter for sessions that are still open (endTime IS NULL)
+      const openSessions = allSessions.filter(session => session.endTime === null);
+
+      if (openSessions.length === 0) {
+        console.log(`[AdvisorPresence] ✅ ${userId} has no open sessions to close`);
+        return;
+      }
+
+      console.log(`[AdvisorPresence] 🔒 Found ${openSessions.length} open session(s) for ${userId} - closing them...`);
+
+      // Close each open session
+      let closed = 0;
+      for (const session of openSessions) {
+        try {
+          await sessionsStorageDB.endSession(session.id);
+          closed++;
+        } catch (error) {
+          console.error(`[AdvisorPresence] ❌ Failed to close session ${session.id}:`, error);
+        }
+      }
+
+      console.log(`[AdvisorPresence] ✅ Closed ${closed}/${openSessions.length} session(s) for ${userId}`);
+
+    } catch (error) {
+      console.error(`[AdvisorPresence] ❌ Error in closeAdvisorSessions for ${userId}:`, error);
     }
   }
 

@@ -294,7 +294,7 @@ const crmModule = registerCrmModule({
 // queueScheduler.setTimeoutRules([10, 30, 60, 120, 240, 480, 720]);
 
 // Initialize Bot Timeout Scheduler for automatic bot timeout transfers
-const botTimeoutScheduler = new BotTimeoutScheduler(crmSocketManager);
+const botTimeoutScheduler = new BotTimeoutScheduler(crmSocketManager, sessionStore);
 
 // Start bot timeout checking (every minute)
 botTimeoutScheduler.startChecking(60000);

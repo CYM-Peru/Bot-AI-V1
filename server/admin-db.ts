@@ -422,6 +422,15 @@ class AdminDatabasePostgres {
   }
 
   async setAdvisorStatus(userId: string, statusId: string, isManuallyOffline: boolean = false): Promise<any> {
+    // 🐛 BUG FIX #2: Check if status actually changed before logging
+    // Get current status assignment
+    const currentResult = await pool.query(
+      'SELECT status_id FROM crm_advisor_status_assignments WHERE user_id = $1',
+      [userId]
+    );
+    const currentStatusId = currentResult.rows.length > 0 ? currentResult.rows[0].status_id : null;
+    const statusChanged = currentStatusId !== statusId;
+
     // Upsert: insert if not exists, update if exists
     await pool.query(`
       INSERT INTO crm_advisor_status_assignments (user_id, status_id, is_manually_offline, updated_at)
@@ -433,19 +442,25 @@ class AdminDatabasePostgres {
         updated_at = EXTRACT(EPOCH FROM NOW()) * 1000
     `, [userId, statusId, isManuallyOffline]);
 
-    // Log activity
-    const status = await this.getAdvisorStatusById(statusId);
-    const user = await this.getUserById(userId);
+    // 🐛 BUG FIX #2: Only log if status actually changed
+    if (statusChanged) {
+      const status = await this.getAdvisorStatusById(statusId);
+      const user = await this.getUserById(userId);
 
-    await this.logAdvisorActivity(
-      userId,
-      user?.name || user?.username || userId,
-      'status_change',
-      statusId,
-      status?.name || statusId
-    );
+      await this.logAdvisorActivity(
+        userId,
+        user?.name || user?.username || userId,
+        'status_change',
+        statusId,
+        status?.name || statusId
+      );
 
-    return { userId, statusId };
+      console.log(`[AdminDB] Status changed for ${user?.name || userId}: ${currentStatusId || 'none'} → ${statusId}`);
+    } else {
+      console.log(`[AdminDB] Status unchanged for ${userId}: ${statusId} (skipping log)`);
+    }
+
+    return { userId, statusId, statusChanged };
   }
 
   async logAdvisorActivity(userId: string, userName: string, eventType: 'login' | 'logout' | 'status_change', statusId?: string, statusName?: string): Promise<void> {
