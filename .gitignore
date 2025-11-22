@@ -21,7 +21,7 @@ tsconfig.tsbuildinfo
 .env.production.local
 
 # Flow storage (local)
-data/
+/data/
 
 # Logs
 logs/
